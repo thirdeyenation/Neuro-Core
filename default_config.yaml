@@ -1,0 +1,19 @@
+graph_enabled: true
+
+# Lifecycle / decay
+decay_enabled: true
+decay_interval_hours: 24
+importance_decay_rate: 0.02   # per-day equivalent
+
+contradiction_detection_enabled: true
+contradiction_batch_size: 100
+
+reflection_enabled: false
+reflection_max_memories: 50
+
+graph_neighbors_max: 40
+graph_max_hops: 2
+
+importance_weight: 0.3
+recency_weight: 0.2
+similarity_weight: 0.5
