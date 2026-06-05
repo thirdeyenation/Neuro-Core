@@ -216,3 +216,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Agent Zero runtime artifacts (never commit these)
+usr/memory/
+*.faiss
+*.pkl
+relationships.json
+episodes.json
+audit.jsonl
+scores.json
+*.tmp
