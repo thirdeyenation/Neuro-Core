@@ -1,0 +1,11 @@
+<div
+  class="right-canvas-surface-panel nc-canvas-surface"
+  data-surface-id="neuro-core-graph"
+  :class="{
+    'is-active': $store.rightCanvas?.isSurfaceVisible('neuro-core-graph'),
+    'is-mounted': $store.rightCanvas?.isSurfaceRendered('neuro-core-graph')
+  }"
+  :aria-hidden="(!$store.rightCanvas?.isSurfaceVisible('neuro-core-graph')).toString()"
+>
+  <x-component path="/usr/plugins/neuro_core/webui/right-canvas-panels/graph-panel.html" mode="canvas"></x-component>
+</div>

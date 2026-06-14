@@ -1,0 +1,11 @@
+name: neuro_core
+title: Neuro Core
+description: Temporal knowledge graph memory enhancement for Agent Zero. Adds typed memory categories, graph relationships, importance/confidence/stability scoring, and structured ContextGraph retrieval.
+version: 0.1.0
+author: Third Eye Nation
+homepage: https://www.github.com/thirdeyenation/Neuro-Core
+tags:
+  - memory
+  - knowledge-graph
+  - lifecycle
+min_agent_zero_version: "0.9.0"

@@ -1,0 +1,33 @@
+<!-- Neuro Core sidebar entry
+     Framework-confirmed pattern (see /a0/webui/components/canvas/right-canvas-store.js
+     and /a0/webui/components/canvas/right-canvas.html):
+     - Surfaces register via $store.rightCanvas.registerSurface({...})
+     - Surfaces open via $store.rightCanvas.open(surfaceId) — this sets
+       activeSurfaceId, which reactively shows the panel via the <template x-if>
+       gate in extensions/webui/right-canvas-panels/graph-panel.html
+     - The framework auto-injects extension files into the right canvas panels area
+     - x-data="{}" creates an explicit Alpine scope
+     - @click.prevent expression must be simple Alpine-evaluable JS
+-->
+<a x-data="{}" href="#"
+   class="quick-actions-surface-item flex items-center gap-2 px-2 py-1.5 rounded hover:bg-base-200 text-sm"
+   title="Neuro Core"
+   @click.prevent="
+     const rc = $store.rightCanvas;
+     if (!rc) { return; }
+     if (!rc.getSurface('neuro-core-graph')) {
+       rc.registerSurface({
+         id: 'neuro-core-graph',
+         title: 'Neuro Core',
+         icon: 'hub',
+         order: 50,
+         canOpen: function() { return true; },
+         open: function() {},
+         close: function() {}
+       });
+     }
+     rc.open('neuro-core-graph');
+   ">
+  <span class="material-symbols-outlined" aria-hidden="true">hub</span>
+  <span class="font-medium">Neuro Core</span>
+</a>

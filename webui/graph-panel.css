@@ -1,0 +1,449 @@
+/* =====================================================================
+ * Neuro Core — context graph panel styles
+ *
+ * All colors are derived from the Agent Zero WebUI CSS custom
+ * properties defined in /a0/webui/index.css. No hardcoded color values
+ * — the panel adapts to both light and dark mode automatically.
+ *
+ * Layered specificity: every selector is prefixed with ``.nc-`` to
+ * avoid collision with other plugins' styles.
+ *
+ * Layout: the panel fills its parent height with a flex column.
+ * The header and search controls are fixed; the results area scrolls
+ * independently so the header never scrolls away.
+ * ===================================================================== */
+
+/* ------------------------------------------------------------------ body */
+
+.nc-panel-body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-background);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------------ panel */
+
+.nc-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  padding: 0.85rem 1rem 1rem;
+  box-sizing: border-box;
+  background: var(--color-background);
+  color: var(--color-text);
+  overflow: hidden;
+  opacity: 1;
+  transition: opacity 0.15s ease;
+}
+
+/* ------------------------------------------------------------------ header */
+
+.nc-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-bottom: 0.6rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+  flex: 0 0 auto;
+}
+
+.nc-header__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+.nc-header__icon .material-symbols-outlined {
+  font-size: 1.35rem;
+}
+
+.nc-header__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.nc-header__title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--color-text);
+  line-height: 1.2;
+}
+
+.nc-header__subtitle {
+  margin: 0.1rem 0 0;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  line-height: 1.3;
+}
+
+/* ------------------------------------------------------------------ search */
+
+.nc-search {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+  flex: 0 0 auto;
+}
+
+.nc-search__row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.nc-input {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-sm, 0.5rem);
+  background: var(--color-input);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
+}
+
+.nc-input::placeholder {
+  color: var(--color-text-muted);
+  opacity: 0.7;
+}
+
+.nc-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 25%, transparent);
+}
+
+.nc-input--main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.nc-input--sub {
+  width: 100%;
+  font-size: 0.78rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--color-input-focus);
+  color: var(--color-text-muted);
+}
+
+.nc-btn {
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--border-radius-sm, 0.5rem);
+  background: var(--color-primary);
+  color: var(--color-background);
+  cursor: pointer;
+  transition: opacity 0.15s ease, filter 0.15s ease;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 4.5rem;
+}
+
+.nc-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.nc-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.nc-btn--primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-background);
+}
+
+.nc-btn__dots {
+  display: inline-flex;
+  gap: 0.2rem;
+  align-items: center;
+}
+
+.nc-btn__dots span {
+  display: inline-block;
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 50%;
+  background: currentColor;
+  animation: nc-pulse 1.2s ease-in-out infinite;
+}
+
+.nc-btn__dots span:nth-child(2) { animation-delay: 0.2s; }
+.nc-btn__dots span:nth-child(3) { animation-delay: 0.4s; }
+
+/* ------------------------------------------------- status envelope */
+
+.nc-status-envelope {
+  flex: 0 0 auto;
+  min-height: 7.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.5rem;
+}
+
+.nc-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: 100%;
+  text-align: center;
+  padding: 1.25rem 1rem;
+  border-radius: var(--border-radius-sm, 0.5rem);
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  transition: opacity 0.15s ease;
+}
+
+.nc-state .material-symbols-outlined {
+  font-size: 1.75rem;
+  opacity: 0.7;
+}
+
+.nc-state p {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.nc-state--loading {
+  flex-direction: row;
+  gap: 0.6rem;
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.nc-state--error {
+  flex-direction: row;
+  gap: 0.5rem;
+  text-align: left;
+  align-items: flex-start;
+  color: var(--color-error-text);
+  background: color-mix(in srgb, var(--color-error-text) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-error-text) 30%, transparent);
+}
+
+.nc-state--error .material-symbols-outlined {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.nc-state--empty {
+  border: 1px dashed var(--color-border);
+  background: color-mix(in srgb, var(--color-panel) 40%, transparent);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* ------------------------------------------------------------------ pulse */
+
+.nc-pulse-dot {
+  display: inline-block;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  background: var(--color-primary);
+  animation: nc-pulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes nc-pulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.85); }
+  50%      { opacity: 1;    transform: scale(1.1); }
+}
+
+/* ------------------------------------------------------------------ results */
+
+.nc-results {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+  padding-right: 0.15rem;
+}
+
+.nc-results::-webkit-scrollbar {
+  width: 6px;
+}
+
+.nc-results::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.nc-results::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-border) 70%, transparent);
+  border-radius: 3px;
+}
+
+/* ------------------------------------------------------------------ section */
+
+.nc-section {
+  margin-bottom: 0.85rem;
+}
+
+.nc-section__label {
+  margin: 0 0 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* ------------------------------------------------------------------ nodes */
+
+.nc-node-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.nc-node {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-sm, 0.5rem);
+  background: color-mix(in srgb, var(--color-panel) 85%, transparent);
+  font-size: 0.85rem;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.nc-node:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 35%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 5%, var(--color-panel));
+}
+
+.nc-node__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.nc-node__id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.nc-node__content {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-text);
+  line-height: 1.4;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+/* ------------------------------------------------------------------ score badge */
+
+.nc-score {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  flex-shrink: 0;
+  min-width: 2.4rem;
+}
+
+.nc-score--high {
+  background: color-mix(in srgb, var(--color-success, #2ecc71) 20%, transparent);
+  color: var(--color-success, #2ecc71);
+  border-color: color-mix(in srgb, var(--color-success, #2ecc71) 35%, transparent);
+}
+
+.nc-score--mid {
+  background: color-mix(in srgb, var(--color-warning-text) 20%, transparent);
+  color: var(--color-warning-text);
+  border-color: color-mix(in srgb, var(--color-warning-text) 35%, transparent);
+}
+
+.nc-score--low {
+  background: color-mix(in srgb, var(--color-error-text) 18%, transparent);
+  color: var(--color-error-text);
+  border-color: color-mix(in srgb, var(--color-error-text) 30%, transparent);
+}
+
+/* ------------------------------------------------------------------ edges */
+
+.nc-edge-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.nc-edge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-border) 35%, transparent);
+  color: var(--color-text);
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.nc-edge__rel {
+  font-weight: 600;
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+.nc-edge__from,
+.nc-edge__to {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* ------------------------------------------------------------------ x-cloak */
+
+[x-cloak] { display: none !important; }

@@ -1,0 +1,27 @@
+graph_enabled: true
+
+# Lifecycle / decay
+decay_enabled: true
+decay_interval_hours: 24
+importance_decay_rate: 0.02   # per-day equivalent
+
+contradiction_detection_enabled: true
+contradiction_llm_enabled: false     # v1: LLM-based contradiction detection is OFF by default.
+                                     # The job_loop extension is a no-op until this is enabled
+                                     # in a controlled setting (per the stability audit).
+contradiction_batch_size: 100
+contradiction_interval_hours: 168   # 1 week; how often to run the contradiction sweep
+
+reflection_enabled: false
+reflection_max_memories: 50
+
+graph_neighbors_max: 40
+graph_max_hops: 2
+
+importance_weight: 0.3
+recency_weight: 0.2
+similarity_weight: 0.5
+
+# Episode grouping (Phase 4)
+episode_boundary_hours: 4   # gap > this many hours splits a new episode
+episode_min_memories: 3     # minimum memories required to form an episode

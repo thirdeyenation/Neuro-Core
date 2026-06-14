@@ -1,0 +1,53 @@
+<!-- Neuro Core sidebar entry
+     Framework-confirmed pattern (see /a0/webui/components/canvas/right-canvas-store.js):
+     - Surfaces register via $store.rightCanvas.registerSurface({...})
+     - Surfaces open via $store.rightCanvas.open(surfaceId)
+     - x-data="{}" creates an explicit Alpine scope (bare x-data can be unreliable in fragments)
+     - @click.prevent expression must be simple Alpine-evaluable JS, not an async IIFE
+-->
+<a x-data="{}" href="#"
+   class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-base-200 text-sm"
+   title="Neuro Core — context graph &amp; memory scores"
+   @click.prevent="
+     const rc = $store.rightCanvas;
+     if (!rc) { return; }
+     if (!rc.getSurface('neuro-core-graph')) {
+       rc.registerSurface({
+         id: 'neuro-core-graph',
+         title: 'Neuro Core',
+         icon: 'hub',
+         order: 50,
+         canOpen: function() { return true; },
+         open: function() {
+           const panel = document.getElementById('right-panel');
+           if (panel && !panel.querySelector('.nc-graph-panel')) {
+             fetch('/usr/plugins/neuro_core/webui/right-canvas-panels/graph-panel.html')
+               .then(function(r) { return r.ok ? r.text() : ''; })
+               .then(function(html) {
+                 if (html) {
+                   panel.insertAdjacentHTML('beforeend', html);
+                   if (window.Alpine && typeof window.Alpine.initTree === 'function') {
+                     window.Alpine.initTree(panel);
+                   }
+                 }
+               });
+           }
+           if (window.Alpine && window.Alpine.store('neuroGraph') && window.Alpine.store('neuroGraph').onOpen) {
+             window.Alpine.store('neuroGraph').onOpen();
+           }
+         },
+         close: function() {
+           if (window.Alpine && window.Alpine.store('neuroGraph') && window.Alpine.store('neuroGraph').cleanup) {
+             window.Alpine.store('neuroGraph').cleanup();
+           }
+         }
+       });
+     }
+     rc.open('neuro-core-graph');
+   ">
+  <span class="text-base leading-none" aria-hidden="true">🧠</span>
+  <span class="flex flex-col leading-tight">
+    <span class="font-medium">Neuro Core</span>
+    <span class="text-xs opacity-70">Context graph &amp; memory scores</span>
+  </span>
+</a>
