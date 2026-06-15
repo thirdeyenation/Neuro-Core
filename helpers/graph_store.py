@@ -47,7 +47,7 @@ import threading
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator, Optional, Union
 
 
 # ---------------------------------------------------------------------------
@@ -318,24 +318,42 @@ class GraphStore:
                 self._atomic_write(self._adj)
             return removed
 
-    def get_edges(self, from_id: str) -> list[GraphEdge]:
-        """Return all outgoing edges for ``from_id`` as a list of GraphEdge."""
+    def get_edges(
+        self, from_id: Optional[str] = None
+    ) -> Union[list[GraphEdge], dict[str, list[GraphEdge]]]:
+        """Return edges from the adjacency store.
+
+        With ``from_id`` (the historical signature) — return a list of
+        ``GraphEdge`` for that single source node.
+
+        With no ``from_id`` — return the full adjacency map:
+        ``{source_id: [GraphEdge, ...]}``. This is what the analytics
+        layer (``run_graph_analytics``) and any "give me everything"
+        caller needs.
+        """
         self._ensure_loaded()
         with self._locked():
+            if from_id is None:
+                return {
+                    src: [GraphEdge.from_dict(src, raw) for raw in raw_list]
+                    for src, raw_list in self._adj.items()
+                }
             raw_list = list(self._adj.get(from_id, []))
         return [GraphEdge.from_dict(from_id, raw) for raw in raw_list]
 
     def neighbors(
         self,
-        from_id: str,
+        from_id: str | list[str],
         max_hops: Optional[int] = None,
         rel_type: Optional[str] = None,
         hops: Optional[int] = None,
     ) -> list[tuple[str, int, GraphEdge]]:
-        """BFS from ``from_id`` up to ``max_hops``.
+        """BFS from ``from_id`` (or each id in ``from_id``) up to ``max_hops``.
 
         Returns a list of ``(neighbor_id, hop, triggering_edge)`` tuples.
         ``rel_type`` filters by ``RelationshipType`` value when provided.
+        When ``from_id`` is a ``list``, BFS is run from each seed and the
+        results are merged (deduped via the visited set across seeds).
 
         ``hops`` is accepted as a backward-compatible alias for ``max_hops``
         (used by earlier callers and the context_graph API). If both are
@@ -347,9 +365,14 @@ class GraphStore:
         if effective_hops == 0:
             return []
 
+        # Normalize to a list of seeds so the BFS body can iterate.
+        seed_ids: list[str] = [from_id] if isinstance(from_id, str) else list(from_id)
+        if not seed_ids:
+            return []
+
         self._ensure_loaded()
 
-        visited: set[str] = {from_id}
+        visited: set[str] = set(seed_ids)
         frontier: list[tuple[str, int, GraphEdge]] = []
         out: list[tuple[str, int, GraphEdge]] = []
 
@@ -367,10 +390,10 @@ class GraphStore:
             current_ids = (
                 [node_id for (node_id, _, _) in frontier]
                 if frontier
-                else [from_id]
+                else list(seed_ids)
             )
             if hop == 1:
-                current_ids = [from_id]
+                current_ids = list(seed_ids)
             next_frontier: list[tuple[str, int, GraphEdge]] = []
             for node in current_ids:
                 for edge in snapshot.get(node, []):

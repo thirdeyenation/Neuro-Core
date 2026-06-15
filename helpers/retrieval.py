@@ -236,11 +236,23 @@ async def search_context_graph(
                 from_id=seed_ids,
                 hops=max_hops,
             )
-            # Flatten into (target_id, hop, edge) tuples.
-            flat: list[tuple[str, int, GraphEdge]] = []
-            for nl in neighbor_lists:
-                for target_id, hop, edge in nl:
-                    flat.append((target_id, hop, edge))
+            # Defensive normalization: ``graph_store.neighbors()`` returns a
+            # FLAT list of ``(target_id, hop, edge)`` 3-tuples, but legacy
+            # callers (and some test mocks) still pass a LIST-OF-LISTS
+            # (one list per seed). Handle both shapes so the consumer
+            # loop is a single pass either way.
+            if neighbor_lists and isinstance(neighbor_lists[0], (list, tuple)) \
+                    and neighbor_lists[0] \
+                    and not isinstance(neighbor_lists[0][0], (list, tuple)):
+                # ``neighbor_lists[0]`` is a 3-tuple → flat list of 3-tuples.
+                flat: list[tuple[str, int, GraphEdge]] = list(neighbor_lists)
+            else:
+                # ``neighbor_lists[0]`` is a list of 3-tuples → flatten.
+                flat: list[tuple[str, int, GraphEdge]] = [
+                    item
+                    for nl in neighbor_lists
+                    for item in nl
+                ]
 
             # Sort by hop asc, then by edge confidence desc, so the best
             # neighbors win the capacity battle.
