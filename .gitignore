@@ -23,3 +23,5 @@ execute_record.json
 # OS
 .DS_Store
 Thumbs.db
+# Build artifacts
+neuro_core.egg-info/
