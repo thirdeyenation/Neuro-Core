@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neuro-core"
+version = "0.1.0"
+description = "Memory graph, scoring, and reflection layer for Agent Zero"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Third Eye Nation", email = "dev.studio@thirdeyenation.io" }
+]
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "networkx>=3.0",
+]
+
+[tool.setuptools]
+# Neuro Core is an Agent Zero plugin, NOT a pip-installable Python package.
+# It is deployed by copying the directory to /a0/usr/plugins/.
+# Explicitly declaring an empty package list prevents setuptools auto-discovery
+# from failing on the flat layout (helpers/, tools/, api/, tests/, extensions/).
+packages = []
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
