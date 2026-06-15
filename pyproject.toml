@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "neuro-core"
-version = "0.1.0"
+version = "0.2.0"
 description = "Memory graph, scoring, and reflection layer for Agent Zero"
 readme = "README.md"
 license = { file = "LICENSE" }

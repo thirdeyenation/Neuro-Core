@@ -3,6 +3,28 @@ All notable changes to Neuro Core will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ---
+## [0.2.0] — 2026-06-15
+### Added
+- `tests/test_isolation.py` — memory subdir isolation contract (7 tests)
+- `tests/test_execute.py` — execute.py idempotency (7 tests)
+- `tests/test_retrieval.py` — BFS multi-seed context graph retrieval (14 tests)
+- `tests/test_contradiction.py` — contradiction detection heuristic (25 tests)
+- `tests/test_graph_analytics.py` — run_graph_analytics() contract (22 tests)
+- `tests/test_hooks.py` — job_loop extension hooks (16 tests)
+- `.github/workflows/test.yml` — GitHub Actions CI on push/PR to main (Python 3.12)
+- `pyproject.toml` — build config, dev dependencies, ruff lint config
+- `docs/configuration.md` — all config keys with types, defaults, ranges, effects
+- `docs/api.md` — HTTP endpoints, params, response schemas, curl examples
+- `docs/tools.md` — all 3 agent tools with args, return values, error conditions
+- `docs/data-model.md` — FAISS metadata fields, scores.json, relationships.json schemas
+- `docs/architecture.md` — storage substrate, hook wiring, ContextGraph pipeline, WebUI panel
+### Fixed
+- D32: `graph_store.py` — `from_id` now accepts `str | list[str]`; BFS multi-seed expansion was silently returning zero neighbors for all seeds beyond the first
+- D33: `graph_store.get_edges()` — made `from_id` optional; no-arg call now returns full adjacency map; `run_graph_analytics()` was always returning `{"nodes": 0, "edges": 0, "boosted": 0}` for all non-empty graphs
+- D34: `test_hooks.py` — added `helpers.plugins` stub to unblock `AccessDecayJob` test isolation
+### Changed
+- Test suite: 191 → 284 passing (+93 tests)
+
 ## [0.1.0] — 2026-06-13
 ### Added
 - **Memory metadata extension** — `MemoryType`, `ValidationStatus`, and `validate_neuro_metadata()` enforce typed categories and validation status on all memory insertions
