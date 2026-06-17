@@ -168,6 +168,8 @@ Neuro Core ships three `job_loop` extensions and one `_functions`
 hook, all under
 `usr/plugins/neuro_core/extensions/python/`.
 
+A `startup_migration` extension at `usr/plugins/neuro_core/extensions/python/startup_migration/_05_neuro_patch.py` fires at container startup to install the Memory monkey-patch (D35); `startup_migration` fires from the plugin-path extension, not from a `usr/extensions/` relay.
+
 ### Job loop extensions
 
 Agent Zero's `helpers/job_loop.py` calls
