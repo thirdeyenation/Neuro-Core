@@ -151,7 +151,6 @@ def _patch_delete_documents_by_ids(Memory: type) -> None:
     _originals["delete_documents_by_ids"] = original
 
     async def delete_patched(self, ids: list[str]):  # type: ignore[override]
-        result = await original(self, ids)
         try:
             from usr.plugins.neuro_core.helpers.graph_store import GraphStore
             memory_subdir = getattr(self, "memory_subdir", None) or "default"
@@ -160,6 +159,7 @@ def _patch_delete_documents_by_ids(Memory: type) -> None:
                 store.remove_edges_for_id(doc_id)
         except Exception as e:
             log.warning(f"[neuro_core] delete patch non-fatal: {e}")
+        result = await original(self, ids)
         return result
 
     delete_patched._neuro_patched = True  # type: ignore[attr-defined]
