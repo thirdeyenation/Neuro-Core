@@ -1,15 +1,17 @@
 """Neuro Core ``context_graph`` API handler.
 
-Exposes three endpoints under ``/api/plugins/neuro_core/``:
+Exposes the ``/context_graph`` endpoint under ``/api/plugins/neuro_core/``:
 
-* ``GET  /context_graph`` — run a hybrid retrieval and return the
+* ``GET /context_graph`` — run a hybrid retrieval and return the
   serialized ``ContextGraph``.
-* ``GET  /relationships/<memory_id>`` — list all edges touching the
-  given memory ID.
-* ``POST /relationships`` — add a new graph edge.
 
 All endpoints require an authenticated session (cookie or API key)
 and follow the same shape as ``plugins/_memory/api/memory_dashboard.py``.
+
+Note: Relationship endpoints (``/relationships``, ``/relationships?id=<id>``,
+``POST /relationships``) live in ``api/relationships.py`` (D42).
+Framework routing splits on path.split("/", 2) so a single .py file maps
+to exactly one routable URL prefix; deeper path segments are not supported.
 """
 
 from __future__ import annotations
@@ -38,7 +40,13 @@ from usr.plugins.neuro_core.helpers.scores import ScoreStore
 
 
 class ContextGraphApi(ApiHandler):
-    """REST surface for the Neuro Core context-graph and relationships."""
+    """REST surface for the Neuro Core context-graph endpoint.
+
+    Relationship routes (``/relationships``, ``/relationships?id=<id>``,
+    ``POST /relationships``) are exposed by ``RelationshipsApi`` in
+    ``api/relationships.py``. The two handlers are intentionally
+    separate so each .py file maps to exactly one URL prefix (D42).
+    """
 
     # All routes require a logged-in user (cookie) OR a valid API key.
     # MUST be a @classmethod (per /a0/helpers/api.py base contract) so the
@@ -51,7 +59,7 @@ class ContextGraphApi(ApiHandler):
 
     @classmethod
     def get_methods(cls) -> list[str]:
-        return ["GET", "POST"]
+        return ["GET"]
 
     # The framework dispatches based on the request path; we route on
     # ``request.path`` and the HTTP method inside ``process()`` to keep
@@ -69,12 +77,6 @@ class ContextGraphApi(ApiHandler):
 
             if method == "GET" and path.endswith("/context_graph"):
                 result = await self._get_context_graph(input, request)
-            elif method == "GET" and "/relationships/" in path:
-                result = await self._get_relationships(input, request, path)
-            elif method == "POST" and path.endswith("/relationships"):
-                result = await self._post_relationship(input, request)
-            elif method == "GET" and path.endswith("/relationships"):
-                result = await self._list_all_relationships(input, request)
             else:
                 result = {
                     "success": False,
@@ -131,153 +133,6 @@ class ContextGraphApi(ApiHandler):
                 "success": True,
                 "context_graph": _serialize_context_graph(graph),
             }
-        except Exception as e:  # pragma: no cover - defensive
-            return {"success": False, "error": str(e)}
-
-    # ------------------------------------------------------------------
-    # GET /relationships/<memory_id>
-    # ------------------------------------------------------------------
-
-    async def _get_relationships(
-        self, input: dict, request: Request, path: str
-    ) -> dict:
-        try:
-            memory_subdir = (input.get("memory_subdir") or "").strip()
-            if not memory_subdir:
-                return {
-                    "success": False,
-                    "error": "`memory_subdir` is required",
-                }
-            memory_id = _extract_memory_id_from_path(path)
-            if not memory_id:
-                return {
-                    "success": False,
-                    "error": "memory_id is required in the URL",
-                }
-
-            store = GraphStore(memory_subdir)
-            # ``get_edges`` returns the outbound edges. We also include
-            # inbound edges so the UI can render the full neighborhood.
-            outbound = [_serialize_edge(e) for e in store.get_edges(memory_id)]
-            inbound_raw = store.neighbors(from_id=memory_id, hops=1)
-            inbound: list[dict] = []
-            for nl in inbound_raw:
-                for _target, _hop, edge in nl:
-                    if edge.to_id == memory_id:
-                        inbound.append(_serialize_edge(edge))
-
-            # Deduplicate (an edge may appear in both lists for self-loops).
-            seen: set[tuple[str, str, str]] = set()
-            deduped: list[dict] = []
-            for e in outbound + inbound:
-                key = (e["from_id"], e["to_id"], e["type"])
-                if key in seen:
-                    continue
-                seen.add(key)
-                deduped.append(e)
-
-            return _enum_safe_value({
-                "success": True,
-                "memory_id": memory_id,
-                "memory_subdir": memory_subdir,
-                "edges": deduped,
-            })
-        except Exception as e:  # pragma: no cover - defensive
-            return {"success": False, "error": str(e)}
-
-    # ------------------------------------------------------------------
-    # POST /relationships
-    # ------------------------------------------------------------------
-
-    async def _post_relationship(
-        self, input: dict, request: Request
-    ) -> dict:
-        try:
-            memory_subdir = (input.get("memory_subdir") or "").strip()
-            from_id = (input.get("from_id") or "").strip()
-            to_id = (input.get("to_id") or "").strip()
-            rel_type = (input.get("rel_type") or "").strip()
-            weight = input.get("weight", 1.0)
-
-            if not memory_subdir:
-                return {
-                    "success": False,
-                    "error": "`memory_subdir` is required",
-                }
-            if not from_id or not to_id:
-                return {
-                    "success": False,
-                    "error": "`from_id` and `to_id` are required",
-                }
-            if from_id == to_id:
-                return {
-                    "success": False,
-                    "error": "self-referential edges are not allowed",
-                }
-            if rel_type not in VALID_RELATIONSHIP_TYPES:
-                return {
-                    "success": False,
-                    "error": (
-                        f"unknown rel_type '{rel_type}'. "
-                        f"Valid: {sorted(VALID_RELATIONSHIP_TYPES)}"
-                    ),
-                }
-
-            try:
-                w = float(weight)
-            except (TypeError, ValueError):
-                w = 1.0
-            w = max(0.0, min(1.0, w))
-
-            store = GraphStore(memory_subdir)
-            edge = GraphEdge(
-                from_id=from_id,
-                to_id=to_id,
-                type=rel_type,
-                weight=w,
-                confidence=w,
-                source="api",
-                created_at=_now_iso(),
-            )
-            store.add_edge(edge)
-            return {
-                "success": True,
-                "status": "ok",
-                "from_id": from_id,
-                "to_id": to_id,
-                "rel_type": rel_type,
-                "weight": w,
-            }
-        except Exception as e:  # pragma: no cover - defensive
-            return {"success": False, "error": str(e)}
-
-    # ------------------------------------------------------------------
-    # GET /relationships (list all)
-    # ------------------------------------------------------------------
-
-    async def _list_all_relationships(
-        self, input: dict, request: Request
-    ) -> dict:
-        try:
-            memory_subdir = (input.get("memory_subdir") or "").strip()
-            if not memory_subdir:
-                return {
-                    "success": False,
-                    "error": "`memory_subdir` is required",
-                }
-            store = GraphStore(memory_subdir)
-            # Read the sidecar directly for a full dump.
-            all_edges = store._data.values()  # type: ignore[attr-defined]
-            flat: list[dict] = []
-            for edges in all_edges:
-                for e in edges:
-                    flat.append(_serialize_edge(e))
-            return _enum_safe_value({
-                "success": True,
-                "memory_subdir": memory_subdir,
-                "edges": flat,
-                "count": len(flat),
-            })
         except Exception as e:  # pragma: no cover - defensive
             return {"success": False, "error": str(e)}
 
@@ -408,18 +263,6 @@ def _enum_safe_asdict(obj: Any) -> Any:
             result[f.name] = _enum_safe_value(getattr(obj, f.name))
         return result
     return _enum_safe_value(obj)
-
-
-def _extract_memory_id_from_path(path: str) -> str:
-    """Pull ``<memory_id>`` out of ``/api/plugins/neuro_core/relationships/<id>``."""
-    parts = [p for p in path.split("/") if p]
-    try:
-        idx = parts.index("relationships")
-        if idx + 1 < len(parts):
-            return parts[idx + 1]
-    except ValueError:
-        pass
-    return ""
 
 
 def _now_iso() -> str:
