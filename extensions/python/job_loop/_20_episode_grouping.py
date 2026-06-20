@@ -289,31 +289,33 @@ class EpisodeGroupingJob(Extension):
             modified.append(d)
         if not modified:
             return
+        # D49 fix: the previous implementation wrapped
+        # ``Memory.update_documents`` in ``asyncio.run`` inside a
+        # ``ThreadPoolExecutor``. That sequence constructed a brand-new
+        # ``Memory`` instance around the cached MyFaiss handle and
+        # called ``adb.delete`` + ``aadd_documents`` + ``_save_db``
+        # inside that fresh loop. The metadata mutations made above
+        # (``md["episode_id"] = ep``) DID propagate to the new event
+        # loop's ``adelete`` + ``aadd_documents`` call — but the
+        # underlying MyFaiss handle was loaded by a *different* event
+        # loop originally, so its in-process FAISS caches and lock
+        # state were stale. The ``save_local`` write therefore landed
+        # but the next ``Memory.get_by_subdir`` call from the
+        # *production* event loop re-read from disk and observed the
+        # pre-mutation state. In effect the write happened but was
+        # clobbered by the next reader's stale snapshot.
+        #
+        # The fix below is Option A from the D49 audit: mutate the
+        # docstore metadata in place (we already hold the same
+        # ``Document`` objects the docstore does — see comment above
+        # the ``for d in docs`` loop) and then call
+        # ``Memory._save_db_file`` directly. ``_save_db_file`` is a
+        # synchronous ``@staticmethod`` that calls ``db.save_local``
+        # with the correct ``folder_path`` (``abs_db_dir(subdir)``)
+        # and refreshes ``index.faiss.sha256``. No event-loop
+        # crossing, no async wrapping, no stale-cache race.
         try:
-            mem = Memory(db=db, memory_subdir=subdir)  # type: ignore[call-arg]
-            # Persist via a worker thread so the async
-            # ``Memory.update_documents`` coroutine actually completes
-            # before ``_persist_assignments`` returns. The previous
-            # implementation used a fire-and-forget
-            # ``loop.create_task(...)`` when a loop was already
-            # running — which is the case whenever the job is invoked
-            # from inside ``asyncio.run(...)`` (tests, manual replays)
-            # AND when it is invoked from the framework's
-            # ``call_extensions_async`` scheduler (production). The
-            # task was scheduled but never awaited, so every episode_id
-            # assignment was silently dropped and ``scanned=N
-            # assigned=N`` in the log did not correspond to any actual
-            # FAISS metadata change.
-            #
-            # The ``ThreadPoolExecutor`` escape hatch is the same
-            # pattern used by ``_get_cached_db`` above: a fresh worker
-            # thread has no running event loop, so ``asyncio.run``
-            # succeeds there even when the caller is inside a loop.
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                pool.submit(
-                    asyncio.run,
-                    mem.update_documents(modified),  # type: ignore[attr-defined]
-                ).result(timeout=30)
+            Memory._save_db_file(db, subdir)  # type: ignore[attr-defined]
         except Exception as exc:  # pragma: no cover - defensive
             _logger.warning(
                 "episode_grouping: persist failed for subdir %r: %s",
