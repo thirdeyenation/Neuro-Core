@@ -97,8 +97,8 @@ class ContextGraphApi(ApiHandler):
         self, input: dict, request: Request
     ) -> dict:
         try:
-            query = (input.get("query") or "").strip()
-            memory_subdir = (input.get("memory_subdir") or "").strip()
+            query = (input.get("query") or request.args.get("query") or "").strip()
+            memory_subdir = (input.get("memory_subdir") or request.args.get("memory_subdir") or "").strip()
             if not query:
                 return {
                     "success": False,

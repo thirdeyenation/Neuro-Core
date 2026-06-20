@@ -756,12 +756,12 @@ class TestProcessRouterGuard:
         _stub_graph_store_with_enum_edges(monkeypatch, api_mod=api_mod)
 
         handler = api_mod.RelationshipsApi()
+        req = self._make_request("/api/plugins/neuro_core/relationships")
+        req.args = {}  # no id — routes to _list_all_relationships
         result = asyncio.new_event_loop().run_until_complete(
             handler.process(
                 input={"memory_subdir": "main"},
-                request=self._make_request(
-                    "/api/plugins/neuro_core/relationships"
-                ),
+                request=req,
             )
         )
 

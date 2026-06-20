@@ -41,7 +41,7 @@ class RelationshipsApi(ApiHandler):
         result: dict | Response
         try:
             method = (request.method or "GET").upper()
-            if method == "GET" and input.get("id"):
+            if method == "GET" and (input.get("id") or request.args.get("id")):
                 result = await self._get_relationships(input, request)
             elif method == "GET":
                 result = await self._list_all_relationships(input, request)
@@ -61,10 +61,10 @@ class RelationshipsApi(ApiHandler):
 
     async def _get_relationships(self, input: dict, request: Request) -> dict:
         try:
-            memory_subdir = (input.get("memory_subdir") or "").strip()
+            memory_subdir = (input.get("memory_subdir") or request.args.get("memory_subdir") or "").strip()
             if not memory_subdir:
                 return {"success": False, "error": "`memory_subdir` is required"}
-            memory_id = (input.get("id") or "").strip()
+            memory_id = (input.get("id") or request.args.get("id") or "").strip()
             if not memory_id:
                 return {"success": False, "error": "`id` query param is required"}
 
