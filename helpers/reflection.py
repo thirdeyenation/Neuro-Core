@@ -16,6 +16,7 @@ LLM failure → empty string; FAISS failure → empty doc-id string.
 
 from __future__ import annotations
 
+import logging
 import types
 from datetime import datetime, timezone
 from typing import Any, Iterable, List, Optional, Sequence
@@ -354,6 +355,51 @@ async def write_reflection(
                 return ""
     except Exception:
         return ""
+
+    # D50 — write the scores.json sidecar entry for the new reflection
+    # memory. Without this, scores.json diverges from FAISS metadata and
+    # every Neuro Core subsystem that reads importance/stability/confidence
+    # from the sidecar (Dashboard UI, decay job, contradiction job,
+    # ContextGraph weighting, recall ranking) is blind to the reflection.
+    if new_id:
+        try:
+            from usr.plugins.neuro_core.helpers.scores import ScoreStore
+            _ss = ScoreStore(memory_subdir)
+            # Core score fields via the public set() API.
+            _ss.set(
+                memory_id=str(new_id),
+                importance=0.8,
+                stability=0.9,
+                confidence=0.9,
+            )
+            # Operational metadata fields the sidecar records.
+            # set() already persisted the numeric fields; we append
+            # ``source`` and ``episode_id`` and save once more.
+            _ss._ensure_loaded()
+            with _ss._locked():
+                _rec = _ss._data.setdefault(
+                    str(new_id),
+                    {
+                        "importance": 0.5,
+                        "confidence": 0.7,
+                        "stability": 0.5,
+                        "access_count": 0,
+                        "last_accessed_at": None,
+                    },
+                )
+                _rec["source"] = "neuro_reflect"
+                _rec["episode_id"] = str(episode_id or "")
+                _ss.save()
+        except Exception as _exc:  # pragma: no cover — defensive
+            try:
+                _log = logging.getLogger(__name__)
+                _log.warning(
+                    "write_reflection: sidecar write failed for %r: %s",
+                    new_id,
+                    _exc,
+                )
+            except Exception:
+                pass
 
     return str(new_id or "")
 
