@@ -33,6 +33,17 @@ Safety contracts:
     - Wrappers are stored so uninstall_patches() can restore originals cleanly.
     - No import of plugin-local modules at module level — all plugin imports
       are deferred to call time inside each wrapper.
+
+D39-A closure contract (D53, 2026-06-22):
+    - delete_documents_by_ids wrapper performs sidecar cascade BEFORE the
+      underlying FAISS delete. This eliminates the orphan-sidecar-entry window
+      in which a process kill between FAISS save and sidecar delete could leave
+      a relationship.json entry pointing at a non-existent FAISS vector.
+    - On exception in the sidecar cascade, the wrapper logs a warning and
+      continues to call the original (FAISS delete) — preserving correctness
+      of the underlying Memory operation even if the sidecar write fails.
+    - Order verified by tests/test_patch_live_integration.py and is the
+      explicit pattern documented in the delete_patched wrapper below.
 """
 
 from __future__ import annotations
@@ -151,6 +162,14 @@ def _patch_delete_documents_by_ids(Memory: type) -> None:
     _originals["delete_documents_by_ids"] = original
 
     async def delete_patched(self, ids: list[str]):  # type: ignore[override]
+        # D39-A / D53 closure: sidecar cascade runs BEFORE the FAISS delete.
+        # This eliminates the orphan-sidecar-entry window — if the process is
+        # killed between the FAISS delete and the sidecar delete, the
+        # relationships.json entry would otherwise reference a non-existent
+        # FAISS vector. Sidecar-first ordering means any crash leaves
+        # at most a dangling FAISS vector (harmless) but never a dangling
+        # sidecar entry (which would surface as a phantom edge in
+        # context_graph retrieval).
         try:
             from usr.plugins.neuro_core.helpers.graph_store import GraphStore
             memory_subdir = getattr(self, "memory_subdir", None) or "default"
