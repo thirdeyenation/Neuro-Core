@@ -19,6 +19,14 @@ The 8-value ``MemoryType`` enum resolves Flag 1 from
 ``ASSESSMENT_SUMMARY.md``: the 13-value enum in NEURO_CORE_SPEC.md §6.1
 is superseded by the 8 values in §4.3, and that is the authoritative set
 for v1.
+
+D39-B / D54 closure (2026-06-22):
+    - This module is the authoritative home for ``MemoryType``,
+      ``ValidationStatus``, ``VALID_MEMORY_TYPES``, and
+      ``VALID_VALIDATION_STATUSES``. The legacy ``helpers/types.py``
+      placeholder was deleted at commit ``da16f66`` and is explicitly
+      non-existent — do not recreate it. Imports of the real types
+      must point here.
 """
 
 from __future__ import annotations

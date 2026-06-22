@@ -16,6 +16,13 @@ hop grouping so the model can reason about distance and provenance.
 
 ``GraphEdge`` is re-exported here so callers can import both the node and
 edge types from a single module.
+
+D39-B / D54 closure (2026-06-22):
+    - ``GraphNode``, ``GraphEdge``, and ``ContextGraph`` defined here are the
+      authoritative retrieval-graph types. The legacy ``helpers/types.py``
+      placeholder was deleted at commit ``da16f66``; imports must point at
+      this module or at ``helpers/metadata.py`` (for ``MemoryType`` and
+      ``ValidationStatus``) — not at the deleted ``types.py``.
 """
 
 from __future__ import annotations
