@@ -49,7 +49,9 @@ D39-A closure contract (D53, 2026-06-22):
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 from typing import Any
 
 log = logging.getLogger("neuro_core.patch")
@@ -180,6 +182,135 @@ def _patch_delete_documents_by_ids(Memory: type) -> None:
             log.warning(f"[neuro_core] delete patch non-fatal: {e}")
         result = await original(self, ids)
         return result
+
+    delete_patched._neuro_patched = True  # type: ignore[attr-defined]
+    Memory.delete_documents_by_ids = delete_patched
+
+
+# ---------------------------------------------------------------------------
+# D55 (D39-D closure) — startup sidecar reconciliation
+# ---------------------------------------------------------------------------
+
+
+def reconcile_sidecars() -> dict:
+    """D55: Read-only FAISS <-> sidecar consistency scan.
+
+    Detects three structural orphan types per subdir:
+
+    1. **Orphan scores sidecar** — ``scores.json`` present, ``index.faiss`` absent.
+       Sidecar file exists with no FAISS index to back it; data is stranded.
+    2. **Orphan relationships sidecar** — ``relationships.json`` present,
+       ``index.faiss`` absent. Phantom edges that can never resolve.
+    3. **Unseeded FAISS index** — ``index.faiss`` present, ``scores.json``
+       absent. Insert hook may have been bypassed or pre-dates the patch.
+       Informational only — these are NOT orphans in the strict sense.
+
+    Read-only: orphans are logged via ``log.warning()`` but no file is
+    modified. Auto-fix is intentionally out of scope for v1.
+
+    Non-fatal: every step is wrapped in try/except; partial results are
+    returned even if individual subdirs fail. The function NEVER raises.
+
+    Strict UUID-level validation (per-Document membership) is intentionally
+    deferred — it would require bootstrapping a full ``Memory`` instance per
+    subdir, which is too expensive for a startup-time scan. v1 reports
+    structural orphans only; per-ID checks remain a future enhancement.
+
+    Returns:
+        ``{
+            "subdirs_scanned": int,
+            "orphan_scores": int,
+            "orphan_relationships": int,
+            "unseeded_faiss": int,
+            "errors": list[str],
+        }``
+    """
+    result: dict[str, Any] = {
+        "subdirs_scanned": 0,
+        "orphan_scores": 0,
+        "orphan_relationships": 0,
+        "unseeded_faiss": 0,
+        "errors": [],
+    }
+    try:
+        from plugins._memory.helpers.memory import abs_db_dir  # framework — read-only import
+    except Exception as exc:
+        log.warning(f"[neuro_core] reconcile_sidecars import non-fatal: {exc}")
+        return result
+
+    try:
+        memory_root = os.path.dirname(abs_db_dir("default"))
+    except Exception as exc:
+        log.warning(f"[neuro_core] reconcile_sidecars: cannot resolve memory root: {exc}")
+        return result
+
+    if not os.path.isdir(memory_root):
+        return result
+
+    try:
+        subdirs = [
+            d
+            for d in os.listdir(memory_root)
+            if os.path.isdir(os.path.join(memory_root, d))
+        ]
+    except Exception as exc:
+        result["errors"].append(f"subdir discovery: {exc}")
+        log.warning(
+            f"[neuro_core] reconcile_sidecars: subdir discovery failed: {exc}"
+        )
+        return result
+
+    for subdir in subdirs:
+        result["subdirs_scanned"] += 1
+        try:
+            subdir_path = abs_db_dir(subdir)
+            has_faiss = os.path.isfile(os.path.join(subdir_path, "index.faiss"))
+            has_scores = os.path.isfile(os.path.join(subdir_path, "scores.json"))
+            has_rels = os.path.isfile(os.path.join(subdir_path, "relationships.json"))
+
+            if has_scores and not has_faiss:
+                result["orphan_scores"] += 1
+                log.warning(
+                    f"[neuro_core] reconcile: orphan scores sidecar "
+                    f"in subdir={subdir} (no index.faiss)"
+                )
+            if has_rels and not has_faiss:
+                result["orphan_relationships"] += 1
+                log.warning(
+                    f"[neuro_core] reconcile: orphan relationships sidecar "
+                    f"in subdir={subdir} (no index.faiss)"
+                )
+            if has_faiss and not has_scores:
+                result["unseeded_faiss"] += 1
+                log.info(
+                    f"[neuro_core] reconcile: unseeded FAISS in subdir={subdir} "
+                    f"(no scores.json — informational)"
+                )
+        except Exception as exc:
+            result["errors"].append(f"{subdir}: {exc}")
+            log.warning(
+                f"[neuro_core] reconcile_sidecars subdir {subdir} non-fatal: {exc}"
+            )
+            continue
+
+    if result["errors"]:
+        log.warning(
+            f"[neuro_core] reconcile_sidecars complete: "
+            f"subdirs={result['subdirs_scanned']} "
+            f"orphan_scores={result['orphan_scores']} "
+            f"orphan_relationships={result['orphan_relationships']} "
+            f"unseeded_faiss={result['unseeded_faiss']} "
+            f"errors={len(result['errors'])}"
+        )
+    else:
+        log.info(
+            f"[neuro_core] reconcile_sidecars complete: "
+            f"subdirs={result['subdirs_scanned']} "
+            f"orphan_scores={result['orphan_scores']} "
+            f"orphan_relationships={result['orphan_relationships']} "
+            f"unseeded_faiss={result['unseeded_faiss']}"
+        )
+    return result
 
     delete_patched._neuro_patched = True  # type: ignore[attr-defined]
     Memory.delete_documents_by_ids = delete_patched
