@@ -1,7 +1,7 @@
 name: neuro_core
 title: Neuro Core
 description: Temporal knowledge graph memory enhancement for Agent Zero.
-version: 0.2.0
+version: 1.0.0
 settings_sections:
   - agent
 per_project_config: true

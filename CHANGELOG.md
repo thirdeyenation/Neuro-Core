@@ -1,3 +1,64 @@
+## [1.0.0] — 2026-06-25
+
+### The First Stable Release
+
+Neuro Core v1.0.0 is the first stable release of the context graph and
+memory enhancement plugin for Agent Zero. It ships with all five core
+subsystems verified, 290 tests passing, 10 live integration scenarios
+confirmed, and all performance baselines met.
+
+### What Neuro Core Does
+
+Neuro Core gives Agent Zero a persistent, structured memory layer that
+goes beyond raw memory storage. Every saved memory is enriched with
+importance, confidence, stability, and validation scores. Memories are
+connected through a typed relationship graph. The context graph retrieval
+system expands any query beyond direct similarity matches — surfacing
+semantically related memories, graph-connected neighbors, and
+importance-boosted candidates that a flat vector search would miss.
+Periodic lifecycle jobs decay stale memories, group temporally-clustered
+memories into episodes, and synthesize recurring patterns into durable
+concept memories via reflection. The result is an agent that builds
+genuinely structured knowledge over time.
+
+### New Since v0.2.0
+
+**Features**
+- Reflection enabled by default (`reflection_enabled: true`) — the agent
+  now synthesizes concept memories from recurring patterns automatically
+- Startup sidecar reconciliation — orphan sidecar entries detected and
+  cleaned on every restart (D55)
+- Memory score write-back to FAISS metadata — score changes immediately
+  visible in retrieval ranking (D41)
+- API relationships routing corrected — full CRUD on graph edges via
+  `/api/plugins/neuro_core/relationships` (D42, D45)
+
+**Reliability Fixes**
+- EpisodeGroupingJob silent failure resolved — `_iter_docs` and
+  `_persist_assignments` now correctly process all docs (D48, D49)
+- AccessDecayJob and ContradictionDetectionJob async calls corrected —
+  replaced non-existent `Memory.get_by_subdir_sync` with
+  `_get_memory_sync` + ThreadPoolExecutor pattern (D51, D52)
+- `write_reflection` ScoreStore sidecar write added (D50)
+- Episode grouping datetime sort TypeError fixed — offset-naive/aware
+  mismatch resolved in `run_episode_grouping` (D57)
+- `concurrent_futures` NameError in cold-cache fallback fixed (D58)
+
+**Verification**
+- Workstream C: 10/10 live integration scenarios confirmed on a real
+  Agent Zero instance
+- Workstream D: all 5 performance baselines measured with real objects
+  - context_graph BFS+rerank: 35ms avg (target ≤200ms)
+  - GraphStore.add_edge(): 0.55ms avg (target ≤10ms)
+  - ScoreStore.set(): 0.45ms avg (target ≤10ms)
+  - Decay job 500 docs: 2410ms (target ≤5000ms)
+  - Episode grouping 500 docs: 1.35ms avg (target ≤5000ms)
+
+**Documentation**
+- `docs/` — architecture, API, tools, data model, configuration (5 docs)
+- KNOWN_FRAMEWORK_CONTRACTS.md — 11 sections of verified framework
+  behavior, test invocation contract, sidecar patterns
+
 # Changelog
 All notable changes to Neuro Core will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
