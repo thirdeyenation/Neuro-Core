@@ -12,7 +12,7 @@ contradiction_llm_enabled: false     # v1: LLM-based contradiction detection is 
 contradiction_batch_size: 100
 contradiction_interval_hours: 168   # 1 week; how often to run the contradiction sweep
 
-reflection_enabled: false
+reflection_enabled: true
 reflection_max_memories: 50
 
 graph_neighbors_max: 40
