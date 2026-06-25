@@ -588,7 +588,7 @@ def run_episode_grouping(
     if min_memories < 1:
         min_memories = 1
 
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Normalize docs: each entry has (id, timestamp:datetime, payload).
     items: List[Tuple[str, datetime, dict]] = []
@@ -603,6 +603,8 @@ def run_episode_grouping(
             "timestamp"
         )
         ts = _parse_iso(ts_raw) if ts_raw else None
+        if ts is not None and ts.tzinfo is not None:
+            ts = ts.replace(tzinfo=None)
         if ts is None:
             # Documents without a timestamp are appended in input order
             # at the end (sentinel = now).
