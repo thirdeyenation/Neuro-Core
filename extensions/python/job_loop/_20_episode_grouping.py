@@ -386,7 +386,7 @@ def _get_cached_db(MemoryCls, subdir: str):
     except Exception:  # pragma: no cover - defensive
         return None
     try:
-        with concurrent_futures.ThreadPoolExecutor(max_workers=1) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             mem = pool.submit(
                 asyncio.run,
                 MemoryCls.get_by_subdir(subdir, None),  # type: ignore[arg-type]
