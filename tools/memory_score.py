@@ -159,6 +159,10 @@ class MemoryScore(Tool):
             try:
                 store = ScoreStore(db.memory_subdir)
                 store.set(memory_id=id, **score_changes)
+                doc.metadata = meta  # link meta to doc.metadata so updates flow through
+                for k in score_changes:
+                    meta[k] = score_changes[k]
+                await db.update_documents([doc])
             except Exception as exc:  # pragma: no cover - defensive
                 return Response(
                     message=(

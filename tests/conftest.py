@@ -215,6 +215,34 @@ class _MemoryStub(types.ModuleType):
         # ``memory_subdir`` fixture or test-local monkeypatching.
         get = None
 
+        # The three methods wrapped by ``_patch.py`` at install time.
+        # They must exist on the class so ``install_patches()`` can
+        # bind the wrappers.  The search and delete stubs delegate to
+        # ``self.db`` (a MagicMock in tests) so the wrapper sees the
+        # mocked return value and can exercise its side-effect logic.
+        async def insert_text(self, text, metadata=None):
+            return None
+
+        async def search_similarity_threshold(
+            self, query, limit=10, threshold=0.6, filter=None
+        ):
+            # Mirror the real Memory.search_similarity_threshold contract:
+            # delegate to ``self.db.asearch`` and return its result.
+            db = getattr(self, "db", None)
+            if db is not None and hasattr(db, "asearch"):
+                return await db.asearch(
+                    query, k=limit, score_threshold=threshold, filter=filter
+                )
+            return []
+
+        async def delete_documents_by_ids(self, ids):
+            # Mirror the real Memory.delete_documents_by_ids contract:
+            # delegate to ``self.db.delete`` and return its result.
+            db = getattr(self, "db", None)
+            if db is not None and hasattr(db, "delete"):
+                return await db.delete(ids=ids)
+            return []
+
         @staticmethod
         def _get_abs_db_dir(memory_subdir: str) -> str:
             # The test fixture overrides this through monkey-patch, but

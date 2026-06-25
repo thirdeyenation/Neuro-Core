@@ -1,153 +1,84 @@
 <style>
   [x-cloak] { display: none !important; }
-  .nc-panel {
-    display: flex; flex-direction: column; height: 100%;
-    padding: 0; overflow: hidden;
-    background: var(--color-panel); color: var(--color-text);
-    font-family: inherit; font-size: 0.875rem;
-  }
-  /* HEADER */
-  .nc-header {
-    display: flex; align-items: center; gap: 0.75rem;
-    padding: 1rem 1rem 0.75rem;
-    border-bottom: 1px solid var(--color-border);
-    flex-shrink: 0;
-  }
-  .nc-header__icon {
-    display: flex; align-items: center; justify-content: center;
-    width: 2.25rem; height: 2.25rem; border-radius: 50%;
-    background: color-mix(in srgb, var(--color-primary) 20%, transparent);
-    color: var(--color-primary); flex-shrink: 0;
-  }
+  .nc-panel { display: flex; flex-direction: column; height: 100%; padding: 0; overflow: hidden; background: var(--color-panel); color: var(--color-text); font-family: inherit; font-size: 0.875rem; }
+  .nc-header { display: flex; align-items: center; gap: 0.75rem; padding: 1rem 1rem 0.75rem; border-bottom: 1px solid var(--color-border); flex-shrink: 0; }
+  .nc-header__icon { display: flex; align-items: center; justify-content: center; width: 2.25rem; height: 2.25rem; border-radius: 50%; background: color-mix(in srgb, var(--color-primary) 20%, transparent); color: var(--color-primary); flex-shrink: 0; }
   .nc-header__icon .material-symbols-outlined { font-size: 1.25rem; }
   .nc-title { margin: 0; font-size: 0.9375rem; font-weight: 600; line-height: 1.2; }
   .nc-subtitle { margin: 0; font-size: 0.75rem; color: var(--color-text-muted); line-height: 1.4; }
-  /* SEARCH */
-  .nc-search { padding: 0.75rem 1rem; display: flex; flex-direction: column; gap: 0.4rem; flex-shrink: 0; border-bottom: 1px solid var(--color-border); }
+  .nc-search { padding: 0.75rem 1rem 0; display: flex; flex-direction: column; gap: 0.4rem; flex-shrink: 0; border-bottom: 1px solid var(--color-border); }
   .nc-search__row { display: flex; gap: 0.5rem; }
-  .nc-input {
-    flex: 1; padding: 0.4rem 0.65rem; border-radius: var(--border-radius-sm);
-    border: 1px solid var(--color-border); background: var(--color-input);
-    color: var(--color-text); font-size: 0.8125rem; outline: none;
-    transition: border-color 0.15s;
-  }
+  .nc-subdir-row { display: flex; gap: 0.5rem; align-items: center; }
+  .nc-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; padding: 0.4rem 0 0.65rem; }
+  .nc-chip { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.7rem; font-family: monospace; background: color-mix(in srgb, var(--color-primary) 14%, transparent); color: var(--color-primary); border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent); cursor: pointer; transition: background 0.15s; }
+  .nc-chip:hover { background: color-mix(in srgb, var(--color-primary) 25%, transparent); }
+  .nc-chip__remove { font-size: 0.65rem; opacity: 0.6; margin-left: 0.1rem; cursor: pointer; }
+  .nc-chip__remove:hover { opacity: 1; }
+  .nc-input { flex: 1; padding: 0.4rem 0.65rem; border-radius: var(--border-radius-sm); border: 1px solid var(--color-border); background: var(--color-input); color: var(--color-text); font-size: 0.8125rem; outline: none; transition: border-color 0.15s; }
   .nc-input:focus { border-color: var(--color-primary); }
-  .nc-input--sub { font-size: 0.75rem; color: var(--color-text-muted); }
-  .nc-btn {
-    padding: 0.4rem 0.85rem; border-radius: var(--border-radius-sm);
-    background: var(--color-primary); color: var(--color-background);
-    border: none; font-size: 0.8125rem; font-weight: 600;
-    cursor: pointer; transition: opacity 0.15s; white-space: nowrap;
-  }
+  .nc-input--sub { font-size: 0.75rem; }
+  .nc-btn { padding: 0.4rem 0.85rem; border-radius: var(--border-radius-sm); background: var(--color-primary); color: var(--color-background); border: none; font-size: 0.8125rem; font-weight: 600; cursor: pointer; transition: opacity 0.15s; white-space: nowrap; }
   .nc-btn:hover { opacity: 0.85; }
   .nc-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  /* STATUS ENVELOPE */
+  .nc-btn--sm { padding: 0.3rem 0.6rem; font-size: 0.75rem; }
   .nc-status-envelope { min-height: 5.5rem; display: flex; align-items: center; justify-content: center; padding: 1rem; flex-shrink: 0; }
   .nc-state { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; transition: opacity 0.15s; }
   .nc-state--loading { color: var(--color-text-muted); }
-  .nc-state--error {
-    color: var(--color-error-text); padding: 0.5rem 0.75rem;
-    background: color-mix(in srgb, var(--color-error-text) 12%, transparent);
-    border-radius: var(--border-radius-sm); border: 1px solid color-mix(in srgb, var(--color-error-text) 30%, transparent);
-  }
-  .nc-state--empty {
-    flex-direction: column; gap: 0.5rem; color: var(--color-text-muted);
-    text-align: center; padding: 1rem; width: 100%;
-    border: 1px dashed var(--color-border); border-radius: var(--border-radius-sm);
-    font-style: italic;
-  }
+  .nc-state--error { color: var(--color-error-text); padding: 0.5rem 0.75rem; background: color-mix(in srgb, var(--color-error-text) 12%, transparent); border-radius: var(--border-radius-sm); border: 1px solid color-mix(in srgb, var(--color-error-text) 30%, transparent); }
+  .nc-state--empty { flex-direction: column; gap: 0.5rem; color: var(--color-text-muted); text-align: center; padding: 1rem; width: 100%; border: 1px dashed var(--color-border); border-radius: var(--border-radius-sm); font-style: italic; }
   .nc-empty-icon { font-size: 1.75rem; opacity: 0.4; }
-  /* PULSE ANIMATION */
-  @keyframes nc-pulse {
-    0%, 100% { opacity: 0.3; transform: scale(0.85); }
-    50% { opacity: 1; transform: scale(1.1); }
-  }
-  .nc-pulse-dot {
-    width: 0.5rem; height: 0.5rem; border-radius: 50%;
-    background: var(--color-primary); display: inline-block;
-    animation: nc-pulse 1.2s ease-in-out infinite;
-  }
-  /* RESULTS */
+  @keyframes nc-pulse { 0%, 100% { opacity: 0.3; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1.1); } }
+  .nc-pulse-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--color-primary); display: inline-block; animation: nc-pulse 1.2s ease-in-out infinite; }
   .nc-results { flex: 1; overflow-y: auto; padding: 0.5rem 1rem 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
   .nc-section { display: flex; flex-direction: column; gap: 0.4rem; }
-  .nc-section__label {
-    margin: 0; font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.07em;
-    text-transform: uppercase; color: var(--color-text-muted);
-    padding-bottom: 0.25rem; border-bottom: 1px solid var(--color-border);
-  }
-  /* NODE CARDS */
-  .nc-node {
-    background: var(--color-message-bg); border: 1px solid var(--color-border);
-    border-radius: var(--border-radius-sm); padding: 0.5rem 0.65rem;
-    display: flex; flex-direction: column; gap: 0.25rem;
-  }
+  .nc-section__label { margin: 0; font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--color-text-muted); padding-bottom: 0.25rem; border-bottom: 1px solid var(--color-border); }
+  .nc-node { background: var(--color-message-bg); border: 1px solid var(--color-border); border-radius: var(--border-radius-sm); padding: 0.5rem 0.65rem; display: flex; flex-direction: column; gap: 0.25rem; }
   .nc-node__header { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
   .nc-node__id { font-family: monospace; font-size: 0.75rem; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nc-node__content { margin: 0; font-size: 0.78rem; color: var(--color-message-text); line-height: 1.45; }
-  /* SCORE BADGES */
-  .nc-score {
-    font-size: 0.6875rem; font-weight: 700; padding: 0.1rem 0.4rem;
-    border-radius: 999px; white-space: nowrap; flex-shrink: 0;
-  }
+  .nc-score { font-size: 0.6875rem; font-weight: 700; padding: 0.1rem 0.4rem; border-radius: 999px; white-space: nowrap; flex-shrink: 0; }
   .nc-score--high { background: color-mix(in srgb, #2ecc71 20%, transparent); color: #2ecc71; }
   .nc-score--mid { background: color-mix(in srgb, var(--color-warning-text) 20%, transparent); color: var(--color-warning-text); }
   .nc-score--low { background: color-mix(in srgb, var(--color-error-text) 20%, transparent); color: var(--color-error-text); }
-  /* EDGE PILLS */
-  .nc-edge {
-    display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;
-    font-family: monospace; font-size: 0.73rem;
-    background: color-mix(in srgb, var(--color-primary) 10%, transparent);
-    border-radius: var(--border-radius-sm); padding: 0.3rem 0.6rem;
-  }
+  .nc-edge { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; font-family: monospace; font-size: 0.73rem; background: color-mix(in srgb, var(--color-primary) 10%, transparent); border-radius: var(--border-radius-sm); padding: 0.3rem 0.6rem; }
   .nc-edge__from, .nc-edge__to { color: var(--color-text-muted); }
   .nc-edge__rel { color: var(--color-accent); font-weight: 600; }
   .nc-edge__arrow { color: var(--color-border); }
 </style>
-<div x-data="{ q: '', sub: 'projects/neruo_core', loading: false, error: null, nodes: [], edges: [],
-  scoreClass(s) { return s >= 0.7 ? 'nc-score nc-score--high' : s >= 0.4 ? 'nc-score nc-score--mid' : 'nc-score nc-score--low'; },
-  truncate(s, n) { return s && s.length > n ? s.slice(0, n) + '…' : (s || ''); },
-  async search() {
-    if (!this.q.trim()) return;
-    this.loading = true; this.error = null;
-    try {
-      const r = await fetch('/api/plugins/neuro_core/context_graph?query=' + encodeURIComponent(this.q) + '&memory_subdir=' + encodeURIComponent(this.sub));
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || r.statusText);
-      this.nodes = data.nodes || []; this.edges = data.edges || [];
-    } catch(e) { this.error = e.message; }
-    finally { this.loading = false; }
-  }
-}" class="nc-panel">
-  <!-- HEADER -->
+<div x-data="{ q: '', sub: '', subdirs: JSON.parse(localStorage.getItem('nc_memory_subdirs') || '[&quot;projects/neruo_core&quot;]'), loading: false, error: null, nodes: [], edges: [], saveSubdir() { const v = this.sub.trim(); if (!v || this.subdirs.includes(v)) return; this.subdirs.push(v); localStorage.setItem('nc_memory_subdirs', JSON.stringify(this.subdirs)); }, removeSubdir(s) { this.subdirs = this.subdirs.filter(x => x !== s); localStorage.setItem('nc_memory_subdirs', JSON.stringify(this.subdirs)); }, scoreClass(s) { return s >= 0.7 ? 'nc-score nc-score--high' : s >= 0.4 ? 'nc-score nc-score--mid' : 'nc-score nc-score--low'; }, truncate(s, n) { return s && s.length > n ? s.slice(0, n) + '\u2026' : (s || ''); }, async search() { if (!this.q.trim()) return; this.loading = true; this.error = null; try { const r = await fetch('/api/plugins/neuro_core/context_graph?query=' + encodeURIComponent(this.q) + '&memory_subdir=' + encodeURIComponent(this.sub)); const data = await r.json(); if (!r.ok) throw new Error(data.error || r.statusText); this.nodes = (data.context_graph && data.context_graph.nodes) || []; this.edges = (data.context_graph && data.context_graph.edges) || []; } catch(e) { this.error = e.message; } finally { this.loading = false; } } }" class="nc-panel">
   <div class="nc-header">
-    <div class="nc-header__icon">
-      <span class="material-symbols-outlined">hub</span>
-    </div>
+    <div class="nc-header__icon"><span class="material-symbols-outlined">hub</span></div>
     <div class="nc-header__text">
       <h3 class="nc-title">Neuro Core</h3>
       <p class="nc-subtitle">Context graph &amp; memory scores</p>
     </div>
   </div>
-  <!-- SEARCH -->
   <div class="nc-search">
     <div class="nc-search__row">
-      <input x-model="q" @keydown.enter="search()" placeholder="Search memories..." class="nc-input" />
+      <input x-model="q" @keydown.enter="search()" placeholder="Search memories…" class="nc-input" />
       <button @click="search()" :disabled="loading" class="nc-btn">Search</button>
     </div>
-    <input x-model="sub" placeholder="memory_subdir" class="nc-input nc-input--sub" />
-  </div>
-  <!-- STATUS ENVELOPE — fixed min-height prevents layout shift -->
-  <div class="nc-status-envelope">
-    <div x-show="loading" class="nc-state nc-state--loading">
-      <span class="nc-pulse-dot"></span> Searching…
+    <div class="nc-subdir-row">
+      <input x-model="sub" placeholder="memory subdir…" class="nc-input nc-input--sub" @keydown.enter="saveSubdir()" />
+      <button @click="saveSubdir()" class="nc-btn nc-btn--sm" title="Save subdir as chip">+</button>
     </div>
+    <div class="nc-chips">
+      <template x-for="s in subdirs" :key="s">
+        <span class="nc-chip" @click="sub = s">
+          <span x-text="s"></span>
+          <span class="nc-chip__remove" @click.stop="removeSubdir(s)" title="Remove">×</span>
+        </span>
+      </template>
+    </div>
+  </div>
+  <div class="nc-status-envelope">
+    <div x-show="loading" class="nc-state nc-state--loading"><span class="nc-pulse-dot"></span> Searching…</div>
     <div x-show="error && !loading" x-text="error" class="nc-state nc-state--error"></div>
     <div x-show="!loading && !error && nodes.length === 0" class="nc-state nc-state--empty">
       <span class="material-symbols-outlined nc-empty-icon">manage_search</span>
       <span>Search memories to explore the context graph</span>
     </div>
   </div>
-  <!-- RESULTS -->
   <div x-show="nodes.length > 0" class="nc-results">
     <div class="nc-section">
       <p class="nc-section__label">NODES (<span x-text="nodes.length"></span>)</p>

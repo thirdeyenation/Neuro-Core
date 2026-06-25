@@ -139,8 +139,12 @@ class TestValidScoreUpdate:
         assert record.confidence == pytest.approx(0.8)
         assert record.stability == pytest.approx(0.7)
 
-        # update_documents was NOT called (no FAISS metadata changes).
-        mem_wrap.update_documents.assert_not_called()
+        # D41 fix: score updates now also write back to FAISS docstore.
+        mem_wrap.update_documents.assert_called_once()
+        called_doc = mem_wrap.update_documents.call_args.args[0][0]
+        assert called_doc.metadata.get("importance") == pytest.approx(0.9)
+        assert called_doc.metadata.get("confidence") == pytest.approx(0.8)
+        assert called_doc.metadata.get("stability") == pytest.approx(0.7)
 
 
 # ---------------------------------------------------------------------------

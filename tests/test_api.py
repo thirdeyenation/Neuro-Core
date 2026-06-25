@@ -549,9 +549,19 @@ def _edge_with_enum_metadata() -> GraphEdge:
     )
 
 
-def _stub_graph_store_with_enum_edges(monkeypatch):
-    """Patch ``GraphStore`` in the api module so it returns enum-laden data."""
-    from usr.plugins.neuro_core.api import context_graph as api_mod
+def _stub_graph_store_with_enum_edges(monkeypatch, api_mod=None):
+    """Patch ``GraphStore`` in the target api module so it returns enum-laden data.
+
+    D42: Relationship routes live in ``api/relationships.py`` (their own
+    ApiHandler file), while ``api/context_graph.py`` keeps the
+    ``/context_graph`` route. Each module binds ``GraphStore`` at import
+    time, so the stub has to be installed into whichever module the test
+    is exercising. Pass ``api_mod`` explicitly; defaults to the
+    relationships module because the most common caller is the new
+    ``RelationshipsApi`` tests.
+    """
+    if api_mod is None:
+        from usr.plugins.neuro_core.api import relationships as api_mod
 
     class _StubGraphStore:
         def __init__(self, memory_subdir: str):
@@ -577,7 +587,14 @@ def _stub_graph_store_with_enum_edges(monkeypatch):
 
 
 class TestGetRelationshipsHandler:
-    """Tests for ``_get_relationships`` (GET /relationships/<memory_id>).
+    """Tests for ``_get_relationships`` (GET /relationships?id=<memory_id>).
+
+    D42: Relationship routes live in ``api/relationships.py`` (their own
+    ApiHandler file), not in ``api/context_graph.py``. Memory ID is
+    passed as a query param (``input['id']``) — not as a URL path
+    segment — because framework routing treats the third path segment
+    as a filename, so ``/relationships/<id>`` resolves to a non-existent
+    ``api/relationships/<id>.py`` and 404s.
 
     This handler is called by the dashboard to list edges for a given
     memory. It serializes edges through ``_serialize_edge`` (already
@@ -588,19 +605,18 @@ class TestGetRelationshipsHandler:
     """
 
     def test_get_relationships_response_is_json_safe(self, monkeypatch):
-        from usr.plugins.neuro_core.api import context_graph as api_mod
+        from usr.plugins.neuro_core.api import relationships as api_mod
 
-        _stub_graph_store_with_enum_edges(monkeypatch)
+        _stub_graph_store_with_enum_edges(monkeypatch, api_mod=api_mod)
 
-        handler = api_mod.ContextGraphApi()
+        handler = api_mod.RelationshipsApi()
         result = asyncio.new_event_loop().run_until_complete(
             handler._get_relationships(
-                input={"memory_subdir": "main"},
+                input={"memory_subdir": "main", "id": "X"},
                 request=types.SimpleNamespace(
-                    path="/api/plugins/neuro_core/relationships/X",
+                    path="/api/plugins/neuro_core/relationships",
                     method="GET",
                 ),
-                path="/api/plugins/neuro_core/relationships/X",
             )
         )
 
@@ -624,19 +640,20 @@ class TestGetRelationshipsHandler:
 class TestListAllRelationshipsHandler:
     """Tests for ``_list_all_relationships`` (GET /relationships).
 
-    This handler is the primary page-load endpoint for the
-    relationships panel. It dumps all stored edges and serializes
-    them in the response. The test below asserts the full response
-    is JSON-safe even when the underlying sidecar contains
-    enum-laden edge data.
+    D42: Relationship routes live in ``api/relationships.py`` (their own
+    ApiHandler file), not in ``api/context_graph.py``. This handler is
+    the primary page-load endpoint for the relationships panel. It
+    dumps all stored edges and serializes them in the response. The
+    test below asserts the full response is JSON-safe even when the
+    underlying sidecar contains enum-laden edge data.
     """
 
     def test_list_all_relationships_response_is_json_safe(self, monkeypatch):
-        from usr.plugins.neuro_core.api import context_graph as api_mod
+        from usr.plugins.neuro_core.api import relationships as api_mod
 
-        _stub_graph_store_with_enum_edges(monkeypatch)
+        _stub_graph_store_with_enum_edges(monkeypatch, api_mod=api_mod)
 
-        handler = api_mod.ContextGraphApi()
+        handler = api_mod.RelationshipsApi()
         result = asyncio.new_event_loop().run_until_complete(
             handler._list_all_relationships(
                 input={"memory_subdir": "main"},
@@ -667,6 +684,11 @@ class TestProcessRouterGuard:
     passes through ``_enum_safe_value`` before returning, regardless
     of which handler produced it. These tests cover each dispatch
     branch to ensure the guard fires for all routes.
+
+    D42: Relationship routes are tested against ``RelationshipsApi`` in
+    ``api/relationships.py`` (their own ApiHandler file). The two
+    context_graph routes (``/context_graph`` and the unknown-route
+    error path) are tested against ``ContextGraphApi``.
     """
 
     def _make_request(self, path: str, method: str = "GET"):
@@ -709,16 +731,16 @@ class TestProcessRouterGuard:
         assert not isinstance(node["metadata"]["area"], enum.Enum)
 
     def test_process_guards_get_relationships_response(self, monkeypatch):
-        from usr.plugins.neuro_core.api import context_graph as api_mod
+        from usr.plugins.neuro_core.api import relationships as api_mod
 
-        _stub_graph_store_with_enum_edges(monkeypatch)
+        _stub_graph_store_with_enum_edges(monkeypatch, api_mod=api_mod)
 
-        handler = api_mod.ContextGraphApi()
+        handler = api_mod.RelationshipsApi()
         result = asyncio.new_event_loop().run_until_complete(
             handler.process(
-                input={"memory_subdir": "main"},
+                input={"memory_subdir": "main", "id": "X"},
                 request=self._make_request(
-                    "/api/plugins/neuro_core/relationships/X"
+                    "/api/plugins/neuro_core/relationships"
                 ),
             )
         )
@@ -729,17 +751,17 @@ class TestProcessRouterGuard:
             assert isinstance(edge["type"], str)
 
     def test_process_guards_list_all_relationships_response(self, monkeypatch):
-        from usr.plugins.neuro_core.api import context_graph as api_mod
+        from usr.plugins.neuro_core.api import relationships as api_mod
 
-        _stub_graph_store_with_enum_edges(monkeypatch)
+        _stub_graph_store_with_enum_edges(monkeypatch, api_mod=api_mod)
 
-        handler = api_mod.ContextGraphApi()
+        handler = api_mod.RelationshipsApi()
+        req = self._make_request("/api/plugins/neuro_core/relationships")
+        req.args = {}  # no id — routes to _list_all_relationships
         result = asyncio.new_event_loop().run_until_complete(
             handler.process(
                 input={"memory_subdir": "main"},
-                request=self._make_request(
-                    "/api/plugins/neuro_core/relationships"
-                ),
+                request=req,
             )
         )
 

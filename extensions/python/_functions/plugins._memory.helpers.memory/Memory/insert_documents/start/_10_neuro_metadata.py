@@ -89,8 +89,10 @@ class NeuroInsertMetadata(Extension):
                 metadata = getattr(doc, "metadata", None)
                 if not isinstance(metadata, dict):
                     continue
-                validate_neuro_metadata(metadata)
-                apply_seeding(metadata)
+                new_meta = dict(metadata)
+                validate_neuro_metadata(new_meta)
+                apply_seeding(new_meta)
+                doc.metadata = new_meta
                 normalised += 1
 
             # No data["result"] = no short-circuit; the original function runs

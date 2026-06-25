@@ -50,6 +50,15 @@ def install() -> bool:
     else:
         print("[neuro_core] networkx>=3.0 is ready.")
 
+    # --- Runtime monkey-patch: wrap Memory methods that lack @extensible ---
+    # The Agent Zero framework's _memory plugin Memory class has no
+    # @extensible decorators, so the hook directory tree under
+    # extensions/python/_functions/.../Memory/ is never invoked by the
+    # framework. We install thin wrappers at plugin init time to restore
+    # the intended behavior. Wrappers are idempotent.
+    from usr.plugins.neuro_core.helpers._patch import install_patches
+    install_patches()
+
     return True
 
 
@@ -60,6 +69,13 @@ def uninstall() -> None:
     other plugins may depend on them. The plugin-local files under
     `usr/plugins/neuro_core/` are removed by Agent Zero's plugin manager.
     """
+    # --- Restore the original Memory methods (reverse the runtime monkey-patch) ---
+    try:
+        from usr.plugins.neuro_core.helpers._patch import uninstall_patches
+        uninstall_patches()
+    except Exception as _e:
+        print(f"[neuro_core] uninstall_patches warning: {_e}")
+
     print(
         "[neuro_core] uninstall() called. Persistent pip dependencies are "
         "left in place; plugin files will be removed by the framework."

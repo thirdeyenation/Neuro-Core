@@ -34,6 +34,7 @@ Stability contract (v2):
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 from typing import Any, Dict, List
 
@@ -51,6 +52,71 @@ _logger = logging.getLogger("neuro_core.job_loop.contradiction_detection")
 # ``KeyError: '_30_contradiction_detection'`` on every scheduler tick
 # because of that assumption.
 _STATE: dict[str, float] = {"last_run": 0.0}
+
+
+def _get_memory_sync(MemoryCls, subdir: str):
+    """Resolve a ``Memory`` handle for ``subdir`` synchronously.
+
+    D52 helper for the broken ``Memory.get_by_subdir_sync`` references
+    that previously lived in ``_iter_docs`` and ``_persist_disputes``.
+    Resolution is two-step:
+
+      1. **Warm cache (sync, safe everywhere).** The framework keeps
+         a class-level ``Memory.index`` dict mapping ``memory_subdir``
+         → ``Memory`` handle. In production the agent has already
+         loaded its memory subdir long before the scheduler tick
+         fires, so the cache is warm and we return immediately.
+
+      2. **Cold-cache fallback.** If the cache is cold, attempt
+         ``asyncio.run`` of the real async ``Memory.get_by_subdir``.
+         Two sub-cases:
+
+         a. **No running loop** (the common production case — the
+            scheduler tick runs in a ``DeferredTask`` worker thread
+            outside the framework's main loop). ``asyncio.run`` works
+            directly.
+
+         b. **Running loop present** (e.g. when the job is invoked
+            directly from a test harness via
+            ``asyncio.run(job.execute(...))``). ``asyncio.run`` would
+            raise ``RuntimeError``. We escape via a one-shot
+            ``ThreadPoolExecutor`` — the executor runs
+            ``asyncio.run`` in a worker thread that has no running
+            loop, so the async loader completes successfully.
+
+    Returns the ``Memory`` handle on success, ``None`` on any
+    failure (caller must treat ``None`` as "skip this subdir").
+    """
+    # ---- Step 1: warm cache fast path -----------------------------------
+    try:
+        index = getattr(MemoryCls, "index", None)
+        if isinstance(index, dict):
+            cached = index.get(subdir)
+            if cached is not None:
+                return cached
+    except Exception:  # pragma: no cover - defensive
+        pass
+    # ---- Step 2: cold-cache fallback ------------------------------------
+    # Try direct asyncio.run first (fast path — works when no loop is
+    # running, which is the production DeferredTask case).
+    try:
+        mem = asyncio.run(MemoryCls.get_by_subdir(subdir, None))  # type: ignore[arg-type]
+        return mem
+    except RuntimeError:
+        # Running loop detected — asyncio.run cannot nest. Escape via
+        # a worker thread that has no running loop of its own.
+        pass
+    except Exception:  # pragma: no cover - defensive
+        return None
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            mem = pool.submit(
+                asyncio.run,
+                MemoryCls.get_by_subdir(subdir, None),  # type: ignore[arg-type]
+            ).result(timeout=30)
+        return mem
+    except Exception:  # pragma: no cover - defensive
+        return None
 
 
 class ContradictionDetectionJob(Extension):
@@ -214,7 +280,7 @@ class ContradictionDetectionJob(Extension):
         except Exception:  # pragma: no cover - defensive
             return iter(())
         try:
-            mem = Memory.get_by_subdir_sync(subdir)  # type: ignore[attr-defined]
+            mem = _get_memory_sync(Memory, subdir)
         except Exception:
             mem = None
         if mem is None:
@@ -247,7 +313,7 @@ class ContradictionDetectionJob(Extension):
         except Exception:  # pragma: no cover - defensive
             return
         try:
-            mem = Memory.get_by_subdir_sync(subdir)  # type: ignore[attr-defined]
+            mem = _get_memory_sync(Memory, subdir)
         except Exception:
             return
         if mem is None:

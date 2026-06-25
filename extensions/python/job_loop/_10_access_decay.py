@@ -28,6 +28,7 @@ Stability contract (v2):
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 import time
 from typing import Any
@@ -46,6 +47,42 @@ _logger = logging.getLogger("neuro_core.job_loop.access_decay")
 # ``KeyError: '_10_access_decay'`` on every scheduler tick because of
 # that assumption.
 _STATE: dict[str, float] = {"last_run": 0.0}
+
+
+# D51 — module-level helpers for async Memory access from a sync extension.
+# AccessDecayJob.execute() is async but the framework scheduler invokes
+# it from a thread that already has a running loop. We use
+# ``ThreadPoolExecutor`` + ``asyncio.run`` (same pattern as D48 fix in
+# ``_20_episode_grouping.py``) so the sync ``_iter_docs`` can call the
+# framework's async ``Memory.get_by_subdir`` without event-loop crossing.
+
+def _get_memory_sync(subdir: str):
+    """Synchronously load ``Memory`` for ``subdir`` from a worker thread.
+
+    Returns the ``Memory`` wrapper on success, ``None`` on any failure.
+    Uses a single-worker ``ThreadPoolExecutor`` so ``asyncio.run`` can
+    create its own loop without colliding with the framework scheduler.
+    The ``timeout=20`` matches the same safety bound used in D48.
+    """
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(
+                asyncio.run, _get_memory(subdir),
+            ).result(timeout=20)
+    except Exception:
+        return None
+
+
+async def _get_memory(subdir: str):
+    """Async helper that awaits ``Memory.get_by_subdir``.
+
+    Returns the ``Memory`` wrapper on success, ``None`` on any failure.
+    """
+    try:
+        from plugins._memory.helpers.memory import Memory
+        return await Memory.get_by_subdir(subdir, None)
+    except Exception:
+        return None
 
 
 class AccessDecayJob(Extension):
@@ -204,32 +241,31 @@ class AccessDecayJob(Extension):
         or when ``Memory`` cannot be loaded. The ``(id, metadata)`` shape
         matches ``helpers.lifecycle.run_importance_decay``'s expected
         input.
+
+        D51 — ``Memory.get_by_subdir_sync`` does NOT exist on the Memory
+        class. The previous implementation silently returned an empty
+        iterator, which made every AccessDecayJob run produce
+        ``processed=0 decayed=0 skipped=0``. We now use the same
+        ``ThreadPoolExecutor`` + ``asyncio.run`` pattern as D48 in
+        ``_20_episode_grouping.py`` to bridge from this sync method to
+        the framework's async ``Memory.get_by_subdir``.
         """
-        try:
-            from plugins._memory.helpers.memory import Memory  # type: ignore
-        except Exception:  # pragma: no cover - defensive
-            return iter(())
-        try:
-            mem = Memory.get_by_subdir_sync(subdir)  # type: ignore[attr-defined]
-        except Exception:
-            try:
-                # No agent available in this scheduler context — best effort
-                # with a noop agent stub.
-                mem = None  # type: ignore[assignment]
-            except Exception:  # pragma: no cover - defensive
-                return iter(())
+        mem = _get_memory_sync(subdir)
         if mem is None:
             return iter(())
         try:
-            docs = list(mem.db.get_all_docs() or [])  # type: ignore[attr-defined]
+            raw = mem.db.get_all_docs() or {}
+            docs = raw.values() if isinstance(raw, dict) else raw
         except Exception:  # pragma: no cover - defensive
             return iter(())
+        result = []
         for d in docs:
             md = getattr(d, "metadata", None) or {}
             mid = md.get("id") if isinstance(md, dict) else None
             if not mid:
                 continue
-            yield (str(mid), md)
+            result.append((str(mid), md))
+        return iter(result)
 
 
 def _resolve_agent():  # pragma: no cover - runtime helper
