@@ -144,10 +144,12 @@ class MemoryReflect(Tool):
             )
 
         # --- 6. Success ---------------------------------------------------
+        ack = f"Reflected on episode '{episode_id}' ({len(docs)} memories) → new insight memory {new_id}"
         return Response(
             message=(
                 f"Reflection written as memory {new_id} "
                 f"(episode: {episode_id}, {len(docs)} source memories)"
             ),
             break_loop=False,
+            additional={"neuro_core_ack": ack},
         )

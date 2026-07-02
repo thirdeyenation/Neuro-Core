@@ -230,11 +230,13 @@ class MemoryRelate(Tool):
                     _remove_specific_edge(store, to_id, from_id, rel_type)
                 except Exception:  # pragma: no cover - defensive
                     pass
+            ack = f"Unlinked {from_id} from {to_id} ({rel_type})"
             return Response(
                 message=(
                     f"Removed {removed} edge(s): {from_id} -[{rel_type}]-> {to_id}."
                 ),
                 break_loop=False,
+                additional={"neuro_core_ack": ack},
             )
 
         # --- add_edge path ----------------------------------------------
@@ -281,10 +283,12 @@ class MemoryRelate(Tool):
                     break_loop=False,
                 )
 
+        ack = f"Linked {from_id} to {to_id} via {rel_type} (weight={safe_weight:.2f})"
         return Response(
             message=(
                 f"Edge added: {from_id} -[{rel_type}]-> {to_id} "
                 f"(weight={safe_weight:.2f})."
             ),
             break_loop=False,
+            additional={"neuro_core_ack": ack},
         )

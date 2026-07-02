@@ -146,6 +146,29 @@ class TestValidScoreUpdate:
         assert called_doc.metadata.get("confidence") == pytest.approx(0.8)
         assert called_doc.metadata.get("stability") == pytest.approx(0.7)
 
+    def test_success_response_includes_neuro_core_ack(
+        self, monkeypatch, tmp_path
+    ):
+        """F2: success-path Response must include additional['neuro_core_ack']."""
+        doc = _make_doc({"memory_type": "fact"})
+        tool, mem_wrap, _ = _make_tool(doc, memory_subdir="default")
+        _patch_memory(monkeypatch, mem_wrap)
+        _patch_score_store_to_tmp(monkeypatch, tmp_path, "default")
+
+        result = asyncio.run(
+            tool.execute(
+                id="mem-ack-1", importance=0.9, confidence=0.8, stability=0.7
+            )
+        )
+
+        assert result.additional is not None
+        assert "neuro_core_ack" in result.additional
+        ack = result.additional["neuro_core_ack"]
+        assert "mem-ack-1" in ack
+        assert "importance=0.9" in ack
+        assert "confidence=0.8" in ack
+        assert "stability=0.7" in ack
+
 
 # ---------------------------------------------------------------------------
 # 2. Clamping: out-of-range values are normalized before persist
