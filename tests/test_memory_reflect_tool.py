@@ -215,6 +215,33 @@ class TestHappyPath:
         assert "3 source memories" in resp.message
         assert resp.break_loop is False
 
+    def test_success_response_includes_neuro_core_ack(self, monkeypatch):
+        """F2: success-path Response must include additional['neuro_core_ack']."""
+        from usr.plugins.neuro_core.tools import memory_reflect as mod
+
+        async def _reflect(*a, **kw):
+            return "Synthesised insight paragraph."
+
+        async def _write(*a, **kw):
+            return "new-mem-id-ack"
+
+        monkeypatch.setattr(mod, "reflect_memories", _reflect)
+        monkeypatch.setattr(mod, "write_reflection", _write)
+
+        docs = [
+            _Doc("a", {"id": "d1", "episode_id": "ep_ack"}),
+            _Doc("b", {"id": "d2", "episode_id": "ep_ack"}),
+        ]
+        tool, _ = _make_tool(docs)
+        resp = _run(tool.execute(episode_id="ep_ack"))
+
+        assert resp.additional is not None
+        assert "neuro_core_ack" in resp.additional
+        ack = resp.additional["neuro_core_ack"]
+        assert "ep_ack" in ack
+        assert "new-mem-id-ack" in ack
+        assert "2 memories" in ack
+
 
 # ------------------------------------------------------- 4. limit passthru
 

@@ -178,4 +178,11 @@ class MemoryScore(Tool):
         for field_name in _FAISS_FIELDS + _SCORECAR_FIELDS:
             if field_name in all_changes:
                 lines.append(f"  - {field_name}: {all_changes[field_name]}")
-        return Response(message="\n".join(lines), break_loop=False)
+        ack = f"Scored memory '{id}': " + ", ".join(
+            f"{k}={v}" for k, v in all_changes.items()
+        )
+        return Response(
+            message="\n".join(lines),
+            break_loop=False,
+            additional={"neuro_core_ack": ack},
+        )

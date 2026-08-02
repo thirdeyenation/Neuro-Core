@@ -1,108 +1,295 @@
+<script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.2/dist/cytoscape.min.js" crossorigin="anonymous"></script>
 <style>
   [x-cloak] { display: none !important; }
   .nc-panel { display: flex; flex-direction: column; height: 100%; padding: 0; overflow: hidden; background: var(--color-panel); color: var(--color-text); font-family: inherit; font-size: 0.875rem; }
-  .nc-header { display: flex; align-items: center; gap: 0.75rem; padding: 1rem 1rem 0.75rem; border-bottom: 1px solid var(--color-border); flex-shrink: 0; }
+  .nc-header { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 1rem; border-bottom: 1px solid var(--color-border); flex-shrink: 0; }
   .nc-header__icon { display: flex; align-items: center; justify-content: center; width: 2.25rem; height: 2.25rem; border-radius: 50%; background: color-mix(in srgb, var(--color-primary) 20%, transparent); color: var(--color-primary); flex-shrink: 0; }
   .nc-header__icon .material-symbols-outlined { font-size: 1.25rem; }
+  .nc-header__text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
   .nc-title { margin: 0; font-size: 0.9375rem; font-weight: 600; line-height: 1.2; }
-  .nc-subtitle { margin: 0; font-size: 0.75rem; color: var(--color-text-muted); line-height: 1.4; }
-  .nc-search { padding: 0.75rem 1rem 0; display: flex; flex-direction: column; gap: 0.4rem; flex-shrink: 0; border-bottom: 1px solid var(--color-border); }
-  .nc-search__row { display: flex; gap: 0.5rem; }
-  .nc-subdir-row { display: flex; gap: 0.5rem; align-items: center; }
-  .nc-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; padding: 0.4rem 0 0.65rem; }
-  .nc-chip { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.7rem; font-family: monospace; background: color-mix(in srgb, var(--color-primary) 14%, transparent); color: var(--color-primary); border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent); cursor: pointer; transition: background 0.15s; }
+  .nc-subtitle { margin: 0; font-size: 0.7rem; color: var(--color-text-muted); line-height: 1.4; }
+  .nc-header__actions { display: flex; gap: 0.3rem; }
+  .nc-header__btn { display: flex; align-items: center; justify-content: center; width: 1.75rem; height: 1.75rem; border-radius: var(--border-radius-sm); background: transparent; border: 1px solid transparent; color: var(--color-text-muted); cursor: pointer; transition: background 0.15s; }
+  .nc-header__btn:hover { background: color-mix(in srgb, var(--color-primary) 15%, transparent); color: var(--color-primary); }
+  .nc-header__btn .material-symbols-outlined { font-size: 1.1rem; }
+
+  /* 3-pane layout */
+  .nc-body { display: flex; flex: 1; overflow: hidden; min-width: 0; min-height: 0; }
+  .nc-search-panel { width: 240px; flex-shrink: 0; border-right: 1px solid var(--color-border); display: flex; flex-direction: column; overflow-x: hidden; overflow-y: auto; padding: 0.75rem; gap: 0.6rem; min-width: 0; box-sizing: border-box; }
+  .nc-graph-canvas { flex: 1; position: relative; overflow: hidden; background: var(--color-background); min-width: 0; }
+  .nc-details-panel { width: 280px; flex-shrink: 0; border-left: 1px solid var(--color-border); display: flex; flex-direction: column; overflow-y: auto; padding: 0.75rem; gap: 0.5rem; }
+  .nc-details-panel.is-empty { display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); font-style: italic; font-size: 0.8rem; }
+
+  /* Search panel controls */
+  .nc-search__row { display: flex; gap: 0.4rem; min-width: 0; align-items: stretch; }
+  .nc-subdir-row { display: flex; gap: 0.4rem; align-items: center; }
+  .nc-chips { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+  .nc-chip { display: inline-flex; align-items: center; gap: 0.2rem; padding: 0.1rem 0.45rem; border-radius: 999px; font-size: 0.65rem; font-family: monospace; background: color-mix(in srgb, var(--color-primary) 14%, transparent); color: var(--color-primary); border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent); cursor: pointer; }
   .nc-chip:hover { background: color-mix(in srgb, var(--color-primary) 25%, transparent); }
-  .nc-chip__remove { font-size: 0.65rem; opacity: 0.6; margin-left: 0.1rem; cursor: pointer; }
+  .nc-chip__remove { font-size: 0.6rem; opacity: 0.6; cursor: pointer; }
   .nc-chip__remove:hover { opacity: 1; }
-  .nc-input { flex: 1; padding: 0.4rem 0.65rem; border-radius: var(--border-radius-sm); border: 1px solid var(--color-border); background: var(--color-input); color: var(--color-text); font-size: 0.8125rem; outline: none; transition: border-color 0.15s; }
+  .nc-input { flex: 1; min-width: 0; padding: 0.35rem 0.55rem; border-radius: var(--border-radius-sm); border: 1px solid var(--color-border); background: var(--color-input); color: var(--color-text); font-size: 0.75rem; outline: none; transition: border-color 0.15s; box-sizing: border-box; }
   .nc-input:focus { border-color: var(--color-primary); }
-  .nc-input--sub { font-size: 0.75rem; }
-  .nc-btn { padding: 0.4rem 0.85rem; border-radius: var(--border-radius-sm); background: var(--color-primary); color: var(--color-background); border: none; font-size: 0.8125rem; font-weight: 600; cursor: pointer; transition: opacity 0.15s; white-space: nowrap; }
+  .nc-input--sub { font-size: 0.7rem; }
+  .nc-btn { flex-shrink: 0; padding: 0.35rem 0.7rem; border-radius: var(--border-radius-sm); background: var(--color-primary); color: var(--color-background); border: none; font-size: 0.75rem; font-weight: 600; cursor: pointer; transition: opacity 0.15s; white-space: nowrap; box-sizing: border-box; }
   .nc-btn:hover { opacity: 0.85; }
   .nc-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .nc-btn--sm { padding: 0.3rem 0.6rem; font-size: 0.75rem; }
-  .nc-status-envelope { min-height: 5.5rem; display: flex; align-items: center; justify-content: center; padding: 1rem; flex-shrink: 0; }
-  .nc-state { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; transition: opacity 0.15s; }
-  .nc-state--loading { color: var(--color-text-muted); }
-  .nc-state--error { color: var(--color-error-text); padding: 0.5rem 0.75rem; background: color-mix(in srgb, var(--color-error-text) 12%, transparent); border-radius: var(--border-radius-sm); border: 1px solid color-mix(in srgb, var(--color-error-text) 30%, transparent); }
-  .nc-state--empty { flex-direction: column; gap: 0.5rem; color: var(--color-text-muted); text-align: center; padding: 1rem; width: 100%; border: 1px dashed var(--color-border); border-radius: var(--border-radius-sm); font-style: italic; }
-  .nc-empty-icon { font-size: 1.75rem; opacity: 0.4; }
-  @keyframes nc-pulse { 0%, 100% { opacity: 0.3; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1.1); } }
-  .nc-pulse-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--color-primary); display: inline-block; animation: nc-pulse 1.2s ease-in-out infinite; }
-  .nc-results { flex: 1; overflow-y: auto; padding: 0.5rem 1rem 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
-  .nc-section { display: flex; flex-direction: column; gap: 0.4rem; }
-  .nc-section__label { margin: 0; font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--color-text-muted); padding-bottom: 0.25rem; border-bottom: 1px solid var(--color-border); }
-  .nc-node { background: var(--color-message-bg); border: 1px solid var(--color-border); border-radius: var(--border-radius-sm); padding: 0.5rem 0.65rem; display: flex; flex-direction: column; gap: 0.25rem; }
-  .nc-node__header { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
-  .nc-node__id { font-family: monospace; font-size: 0.75rem; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .nc-node__content { margin: 0; font-size: 0.78rem; color: var(--color-message-text); line-height: 1.45; }
-  .nc-score { font-size: 0.6875rem; font-weight: 700; padding: 0.1rem 0.4rem; border-radius: 999px; white-space: nowrap; flex-shrink: 0; }
-  .nc-score--high { background: color-mix(in srgb, #2ecc71 20%, transparent); color: #2ecc71; }
-  .nc-score--mid { background: color-mix(in srgb, var(--color-warning-text) 20%, transparent); color: var(--color-warning-text); }
-  .nc-score--low { background: color-mix(in srgb, var(--color-error-text) 20%, transparent); color: var(--color-error-text); }
-  .nc-edge { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; font-family: monospace; font-size: 0.73rem; background: color-mix(in srgb, var(--color-primary) 10%, transparent); border-radius: var(--border-radius-sm); padding: 0.3rem 0.6rem; }
-  .nc-edge__from, .nc-edge__to { color: var(--color-text-muted); }
-  .nc-edge__rel { color: var(--color-accent); font-weight: 600; }
-  .nc-edge__arrow { color: var(--color-border); }
+  .nc-btn--sm { padding: 0.25rem 0.5rem; font-size: 0.7rem; }
+  .nc-btn--ghost { background: transparent; color: var(--color-text-muted); border: 1px solid var(--color-border); }
+  .nc-btn--ghost:hover { background: color-mix(in srgb, var(--color-primary) 10%, transparent); color: var(--color-primary); }
+
+  /* Filter section */
+  .nc-filter-section { display: flex; flex-direction: column; gap: 0.4rem; padding-top: 0.5rem; border-top: 1px solid var(--color-border); }
+  .nc-filter-section__title { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); }
+  .nc-filter-slider { display: flex; flex-direction: column; gap: 0.15rem; }
+  .nc-filter-slider label { font-size: 0.65rem; color: var(--color-text-muted); display: flex; justify-content: space-between; }
+  .nc-filter-slider input[type="range"] { width: 100%; accent-color: var(--color-primary); height: 1.1rem; }
+
+  /* Advanced Filters dropdown */
+  .nc-filter-dropdown { position: relative; }
+  .nc-filter-dropdown__menu { position: absolute; top: 100%; left: 0; right: 0; z-index: 100; margin-top: 0.25rem; background: var(--color-panel); border: 1px solid var(--color-border); border-radius: var(--border-radius-sm); padding: 0.6rem; display: flex; flex-direction: column; gap: 0.5rem; box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-height: 60vh; overflow-y: auto; }
+  .nc-filter-group { display: flex; flex-direction: column; gap: 0.3rem; }
+  .nc-filter-group__title { font-size: 0.65rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .nc-filter-checkboxes { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+  .nc-filter-checkbox { display: inline-flex; align-items: center; gap: 0.2rem; padding: 0.15rem 0.4rem; border-radius: var(--border-radius-sm); background: var(--color-background-secondary); border: 1px solid var(--color-border); font-size: 0.65rem; cursor: pointer; }
+  .nc-filter-checkbox:hover { background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
+  .nc-filter-checkbox input[type="checkbox"] { width: 0.7rem; height: 0.7rem; accent-color: var(--color-primary); }
+  .nc-filter-checkbox.is-active { background: color-mix(in srgb, var(--color-primary) 20%, transparent); border-color: var(--color-primary); }
+  .nc-filter-date-range { display: flex; gap: 0.3rem; }
+  .nc-filter-date-range input { flex: 1; padding: 0.25rem 0.35rem; border: 1px solid var(--color-border); border-radius: var(--border-radius-sm); background: var(--color-input); color: var(--color-text); font-size: 0.65rem; }
+  .nc-filter-actions { display: flex; gap: 0.3rem; margin-top: 0.3rem; }
+  .nc-filter-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 1rem; height: 1rem; padding: 0 0.3rem; border-radius: 999px; background: var(--color-primary); color: var(--color-background); font-size: 0.6rem; font-weight: 700; margin-left: 0.3rem; }
+
+  /* Graph canvas */
+  .nc-cy-container { width: 100%; height: 100%; position: relative; }
+  .nc-cy-state { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 0.5rem; color: var(--color-text-muted); }
+  .nc-cy-state--loading { font-size: 0.85rem; }
+  .nc-cy-state--empty { font-size: 0.85rem; text-align: center; padding: 1rem; }
+  .nc-cy-state--empty .material-symbols-outlined { font-size: 2rem; opacity: 0.4; }
+  @keyframes nc-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .nc-spin { animation: nc-spin 1s linear infinite; }
+
+  /* Details panel */
+  .nc-details__id { font-family: monospace; font-size: 0.7rem; color: var(--color-text-muted); word-break: break-all; padding: 0.25rem 0.4rem; background: var(--color-background-secondary); border-radius: var(--border-radius-sm); }
+  .nc-details__content { margin: 0; font-size: 0.78rem; line-height: 1.45; color: var(--color-message-text); }
+  .nc-details__scores { display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.4rem; }
+  .nc-details__score-row { display: flex; align-items: center; gap: 0.4rem; font-size: 0.7rem; }
+  .nc-details__score-label { width: 4.5rem; color: var(--color-text-muted); font-weight: 600; }
+  .nc-details__score-bar { flex: 1; height: 0.5rem; background: var(--color-background-secondary); border-radius: 999px; overflow: hidden; }
+  .nc-details__score-fill { height: 100%; border-radius: 999px; transition: width 0.2s; }
+  .nc-details__score-fill--high { background: #2ecc71; }
+  .nc-details__score-fill--mid { background: var(--color-warning-text, #facc15); }
+  .nc-details__score-fill--low { background: var(--color-error-text, #f87171); }
+  .nc-details__score-value { font-family: monospace; font-size: 0.65rem; min-width: 2rem; text-align: right; }
+  .nc-details__rels { margin-top: 0.4rem; }
+  .nc-details__rels-title { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); margin-bottom: 0.3rem; }
+  .nc-details__rel { display: flex; align-items: center; gap: 0.3rem; padding: 0.2rem 0.4rem; background: color-mix(in srgb, var(--color-primary) 10%, transparent); border-radius: var(--border-radius-sm); font-size: 0.7rem; margin-bottom: 0.2rem; cursor: pointer; }
+  .nc-details__rel:hover { background: color-mix(in srgb, var(--color-primary) 20%, transparent); }
+  .nc-details__rel-type { font-weight: 600; color: var(--color-accent); }
+  .nc-details__close { position: absolute; top: 0.5rem; right: 0.5rem; cursor: pointer; opacity: 0.6; }
+  .nc-details__close:hover { opacity: 1; }
+
+  /* Status bar */
+  .nc-status-bar { display: flex; align-items: center; justify-content: space-between; padding: 0.35rem 1rem; border-top: 1px solid var(--color-border); font-size: 0.7rem; color: var(--color-text-muted); flex-shrink: 0; }
+  .nc-status-bar__counts { font-family: monospace; }
+  .nc-status-bar__time { font-style: italic; }
 </style>
-<div x-data="{ q: '', sub: '', subdirs: JSON.parse(localStorage.getItem('nc_memory_subdirs') || '[&quot;projects/neruo_core&quot;]'), loading: false, error: null, nodes: [], edges: [], saveSubdir() { const v = this.sub.trim(); if (!v || this.subdirs.includes(v)) return; this.subdirs.push(v); localStorage.setItem('nc_memory_subdirs', JSON.stringify(this.subdirs)); }, removeSubdir(s) { this.subdirs = this.subdirs.filter(x => x !== s); localStorage.setItem('nc_memory_subdirs', JSON.stringify(this.subdirs)); }, scoreClass(s) { return s >= 0.7 ? 'nc-score nc-score--high' : s >= 0.4 ? 'nc-score nc-score--mid' : 'nc-score nc-score--low'; }, truncate(s, n) { return s && s.length > n ? s.slice(0, n) + '\u2026' : (s || ''); }, async search() { if (!this.q.trim()) return; this.loading = true; this.error = null; try { const r = await fetch('/api/plugins/neuro_core/context_graph?query=' + encodeURIComponent(this.q) + '&memory_subdir=' + encodeURIComponent(this.sub)); const data = await r.json(); if (!r.ok) throw new Error(data.error || r.statusText); this.nodes = (data.context_graph && data.context_graph.nodes) || []; this.edges = (data.context_graph && data.context_graph.edges) || []; } catch(e) { this.error = e.message; } finally { this.loading = false; } } }" class="nc-panel">
+<div x-data="{ q: '', sub: '', subdirs: JSON.parse(localStorage.getItem('nc_memory_subdirs') || '[&quot;projects/neruo_core&quot;]'), loading: false, error: null, nodes: [], edges: [], cy: null, inspectNode: null, inspectOpen: false, themeObserver: null, filterDropdownOpen: false, filterLoading: false, advancedFilters: { memory_types: [], validation_statuses: [], relationship_types: [], date_range_start: '', date_range_end: '', importance_min: 0.0, confidence_min: 0.0, stability_min: 0.0, episode_id: '' }, minScore: 0.0, layout: 'cose', saveSubdir() { const v = this.sub.trim(); if (!v || this.subdirs.includes(v)) return; this.subdirs.push(v); localStorage.setItem('nc_memory_subdirs', JSON.stringify(this.subdirs)); }, removeSubdir(s) { this.subdirs = this.subdirs.filter(x => x !== s); localStorage.setItem('nc_memory_subdirs', JSON.stringify(this.subdirs)); }, scoreClass(s) { return s >= 0.7 ? 'high' : s >= 0.4 ? 'mid' : 'low'; }, truncate(s, n) { return s && s.length > n ? s.slice(0, n) + '\u2026' : (s || ''); }, get activeFilterCount() { const f = this.advancedFilters; return (f.memory_types.length) + (f.validation_statuses.length) + (f.relationship_types.length) + (f.date_range_start ? 1 : 0) + (f.date_range_end ? 1 : 0) + (f.importance_min > 0 ? 1 : 0) + (f.confidence_min > 0 ? 1 : 0) + (f.stability_min > 0 ? 1 : 0) + (f.episode_id ? 1 : 0); }, toggleFilterDropdown() { this.filterDropdownOpen = !this.filterDropdownOpen; }, toggleFilter(key, value) { const arr = this.advancedFilters[key]; const idx = arr.indexOf(value); if (idx === -1) arr.push(value); else arr.splice(idx, 1); }, isFilterActive(key, value) { return this.advancedFilters[key].includes(value); }, async applyAdvancedFilters() { this.filterLoading = true; this.error = null; try { const params = new URLSearchParams(); params.set('memory_subdir', this.sub || 'default'); if (this.advancedFilters.memory_types.length > 0) params.set('memory_type', this.advancedFilters.memory_types.join(',')); if (this.advancedFilters.validation_statuses.length > 0) params.set('validation_status', this.advancedFilters.validation_statuses.join(',')); if (this.advancedFilters.relationship_types.length > 0) params.set('relationship_type', this.advancedFilters.relationship_types.join(',')); if (this.advancedFilters.date_range_start) params.set('date_range_start', this.advancedFilters.date_range_start); if (this.advancedFilters.date_range_end) params.set('date_range_end', this.advancedFilters.date_range_end); if (this.advancedFilters.importance_min > 0) params.set('importance_min', this.advancedFilters.importance_min); if (this.advancedFilters.confidence_min > 0) params.set('confidence_min', this.advancedFilters.confidence_min); if (this.advancedFilters.stability_min > 0) params.set('stability_min', this.advancedFilters.stability_min); if (this.advancedFilters.episode_id) params.set('episode_id', this.advancedFilters.episode_id); const r = await fetch('/api/plugins/neuro_core/advanced_filters?' + params.toString()); const data = await r.json(); if (!r.ok) throw new Error(data.error || r.statusText); this.nodes = data.nodes || []; this.edges = data.edges || []; this.filterDropdownOpen = false; this.$nextTick(() => this.renderGraph()); } catch(e) { this.error = e.message; } finally { this.filterLoading = false; } }, clearAdvancedFilters() { this.advancedFilters = { memory_types: [], validation_statuses: [], relationship_types: [], date_range_start: '', date_range_end: '', importance_min: 0.0, confidence_min: 0.0, stability_min: 0.0, episode_id: '' }; }, async search() { if (!this.q.trim()) return; this.loading = true; this.error = null; try { const r = await fetch('/api/plugins/neuro_core/context_graph?query=' + encodeURIComponent(this.q) + '&memory_subdir=' + encodeURIComponent(this.sub)); const data = await r.json(); if (!r.ok) throw new Error(data.error || r.statusText); this.nodes = (data.context_graph && data.context_graph.nodes) || []; this.edges = (data.context_graph && data.context_graph.edges) || []; this.$nextTick(() => this.renderGraph()); } catch(e) { this.error = e.message; } finally { this.loading = false; } }, refresh() { if (this.q.trim()) this.search(); }, initCytoscape() { const self = this; this.$nextTick(() => { const container = document.getElementById('nc-cy'); if (!container || typeof cytoscape === 'undefined') return; if (this.cy) { this.cy.destroy(); } this.cy = cytoscape({ container: container, elements: [], style: this.cyStyle(), layout: { name: this.layout, animate: false, fit: true, padding: 30 }, minZoom: 0.2, maxZoom: 3, wheelSensitivity: 0.2 }); this.cy.on('tap', 'node', function(evt) { const node = evt.target; self.inspectNode = { id: node.id(), content: node.data('content') || '', scores: node.data('scores') || { importance: node.data('importance') || 0 }, importance: node.data('importance') || 0 }; self.inspectOpen = true; }); this.cy.on('tap', function(evt) { if (evt.target === self.cy) { self.inspectOpen = false; } }); if (this.cyResizeObserver) this.cyResizeObserver.disconnect(); this.cyResizeObserver = new ResizeObserver(() => { if (self.cy) { self.cy.resize(); self.cy.fit(undefined, 30); } }); this.cyResizeObserver.observe(container); setTimeout(() => { if (self.cy) { self.cy.resize(); self.cy.fit(undefined, 30); } }, 100); }); }, cyStyle() { const cs = getComputedStyle(document.documentElement); return [{ selector: 'node', style: { 'background-color': cs.getPropertyValue('--color-primary').trim() || '#5b9bd5', 'label': 'data(label)', 'color': cs.getPropertyValue('--color-text').trim() || '#333', 'font-size': '0.65rem', 'text-valign': 'bottom', 'text-halign': 'center', 'text-margin-y': 4, 'width': 'mapData(importance, 0, 1, 12, 48)', 'height': 'mapData(importance, 0, 1, 12, 48)', 'border-width': 1, 'border-color': cs.getPropertyValue('--color-border').trim() || '#ccc' } }, { selector: 'edge', style: { 'curve-style': 'bezier', 'target-arrow-shape': 'triangle', 'line-color': cs.getPropertyValue('--color-accent').trim() || '#9b59b6', 'target-arrow-color': cs.getPropertyValue('--color-accent').trim() || '#9b59b6', 'label': 'data(rel_type)', 'font-size': '0.6rem', 'color': cs.getPropertyValue('--color-text-muted').trim() || '#888', 'text-rotation': 'autorotate', 'text-background-color': cs.getPropertyValue('--color-panel').trim() || '#fff', 'text-background-opacity': 0.8, 'text-background-padding': '2px', 'width': 1.5 } }, { selector: 'node:selected', style: { 'border-width': 3, 'border-color': cs.getPropertyValue('--color-primary').trim() || '#5b9bd5' } }]; }, renderGraph() { if (!this.cy) return; const elements = []; this.nodes.forEach(n => { elements.push({ group: 'nodes', data: { id: n.id, label: (n.content || n.id).slice(0, 30), content: n.content, scores: n.scores || { importance: n.score || 0 }, importance: n.score || 0.5 } }); }); (this.edges || []).forEach((e, i) => { elements.push({ group: 'edges', data: { id: 'e' + i, source: e.from_id, target: e.to_id, rel_type: e.rel_type || e.type || '?' } }); }); this.cy.elements().remove(); this.cy.add(elements); const container = document.getElementById('nc-cy'); if (container) { void container.offsetHeight; this.cy.resize(); } const layout = this.cy.layout({ name: this.layout, animate: false, fit: true, padding: 30 }); requestAnimationFrame(() => { layout.run(); }); }, watchTheme() { if (this.themeObserver) this.themeObserver.disconnect(); this.themeObserver = new MutationObserver(() => { if (this.cy) this.cy.style().fromJson(this.cyStyle()).update(); }); this.themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] }); }, get lastUpdated() { return this.nodes.length > 0 ? new Date().toLocaleTimeString() : '-'; }, get relatedNodes() { if (!this.inspectNode) return []; const id = this.inspectNode.id; return (this.edges || []).filter(e => e.from_id === id || e.to_id === id).map(e => ({ otherId: e.from_id === id ? e.to_id : e.from_id, relType: e.rel_type || e.type || '?', direction: e.from_id === id ? 'out' : 'in' })); } }" x-init="initCytoscape(); watchTheme(); if (!q) q = 'recent'; search()" class="nc-panel">
   <div class="nc-header">
     <div class="nc-header__icon"><span class="material-symbols-outlined">hub</span></div>
     <div class="nc-header__text">
       <h3 class="nc-title">Neuro Core</h3>
       <p class="nc-subtitle">Context graph &amp; memory scores</p>
     </div>
-  </div>
-  <div class="nc-search">
-    <div class="nc-search__row">
-      <input x-model="q" @keydown.enter="search()" placeholder="Search memories…" class="nc-input" />
-      <button @click="search()" :disabled="loading" class="nc-btn">Search</button>
-    </div>
-    <div class="nc-subdir-row">
-      <input x-model="sub" placeholder="memory subdir…" class="nc-input nc-input--sub" @keydown.enter="saveSubdir()" />
-      <button @click="saveSubdir()" class="nc-btn nc-btn--sm" title="Save subdir as chip">+</button>
-    </div>
-    <div class="nc-chips">
-      <template x-for="s in subdirs" :key="s">
-        <span class="nc-chip" @click="sub = s">
-          <span x-text="s"></span>
-          <span class="nc-chip__remove" @click.stop="removeSubdir(s)" title="Remove">×</span>
-        </span>
-      </template>
+    <div class="nc-header__actions">
+      <button @click="refresh()" class="nc-header__btn" title="Refresh"><span class="material-symbols-outlined">refresh</span></button>
+      <button @click="window.dispatchEvent(new CustomEvent('open-plugin-settings', { detail: { plugin: 'neuro_core' } }))" class="nc-header__btn" title="Settings"><span class="material-symbols-outlined">settings</span></button>
     </div>
   </div>
-  <div class="nc-status-envelope">
-    <div x-show="loading" class="nc-state nc-state--loading"><span class="nc-pulse-dot"></span> Searching…</div>
-    <div x-show="error && !loading" x-text="error" class="nc-state nc-state--error"></div>
-    <div x-show="!loading && !error && nodes.length === 0" class="nc-state nc-state--empty">
-      <span class="material-symbols-outlined nc-empty-icon">manage_search</span>
-      <span>Search memories to explore the context graph</span>
-    </div>
-  </div>
-  <div x-show="nodes.length > 0" class="nc-results">
-    <div class="nc-section">
-      <p class="nc-section__label">NODES (<span x-text="nodes.length"></span>)</p>
-      <template x-for="node in nodes" :key="node.id">
-        <div class="nc-node">
-          <div class="nc-node__header">
-            <span class="nc-node__id" x-text="truncate(node.id, 36)" :title="node.id"></span>
-            <span class="nc-score" :class="scoreClass(node.score || 0)" x-text="(node.score || 0).toFixed(2)"></span>
+  <div class="nc-body">
+    <div class="nc-search-panel">
+      <div class="nc-search__row">
+        <input x-model="q" @keydown.enter="search()" placeholder="Search memories..." class="nc-input" />
+        <button @click="search()" :disabled="loading" class="nc-btn">Search</button>
+      </div>
+      <div class="nc-subdir-row">
+        <input x-model="sub" placeholder="memory subdir..." class="nc-input nc-input--sub" @keydown.enter="saveSubdir()" />
+        <button @click="saveSubdir()" class="nc-btn nc-btn--sm nc-btn--ghost" title="Save subdir as chip">+</button>
+      </div>
+      <div class="nc-chips">
+        <template x-for="s in subdirs" :key="s">
+          <span class="nc-chip" @click="sub = s">
+            <span x-text="s"></span>
+            <span class="nc-chip__remove" @click.stop="removeSubdir(s)" title="Remove">x</span>
+          </span>
+        </template>
+      </div>
+
+      <!-- Min Score Slider -->
+      <div class="nc-filter-section">
+        <div class="nc-filter-section__title">Min Score</div>
+        <div class="nc-filter-slider">
+          <label><span>Threshold</span><span x-text="minScore.toFixed(2)"></span></label>
+          <input type="range" min="0" max="1" step="0.05" x-model.number="minScore" />
+        </div>
+      </div>
+
+      <!-- Layout Selector -->
+      <div class="nc-filter-section">
+        <div class="nc-filter-section__title">Layout</div>
+        <select x-model="layout" @change="$nextTick(() => renderGraph())" class="nc-input nc-input--sub">
+          <option value="cose">Cose</option>
+          <option value="concentric">Concentric</option>
+          <option value="breadthfirst">Breadthfirst</option>
+          <option value="grid">Grid</option>
+          <option value="circle">Circle</option>
+        </select>
+      </div>
+
+      <!-- Advanced Filters Dropdown -->
+      <div class="nc-filter-section">
+        <div class="nc-filter-dropdown">
+          <button @click="toggleFilterDropdown()" class="nc-btn nc-btn--ghost" style="width: 100%; justify-content: space-between; display: flex; align-items: center;">
+            <span><span class="material-symbols-outlined" style="font-size: 0.85rem; vertical-align: middle;">tune</span> Advanced Filters</span>
+            <span x-show="activeFilterCount > 0" class="nc-filter-badge" x-text="activeFilterCount"></span>
+          </button>
+          <div x-show="filterDropdownOpen" @click.outside="filterDropdownOpen = false" class="nc-filter-dropdown__menu" x-transition>
+            <!-- Memory Type -->
+            <div class="nc-filter-group">
+              <label class="nc-filter-group__title">Memory Type</label>
+              <div class="nc-filter-checkboxes">
+                <template x-for="t in ['concept','episode','reflection','task','solution','fragment','observation','summary']" :key="t">
+                  <label class="nc-filter-checkbox" :class="{ 'is-active': isFilterActive('memory_types', t) }">
+                    <input type="checkbox" :value="t" :checked="isFilterActive('memory_types', t)" @change="toggleFilter('memory_types', t)">
+                    <span x-text="t"></span>
+                  </label>
+                </template>
+              </div>
+            </div>
+            <!-- Validation Status -->
+            <div class="nc-filter-group">
+              <label class="nc-filter-group__title">Validation Status</label>
+              <div class="nc-filter-checkboxes">
+                <template x-for="s in ['unvalidated','validated','disputed','deprecated']" :key="s">
+                  <label class="nc-filter-checkbox" :class="{ 'is-active': isFilterActive('validation_statuses', s) }">
+                    <input type="checkbox" :value="s" :checked="isFilterActive('validation_statuses', s)" @change="toggleFilter('validation_statuses', s)">
+                    <span x-text="s"></span>
+                  </label>
+                </template>
+              </div>
+            </div>
+            <!-- Relationship Type -->
+            <div class="nc-filter-group">
+              <label class="nc-filter-group__title">Relationship Type</label>
+              <div class="nc-filter-checkboxes">
+                <template x-for="r in ['supports','contradicts','depends_on','derived_from','related_to','precedes','follows']" :key="r">
+                  <label class="nc-filter-checkbox" :class="{ 'is-active': isFilterActive('relationship_types', r) }">
+                    <input type="checkbox" :value="r" :checked="isFilterActive('relationship_types', r)" @change="toggleFilter('relationship_types', r)">
+                    <span x-text="r"></span>
+                  </label>
+                </template>
+              </div>
+            </div>
+            <!-- Date Range -->
+            <div class="nc-filter-group">
+              <label class="nc-filter-group__title">Date Range</label>
+              <div class="nc-filter-date-range">
+                <input type="datetime-local" x-model="advancedFilters.date_range_start" placeholder="Start">
+                <input type="datetime-local" x-model="advancedFilters.date_range_end" placeholder="End">
+              </div>
+            </div>
+            <!-- Score Thresholds -->
+            <div class="nc-filter-group">
+              <label class="nc-filter-group__title">Score Thresholds</label>
+              <div class="nc-filter-slider">
+                <label><span>Importance</span><span x-text="advancedFilters.importance_min.toFixed(2)"></span></label>
+                <input type="range" min="0" max="1" step="0.05" x-model.number="advancedFilters.importance_min" />
+              </div>
+              <div class="nc-filter-slider">
+                <label><span>Confidence</span><span x-text="advancedFilters.confidence_min.toFixed(2)"></span></label>
+                <input type="range" min="0" max="1" step="0.05" x-model.number="advancedFilters.confidence_min" />
+              </div>
+              <div class="nc-filter-slider">
+                <label><span>Stability</span><span x-text="advancedFilters.stability_min.toFixed(2)"></span></label>
+                <input type="range" min="0" max="1" step="0.05" x-model.number="advancedFilters.stability_min" />
+              </div>
+            </div>
+            <!-- Episode ID -->
+            <div class="nc-filter-group">
+              <label class="nc-filter-group__title">Episode ID</label>
+              <input type="text" x-model="advancedFilters.episode_id" placeholder="e.g., ep_2026-07-06_001" class="nc-input nc-input--sub">
+            </div>
+            <!-- Actions -->
+            <div class="nc-filter-actions">
+              <button @click="applyAdvancedFilters()" :disabled="filterLoading" class="nc-btn" style="flex: 1;">
+                <span x-show="!filterLoading">Apply Filters</span>
+                <span x-show="filterLoading">Loading...</span>
+              </button>
+              <button @click="clearAdvancedFilters()" class="nc-btn nc-btn--ghost">Clear</button>
+            </div>
           </div>
-          <p class="nc-node__content" x-text="truncate(node.content, 120)"></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Graph Canvas -->
+    <div class="nc-graph-canvas">
+      <div id="nc-cy" class="nc-cy-container"></div>
+      <div x-show="loading" class="nc-cy-state nc-cy-state--loading">
+        <span class="material-symbols-outlined nc-spin">progress_activity</span>
+        <span>Loading graph...</span>
+      </div>
+      <div x-show="!loading && error" class="nc-cy-state" style="color: var(--color-error-text);">
+        <span class="material-symbols-outlined">error</span>
+        <span x-text="error"></span>
+      </div>
+      <div x-show="!loading && !error && nodes.length === 0" class="nc-cy-state nc-cy-state--empty">
+        <span class="material-symbols-outlined">hub</span>
+        <span>No memory relationships yet</span>
+        <span style="font-size: 0.7rem;">Use memory_relate to connect memories</span>
+      </div>
+    </div>
+
+    <!-- Details Panel -->
+    <div class="nc-details-panel" :class="{ 'is-empty': !inspectNode }">
+      <template x-if="inspectNode">
+        <div>
+          <div class="nc-details__id" x-text="inspectNode.id"></div>
+          <p class="nc-details__content" x-text="inspectNode.content || '(no content)'></p>
+          <div class="nc-details__scores">
+            <div class="nc-details__score-row">
+              <span class="nc-details__score-label">Importance</span>
+              <div class="nc-details__score-bar"><div class="nc-details__score-fill" :class="'nc-details__score-fill--' + scoreClass(inspectNode.importance || 0)" :style="'width: ' + ((inspectNode.importance || 0) * 100) + '%'"></div></div>
+              <span class="nc-details__score-value" x-text="(inspectNode.importance || 0).toFixed(2)"></span>
+            </div>
+          </div>
+          <div class="nc-details__rels" x-show="relatedNodes.length > 0">
+            <div class="nc-details__rels-title">Relationships</div>
+            <template x-for="rel in relatedNodes" :key="rel.otherId + rel.direction">
+              <div class="nc-details__rel" @click="q = rel.otherId; search()">
+                <span class="material-symbols-outlined" style="font-size: 0.75rem;" x-text="rel.direction === 'out' ? 'arrow_outward' : 'arrow_inward'"></span>
+                <span class="nc-details__rel-type" x-text="rel.relType"></span>
+                <span x-text="truncate(rel.otherId, 20)"></span>
+              </div>
+            </template>
+          </div>
+          <button @click="inspectNode = null; inspectOpen = false" class="nc-btn nc-btn--ghost" style="margin-top: 0.5rem; width: 100%;">Close</button>
+        </div>
+      </template>
+      <template x-if="!inspectNode">
+        <div style="text-align: center; padding: 1rem;">
+          <span class="material-symbols-outlined" style="font-size: 1.5rem; opacity: 0.4;">touch_app</span>
+          <div>Click a node to inspect</div>
         </div>
       </template>
     </div>
-    <div class="nc-section" x-show="edges.length > 0">
-      <p class="nc-section__label">EDGES (<span x-text="edges.length"></span>)</p>
-      <template x-for="(edge, i) in edges" :key="i">
-        <div class="nc-edge">
-          <span class="nc-edge__from" x-text="truncate(edge.from_id, 18)"></span>
-          <span class="nc-edge__arrow">→</span>
-          <span class="nc-edge__rel" x-text="'[' + (edge.rel_type || edge.type || '?') + ']'"></span>
-          <span class="nc-edge__arrow">→</span>
-          <span class="nc-edge__to" x-text="truncate(edge.to_id, 18)"></span>
-        </div>
-      </template>
-    </div>
+  </div>
+
+  <!-- Status Bar -->
+  <div class="nc-status-bar">
+    <span class="nc-status-bar__counts">
+      <span x-text="nodes.length"></span> nodes, <span x-text="edges.length"></span> edges
+    </span>
+    <span class="nc-status-bar__time">Last updated: <span x-text="lastUpdated"></span></span>
   </div>
 </div>

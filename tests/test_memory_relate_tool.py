@@ -476,6 +476,48 @@ async def test_related_to_writes_forward_and_reverse_edges(tmp_path: Path) -> No
 
 
 # ---------------------------------------------------------------------------
+# Test F2: success-path Response includes additional['neuro_core_ack']
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_success_response_includes_neuro_core_ack(tmp_path: Path) -> None:
+    """F2: success-path Response must include additional['neuro_core_ack']."""
+    from usr.plugins.neuro_core.helpers.graph_store import (
+        GraphEdge,
+        GraphStore,
+    )
+
+    store = GraphStore.__new__(GraphStore)
+    store.memory_subdir = "default"
+    store._path = _memory_subdir_path(tmp_path, "default")
+    store._path.parent.mkdir(parents=True, exist_ok=True)
+    store._data = {}
+    store._lock = __import__("threading").RLock()
+
+    def _fake_add_edge(edge: GraphEdge) -> None:
+        store._data.setdefault(edge.from_id, []).append(edge)
+
+    store.add_edge = _fake_add_edge  # type: ignore[assignment]
+
+    tool = _make_tool(graph_store=store, available_ids=["a", "b"])
+
+    resp = await tool.execute(
+        from_id="a",
+        to_id="b",
+        rel_type="supports",
+        weight=0.75,
+    )
+
+    assert resp.additional is not None
+    assert "neuro_core_ack" in resp.additional
+    ack = resp.additional["neuro_core_ack"]
+    assert "a" in ack and "b" in ack
+    assert "supports" in ack
+    assert "0.75" in ack
+
+
+# ---------------------------------------------------------------------------
 # Test 8 (D24): directional type (supports) does NOT write a reverse edge
 # ---------------------------------------------------------------------------
 

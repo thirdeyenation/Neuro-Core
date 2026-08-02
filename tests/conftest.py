@@ -68,9 +68,15 @@ if "helpers.tool" not in sys.modules:
     _tool_mod = types.ModuleType("helpers.tool")
 
     class _Response:
-        def __init__(self, message: str, break_loop: bool = False):
+        def __init__(
+            self,
+            message: str,
+            break_loop: bool = False,
+            additional: dict | None = None,
+        ):
             self.message = message
             self.break_loop = break_loop
+            self.additional = additional
 
     class _Tool:
         """Minimal Tool base class used by tool unit tests."""

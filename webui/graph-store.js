@@ -31,6 +31,22 @@ export const neuroGraphStore = createStore('neuroGraph', {
   error: null,
   last_fetched_at: null,
 
+  // Advanced Filters state ----------------------------------------
+  advancedFilters: {
+    memory_types: [],
+    validation_statuses: [],
+    relationship_types: [],
+    date_range_start: '',
+    date_range_end: '',
+    importance_min: 0.0,
+    confidence_min: 0.0,
+    stability_min: 0.0,
+    episode_id: '',
+  },
+  filterPanelOpen: false,
+  filterResults: null,
+  filterLoading: false,
+
   // Computed-ish helpers -------------------------------------------
   get isEmpty() {
     return !this.loading && !this.error && this.nodes.length === 0;
@@ -134,6 +150,89 @@ export const neuroGraphStore = createStore('neuroGraph', {
     // No-op for now; the panel is read-only until ``fetch`` is called.
   },
 });
+
+  // Advanced Filters methods ------------------------------------
+  toggleFilterPanel() {
+    this.filterPanelOpen = !this.filterPanelOpen;
+  },
+  async applyAdvancedFilters() {
+    this.filterLoading = true;
+    this.error = null;
+    try {
+      const params = new URLSearchParams();
+      params.set('memory_subdir', this.memory_subdir || 'default');
+      if (this.advancedFilters.memory_types.length > 0) {
+        params.set('memory_type', this.advancedFilters.memory_types.join(','));
+      }
+      if (this.advancedFilters.validation_statuses.length > 0) {
+        params.set('validation_status', this.advancedFilters.validation_statuses.join(','));
+      }
+      if (this.advancedFilters.relationship_types.length > 0) {
+        params.set('relationship_type', this.advancedFilters.relationship_types.join(','));
+      }
+      if (this.advancedFilters.date_range_start) {
+        params.set('date_range_start', this.advancedFilters.date_range_start);
+      }
+      if (this.advancedFilters.date_range_end) {
+        params.set('date_range_end', this.advancedFilters.date_range_end);
+      }
+      if (this.advancedFilters.importance_min > 0) {
+        params.set('importance_min', this.advancedFilters.importance_min);
+      }
+      if (this.advancedFilters.confidence_min > 0) {
+        params.set('confidence_min', this.advancedFilters.confidence_min);
+      }
+      if (this.advancedFilters.stability_min > 0) {
+        params.set('stability_min', this.advancedFilters.stability_min);
+      }
+      if (this.advancedFilters.episode_id) {
+        params.set('episode_id', this.advancedFilters.episode_id);
+      }
+      const url = API_BASE + '/advanced_filters?' + params.toString();
+      const resp = await fetch(url, { credentials: 'same-origin' });
+      const data = await resp.json();
+      if (data.success) {
+        this.filterResults = data;
+        this.nodes = Array.isArray(data.nodes) ? data.nodes : [];
+        this.edges = Array.isArray(data.edges) ? data.edges : [];
+        toastFrontendSuccess('Filters applied', 'Neuro Core');
+      } else {
+        this.error = data.error || 'Filter request failed';
+        toastFrontendError(this.error, 'Neuro Core');
+      }
+    } catch (err) {
+      this.error = (err && err.message) || String(err);
+      toastFrontendError(this.error, 'Neuro Core');
+    } finally {
+      this.filterLoading = false;
+    }
+  },
+  clearAdvancedFilters() {
+    this.advancedFilters = {
+      memory_types: [],
+      validation_statuses: [],
+      relationship_types: [],
+      date_range_start: '',
+      date_range_end: '',
+      importance_min: 0.0,
+      confidence_min: 0.0,
+      stability_min: 0.0,
+      episode_id: '',
+    };
+    this.filterResults = null;
+  },
+  get activeFilterCount() {
+    const f = this.advancedFilters || {};
+    return (f.memory_types?.length || 0) +
+           (f.validation_statuses?.length || 0) +
+           (f.relationship_types?.length || 0) +
+           (f.date_range_start ? 1 : 0) +
+           (f.date_range_end ? 1 : 0) +
+           (f.importance_min > 0 ? 1 : 0) +
+           (f.confidence_min > 0 ? 1 : 0) +
+           (f.stability_min > 0 ? 1 : 0) +
+           (f.episode_id ? 1 : 0);
+  },
 
 // Register the store with Alpine on first import. Alpine will pick
 // this up via the global ``Alpine`` handle. If Alpine is not ready
