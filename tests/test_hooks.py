@@ -179,7 +179,15 @@ def _reset_job_loop_state(
     episode_grouping_module,
     contradiction_detection_module,
 ):
-    """Reset module-level _STATE dicts before each test."""
+    """Reset module-level _STATE dicts before each test.
+
+    Also patches each module's ``_process_uptime_seconds`` to report a
+    mature process (10000 s), bypassing the boot grace-period guard
+    (WI-2026-09-04-PHASE0-PATCH-ARCH, D-NC1-015). These tests exercise
+    the post-grace throttle/job behavior; the guard itself is covered
+    by ``TestBootGraceGuard`` in ``test_lifecycle_jobs.py``.
+    """
+    saved_uptime = {}
     for mod in (
         access_decay_module,
         episode_grouping_module,
@@ -187,7 +195,15 @@ def _reset_job_loop_state(
     ):
         if hasattr(mod, "_STATE"):
             mod._STATE["last_run"] = 0.0
+        if hasattr(mod, "_process_uptime_seconds"):
+            saved_uptime[mod.__name__] = (
+                mod,
+                mod._process_uptime_seconds,
+            )
+            mod._process_uptime_seconds = lambda: 10000.0
     yield
+    for mod, original in saved_uptime.values():
+        mod._process_uptime_seconds = original
 
 
 # ---------------------------------------------------------------------------

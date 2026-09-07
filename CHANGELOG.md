@@ -1,3 +1,9 @@
+# NEURO CORE CHANGELOG
+
+**UPDATE REQUIRED**
+*CURRENT DATE:* 2026-09-06
+*UPDATE STATUS:* PENDING
+
 ## [1.0.0] — 2026-06-25
 
 ### The First Stable Release
@@ -112,4 +118,4 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Live integration test suite (9-step) deferred to v0.2.0
 ---
 ## [Unreleased]
-*Nothing yet — see roadmap in README.md*
+*TO BE FILLED*

@@ -32,8 +32,9 @@ present on the request. Anonymous requests are rejected by the
 framework before the `process()` method is entered.
 
 The handler also accepts the standard Agent Zero request body shape —
-everything is read from the parsed `input` dict, with query string
-parameters merged in by the framework.
+everything is read from the parsed `input` dict. GET query string
+parameters are not merged in by the framework; the handlers read them
+themselves via Flask's `request.args`.
 
 ## Routes
 

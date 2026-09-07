@@ -313,7 +313,7 @@ the plugin.
 ## 2026-06-09 — `_10_access_tracking.py` in-place metadata mutation removed
 
 **Decision:** The `_functions` hook at
-`extensions/python/_functions/plugins._memory.helpers.memory/Memory/search_similarity_threshold/end/_10_access_tracking.py`
+`extensions/python/_functions/plugins/_memory/helpers/memory/Memory/search_similarity_threshold/end/_10_access_tracking.py`
 **NEVER mutates `doc.metadata` in place** on the documents returned by
 `Memory.search_similarity_threshold()`.
 

@@ -1,9 +1,3 @@
 name: neuro_core
-title: Neuro Core
-description: Temporal knowledge graph memory enhancement for Agent Zero.
-version: 1.0.0
-settings_sections:
-  - agent
-per_project_config: true
-per_agent_config: true
-always_enabled: false
+version: 0.1.0
+description: Explainable, scoped memory service backed by Neuro Core.

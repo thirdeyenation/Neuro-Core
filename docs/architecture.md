@@ -168,7 +168,7 @@ Neuro Core ships three `job_loop` extensions and one `_functions`
 hook, all under
 `usr/plugins/neuro_core/extensions/python/`.
 
-A `startup_migration` extension at `usr/plugins/neuro_core/extensions/python/startup_migration/_05_neuro_patch.py` fires at container startup to install the Memory monkey-patch (D35); `startup_migration` fires from the plugin-path extension, not from a `usr/extensions/` relay.
+At plugin init (`hooks.py:install()`), Neuro Core re-applies the framework's public `@extensible` decorator to the three host-called `Memory` methods at full identity (`helpers/decorate.py`), so the `_functions` handler tree fires for host-initiated operations (D-NC1-010; ADR-NC1-001). NC1-originated operations go through the native access layer (`helpers/native_access.py`) instead of any runtime monkey-patching. Decoration is applied at two points: plugin install (`hooks.py:install()`) and every framework startup via the `startup_migration` extension `usr/plugins/neuro_core/extensions/python/startup_migration/_10_neuro_decoration.py`, whose `execute()` calls `helpers/decorate.py:decorate_memory()` (exception-safe and idempotent, so decoration survives container restarts where install-time wiring does not re-run).
 
 ### Job loop extensions
 
@@ -177,6 +177,11 @@ Agent Zero's `helpers/job_loop.py` calls
 hooks into this loop with three extensions, each throttled
 independently by the `should_run(...)` helper in
 `helpers/lifecycle.py`:
+
+Job execution is deferred for the first 300 seconds of process
+uptime after framework boot; a skipped tick performs no work and
+records no throttle state, so the first post-grace tick runs the
+real job.
 
 #### `_10_access_decay.py` — Importance decay
 
@@ -236,13 +241,22 @@ independently by the `should_run(...)` helper in
 
 ### `_functions` extension — Cascade delete
 
-`helpers/memory.py:Memory.delete_documents_by_ids(...)` is decorated
-by Agent Zero's `@extensible`, which auto-generates the hook points
-`_functions/plugins._memory.helpers.memory/Memory/delete_documents_by_ids/start`
+The framework's `plugins/_memory` Memory methods carry **no**
+`@extensible` decorators — verified against framework source
+(zero `@extensible` occurrences in
+`/a0/plugins/_memory/helpers/memory.py`; see ADR-NC1-001, which
+resolves KI-022/OA-9). Hook points for
+`Memory.delete_documents_by_ids(...)` are provided by Neuro Core's
+startup re-decoration instead: at plugin install (`hooks.py`) and at
+every framework startup (`extensions/python/startup_migration/_10_neuro_decoration.py`),
+`helpers/decorate.py` re-applies
+`helpers.extension.extensible` to the host-called Memory methods at
+full identity, generating the hook points
+`_functions/plugins/_memory/helpers/memory/Memory/delete_documents_by_ids/start`
 and `.../end`. Neuro Core installs a single extension at the
 `end` hook point:
 
-- **Path**: `extensions/python/_functions/plugins._memory.helpers.memory/Memory/delete_documents_by_ids/end/_01_graph_cleanup.py`
+- **Path**: `extensions/python/_functions/plugins/_memory/helpers/memory/Memory/delete_documents_by_ids/end/_01_graph_cleanup.py`
 - **Purpose**: After `_memory` finishes deleting the requested
   documents, iterate over the deleted IDs and call
   `GraphStore.remove_edges_for_id(memory_id)` for each one. This

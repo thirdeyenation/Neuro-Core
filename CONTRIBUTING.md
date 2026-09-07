@@ -17,7 +17,7 @@ Neuro Core runs inside a live Agent Zero container. All plugin code lives at:
 cd /a0
 python -m pytest usr/plugins/neuro_core/tests/ -x -q
 ```
-All 191 tests must pass before submitting a PR. No exceptions.
+The full test suite must pass before submitting a PR. No exceptions. The current test count is reported at run time by pytest.
 ### Plugin Review
 ```bash
 cd /a0
@@ -36,7 +36,7 @@ neuro_core/
 ├── api/ # REST API handlers — context_graph endpoint
 ├── extensions/ # Agent Zero extension hooks and WebUI injection points
 ├── webui/ # Panel HTML (inline styles), CSS source, Alpine store
-├── tests/ # pytest test suite (191 tests)
+├── tests/ # pytest test suite
 └── prompts/ # Tool prompt .md files for agent discovery
 ```
 
@@ -55,7 +55,7 @@ neuro_core/
 - Every new helper function needs a corresponding test in `tests/`
 - Every new API endpoint needs coverage in `test_api.py`
 - Tests must not touch live FAISS or Agent Zero internals — use fixtures and mocks
-- Run the full suite before every PR: `191 passed` is the gate
+- Run the full suite before every PR: all tests passing is the gate
 
 ### Plugin Architecture Rules
 - Never write to `/a0/plugins/` — core framework is read-only
@@ -66,7 +66,7 @@ neuro_core/
 ### Submitting a PR
 1. Fork `thirdeyenation/Neuro-Core`
 2. Create a feature branch: `git checkout -b feature/your-feature-name`
-3. Run tests (`191 passed`) and audit (`0 FAILs`) locally
+3. Run tests (all passing) and audit (`0 FAILs`) locally
 4. Update `CHANGELOG.md` under `[Unreleased]`
 5. Open a PR with a clear description of the change and motivation
 
