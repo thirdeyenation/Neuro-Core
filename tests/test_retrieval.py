@@ -555,3 +555,43 @@ class TestErrorTolerance:
         assert result.nodes[0].score == pytest.approx(
             0.5 * 0.5 + 0.3 * 0.5 + 0.2 * 0.5  # 0.60
         )
+
+
+# ---------------------------------------------------------------------------
+# KI-008 regression (WI-P2-DEFECT-BATCH): a sidecar read failure must be
+# explicitly marked as degradation — never silently absorbed into a
+# fabricated baseline presented as a healthy score.
+# ---------------------------------------------------------------------------
+
+
+class _ExplodingScoreStore:
+    """ScoreStore stand-in whose ``get`` always fails."""
+
+    def get(self, memory_id):
+        raise RuntimeError("simulated sidecar read failure")
+
+    def set(self, memory_id, **kwargs):
+        raise RuntimeError("simulated sidecar write failure")
+
+
+class TestDegradationMarkers:
+    def test_sidecar_read_failure_marks_node_degraded(self, gs_ss):
+        """KI-008: when the score sidecar read fails, the resulting
+        GraphNode must carry an explicit degradation marker instead of
+        silently presenting a fabricated 0.5 baseline as healthy.
+        """
+        graph, _ = gs_ss
+        seed = _FakeDoc("seed", metadata={"semantic_score": 0.5})
+        memory = _FakeMemory(seeds=[seed])
+        exploding = _ExplodingScoreStore()
+
+        result = _run(
+            search_context_graph(memory, "test", graph, exploding)
+        )
+
+        assert len(result.nodes) == 1
+        node = result.nodes[0]
+        assert node.metadata.get("neuro_degraded") is True, (
+            "sidecar read failure must surface an explicit degradation "
+            "marker on the node, not a silently fabricated baseline"
+        )

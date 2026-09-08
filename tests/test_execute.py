@@ -436,3 +436,105 @@ class TestMainReturnAndReporting:
         captured = capsys.readouterr()
         assert "FATAL" in captured.out
         assert "_memory" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# KI-004 regression (WI-P2-DEFECT-BATCH): the neuro_* tools must resolve
+# their SQLite DB path from the plugin config chain — never a hardcoded
+# absolute path.
+# ---------------------------------------------------------------------------
+
+
+_PLUGIN_ROOT = "/a0/usr/plugins/neuro_core"
+
+
+def _load_neuro_tool(name):
+    """Import a neuro_* tool module with the plugin root on sys.path."""
+    import importlib
+    import sys
+
+    if _PLUGIN_ROOT not in sys.path:
+        sys.path.insert(0, _PLUGIN_ROOT)
+    return importlib.import_module(f"tools.{name}")
+
+
+def _stub_get_plugin_config(monkeypatch, impl):
+    """Install a fake ``helpers.plugins`` module in sys.modules.
+
+    The conftest ``helpers`` stub has an empty ``__path__``, so the real
+    ``helpers.plugins`` submodule cannot be imported in this suite; the
+    tools' lazy ``from helpers.plugins import get_plugin_config``
+    resolves through this stub instead.
+    """
+    import sys
+
+    import types
+
+    fake = types.ModuleType("helpers.plugins")
+    fake.get_plugin_config = impl
+    monkeypatch.setitem(sys.modules, "helpers.plugins", fake)
+
+
+class TestConfigRelativeDbPath:
+    def test_configured_absolute_path_is_honored(self, monkeypatch):
+        """KI-004: a configured absolute database_path must be honored
+        verbatim — proving the path comes from the config chain, not a
+        hardcoded literal.
+        """
+        _stub_get_plugin_config(
+            monkeypatch,
+            lambda *a, **kw: {"database_path": "/tmp/custom/named.db"},
+        )
+        for name in ("neuro_capture", "neuro_retrieve", "neuro_validate"):
+            mod = _load_neuro_tool(name)
+            assert mod._resolve_db_path() == "/tmp/custom/named.db", name
+
+    def test_relative_config_path_resolves_plugin_relative(self, monkeypatch):
+        """A relative configured database_path resolves against the
+        plugin root (config-relative target state per ADR-NC1-002).
+        """
+        import os
+
+        _stub_get_plugin_config(
+            monkeypatch,
+            lambda *a, **kw: {"database_path": "data/named.db"},
+        )
+        for name in ("neuro_capture", "neuro_retrieve", "neuro_validate"):
+            mod = _load_neuro_tool(name)
+            assert mod._resolve_db_path() == os.path.join(
+                _PLUGIN_ROOT, "data", "named.db"
+            ), name
+
+    def test_config_failure_falls_back_to_plugin_relative_default(
+        self, monkeypatch
+    ):
+        """If the config chain is unavailable, the fallback is the
+        plugin-relative default — never a hardcoded absolute path.
+        """
+        import os
+
+        def _boom(*a, **kw):
+            raise RuntimeError("simulated config chain failure")
+
+        _stub_get_plugin_config(monkeypatch, _boom)
+        for name in ("neuro_capture", "neuro_retrieve", "neuro_validate"):
+            mod = _load_neuro_tool(name)
+            assert mod._resolve_db_path() == os.path.join(
+                _PLUGIN_ROOT, "neuro_core.db"
+            ), name
+
+    def test_bundled_default_config_is_relative(self):
+        """The bundled default_config.yaml must carry a RELATIVE
+        database_path (no hardcoded local absolute paths).
+        """
+        import os
+
+        import yaml
+
+        with open(os.path.join(_PLUGIN_ROOT, "default_config.yaml")) as fh:
+            cfg = yaml.safe_load(fh)
+        assert "database_path" in cfg
+        assert not os.path.isabs(str(cfg["database_path"])), (
+            "bundled default database_path must be config-relative, "
+            "not a hardcoded absolute path"
+        )

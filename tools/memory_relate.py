@@ -76,31 +76,45 @@ def _remove_specific_edge(
 ) -> int:
     """Remove the single edge matching (from_id, to_id, rel_type).
 
-    ``GraphStore.remove_edges_for_id`` is bulk-only (deletes ALL edges
-    touching ``from_id``), so we read the current edge list, drop the
-    matching one, and rewrite via the public API. Returns the number
-    of edges removed (0 or 1).
+    WI-P2-DEFECT-BATCH: removal must target ONLY the specific edge —
+    in either direction — preserving every unrelated edge. The old
+    implementation bulk-deleted ALL edges touching ``to_id`` (reverse
+    branch) and wiped-and-rewrote the ``from_id`` bucket (losing
+    incoming edges). The public API's only destructive primitive is
+    the bulk ``remove_edges_for_id``; we use it surgically: snapshot
+    every edge touching the target edge's bucket owner, bulk-remove,
+    then re-add everything except the target. Returns the number of
+    edges removed (0 or 1).
     """
-    current = list(store.get_edges(from_id))
+    edges_map = store.get_edges() or {}
+
+    def _matches(edge: Any, f: str, t: str) -> bool:
+        return edge.from_id == f and edge.to_id == t and edge.type == rel_type
+
     target = None
-    for e in current:
-        if e.from_id == from_id and e.to_id == to_id and e.type == rel_type:
-            target = e
+    for edge_list in edges_map.values():
+        for e in edge_list:
+            if _matches(e, from_id, to_id) or _matches(e, to_id, from_id):
+                target = e
+                break
+        if target is not None:
             break
     if target is None:
-        # Also check the reverse direction.
-        reverse = list(store.get_edges(to_id))
-        for e in reverse:
-            if e.from_id == to_id and e.to_id == from_id and e.type == rel_type:
-                # Best-effort: the public API only supports bulk remove.
-                store.remove_edges_for_id(to_id)
-                return 1
         return 0
 
-    # Forward direction: wipe and rewrite with the target removed.
-    remaining = [e for e in current if e is not target]
-    store.remove_edges_for_id(from_id)
-    for e in remaining:
+    anchor = target.from_id
+    # Snapshot every edge touching the anchor (outgoing + incoming) so
+    # the bulk remove can be fully undone except for the target.
+    touching: list = []
+    for src, edge_list in edges_map.items():
+        for e in edge_list:
+            if src == anchor or e.to_id == anchor:
+                touching.append(e)
+
+    store.remove_edges_for_id(anchor)
+    for e in touching:
+        if e is target:
+            continue
         store.add_edge(e)
     return 1
 

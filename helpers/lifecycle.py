@@ -145,6 +145,7 @@ def run_importance_decay(
     processed = 0
     decayed = 0
     skipped = 0
+    degraded = 0
     for memory_id, metadata in docs:
         processed += 1
         try:
@@ -170,6 +171,7 @@ def run_importance_decay(
                         "neuro_core decay: score_store.get(%r) failed: %s",
                         memory_id, exc,
                     )
+                    degraded += 1
             if current_scores is None:
                 try:
                     current_importance = float(_safe_get(md, "importance", 0.5) or 0.5)
@@ -186,12 +188,19 @@ def run_importance_decay(
                 "neuro_core decay: failed on %r: %s", memory_id, exc
             )
             skipped += 1
+            degraded += 1
 
     _logger.info(
-        "neuro_core decay: subdir=%s processed=%d decayed=%d skipped=%d",
-        memory_subdir, processed, decayed, skipped,
+        "neuro_core decay: subdir=%s processed=%d decayed=%d skipped=%d "
+        "degraded=%d",
+        memory_subdir, processed, decayed, skipped, degraded,
     )
-    return {"processed": processed, "decayed": decayed, "skipped": skipped}
+    return {
+        "processed": processed,
+        "decayed": decayed,
+        "skipped": skipped,
+        "degraded": degraded,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -535,7 +544,8 @@ def _parse_iso(ts: str) -> Optional[datetime]:
     s = ts.replace("Z", "+00:00")
     try:
         return datetime.fromisoformat(s)
-    except Exception:  # pragma: no cover - defensive
+    except Exception as exc:  # pragma: no cover - defensive
+        _logger.debug("neuro_core: unparseable timestamp %r: %s", ts, exc)
         return None
 
 
@@ -683,7 +693,10 @@ def should_run(
     now = now or datetime.now(timezone.utc)
     try:
         last = getattr(module, last_ts_attr, 0)
-    except Exception:  # pragma: no cover - defensive
+    except Exception as exc:  # pragma: no cover - defensive
+        _logger.warning(
+            "neuro_core throttle: reading %s failed: %s", last_ts_attr, exc
+        )
         last = 0
     try:
         if isinstance(last, (int, float)) and last == 0:

@@ -341,5 +341,42 @@ def _doc_id(d):
     return d.metadata.get("id") if isinstance(d.metadata, dict) else None
 
 
+# ---------------------------------------------------------------------------
+# KI-014 regression (WI-P2-DEFECT-BATCH): a sidecar write failure during
+# reflection persistence must propagate to the caller — never silently
+# discarded behind a bare except-pass.
+# ---------------------------------------------------------------------------
+
+
+class _ExplodingScoreStore:
+    """ScoreStore stand-in whose construction always fails."""
+
+    def __init__(self, memory_subdir):
+        raise RuntimeError("simulated sidecar failure")
+
+
+class TestSidecarErrorPropagation:
+    def test_sidecar_write_failure_propagates(self, monkeypatch):
+        """KI-014: write_reflection must propagate the error when the
+        scores.json sidecar write fails. The tool layer (memory_reflect)
+        wraps this call and converts the error into a proper error
+        Response — so propagation, not swallowing, is the correct
+        contract at this boundary.
+        """
+        import usr.plugins.neuro_core.helpers.scores as scores_mod
+        monkeypatch.setattr(scores_mod, "ScoreStore", _ExplodingScoreStore)
+
+        from usr.plugins.neuro_core.helpers.reflection import write_reflection
+
+        class _Memory:
+            Area = types.SimpleNamespace(MAIN="main")
+
+            async def insert_text(self, content, metadata):
+                return "new-id-001"
+
+        with pytest.raises(RuntimeError, match="simulated sidecar failure"):
+            _run(write_reflection("default", "reflection text", "ep1", _Memory()))
+
+
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(pytest.main([__file__, "-v"]))

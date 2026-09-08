@@ -154,15 +154,16 @@ class MemoryScore(Tool):
                     break_loop=False,
                 )
 
-        # Persist score fields to the sidecar (no FAISS rewrite).
+        # Persist score fields to the sidecar — the SINGLE authoritative
+        # write path for mutable score fields (WI-P2-DEFECT-BATCH, per
+        # ADR-NC1-002). No FAISS metadata mirror write for score fields:
+        # the double-write was the KI-009 drift source. The read-side
+        # metadata fallback in retrieval stays read-only, never
+        # authoritative.
         if score_changes:
             try:
                 store = ScoreStore(db.memory_subdir)
                 store.set(memory_id=id, **score_changes)
-                doc.metadata = meta  # link meta to doc.metadata so updates flow through
-                for k in score_changes:
-                    meta[k] = score_changes[k]
-                await db.update_documents([doc])
             except Exception as exc:  # pragma: no cover - defensive
                 return Response(
                     message=(

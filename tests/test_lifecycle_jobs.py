@@ -113,7 +113,7 @@ class TestImportanceDecay:
         result = lifecycle.run_importance_decay(
             "default", {"importance_decay_rate": 0.10}, store, docs
         )
-        assert result == {"processed": 1, "decayed": 1, "skipped": 0}
+        assert result == {"processed": 1, "decayed": 1, "skipped": 0, "degraded": 0}
         # 0.8 * 0.9 = 0.72
         assert store.get("m1").importance == pytest.approx(0.72, rel=1e-9)
 
@@ -126,7 +126,7 @@ class TestImportanceDecay:
         result = lifecycle.run_importance_decay(
             "default", {"importance_decay_rate": 0.10}, store, docs
         )
-        assert result == {"processed": 1, "decayed": 0, "skipped": 1}
+        assert result == {"processed": 1, "decayed": 0, "skipped": 1, "degraded": 0}
         assert store.get("m1").importance == pytest.approx(0.8)
 
     def test_skips_high_stability_docs(self) -> None:
@@ -138,7 +138,7 @@ class TestImportanceDecay:
         result = lifecycle.run_importance_decay(
             "default", {"importance_decay_rate": 0.10}, store, docs
         )
-        assert result == {"processed": 1, "decayed": 0, "skipped": 1}
+        assert result == {"processed": 1, "decayed": 0, "skipped": 1, "degraded": 0}
         assert store.get("m1").importance == pytest.approx(0.8)
 
     def test_decay_clamps_to_zero(self) -> None:
@@ -171,7 +171,7 @@ class TestImportanceDecay:
         result = lifecycle.run_importance_decay(
             "default", {"importance_decay_rate": 0.05}, store, docs
         )
-        assert result == {"processed": 5, "decayed": 3, "skipped": 2}
+        assert result == {"processed": 5, "decayed": 3, "skipped": 2, "degraded": 0}
 
     def test_throttle_blocks_second_call_within_interval(self) -> None:
         """The throttle gate returns False when the gap < interval_hours."""
@@ -1096,3 +1096,35 @@ class TestBootGraceGuard:
             assert throttle_pos == -1 or guard_pos < throttle_pos, (
                 f"{file_stem}: guard must precede throttle state handling"
             )
+
+
+# ---------------------------------------------------------------------------
+# KI-008 regression (WI-P2-DEFECT-BATCH): per-item lifecycle failures must
+# be recorded as an explicit degraded count, not silently absorbed into a
+# clean-looking summary dict.
+# ---------------------------------------------------------------------------
+
+
+class _FailingSetScoreStore(_FakeScoreStore):
+    """ScoreStore stand-in whose ``set`` always fails."""
+
+    def set(self, memory_id, **kwargs):
+        raise RuntimeError("simulated sidecar write failure")
+
+
+class TestDegradationMarkers:
+    def test_decay_sidecar_failure_recorded_as_degraded(self) -> None:
+        """KI-008: a sidecar write failure during importance decay must
+        surface as ``result["degraded"] >= 1`` — never a clean summary.
+        """
+        store = _FailingSetScoreStore({"m1": _FakeScores(importance=0.8)})
+        docs = _mk_docs([
+            ("m1", {"validation_status": "unvalidated", "stability": 0.5}),
+        ])
+        result = lifecycle.run_importance_decay(
+            "default", {"importance_decay_rate": 0.10}, store, docs
+        )
+        assert result.get("degraded") == 1, (
+            "sidecar write failure must be recorded as an explicit "
+            "degraded count in the job result"
+        )
