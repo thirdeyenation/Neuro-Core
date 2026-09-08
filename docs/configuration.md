@@ -16,6 +16,7 @@ where appropriate).
 
 | Key | Type | Default | Effect |
 |---|---|---|---|
+| `database_path` | str | `neuro_core.db` | Path to the plugin's SQLite domain-store database. Relative values resolve plugin-relative; absolute values are honored verbatim (existing deployments unaffected). Resolved through the framework's plugin settings chain (`get_plugin_config`). |
 | `graph_enabled` | bool | `true` | Master switch for graph-aware retrieval. When `false`, `search_context_graph()` skips the BFS expansion step and returns only semantic seeds. |
 | `decay_enabled` | bool | `true` | Master switch for the importance-decay job loop extension (`_10_access_decay.py`). |
 | `decay_interval_hours` | int | `24` | Minimum hours between decay runs. Gated through `lifecycle.should_run()`. |
@@ -35,6 +36,16 @@ where appropriate).
 | `episode_min_memories` | int | `3` | Minimum number of memories required to form an episode. Groups below this size are not assigned an `episode_id`. |
 
 ## Key details
+
+### `database_path`
+
+Path to the plugin's SQLite domain-store database. The bundled default
+is the relative value `neuro_core.db`, which resolves plugin-relative.
+An absolute configured path is honored verbatim, so existing deployments
+that configured an absolute location keep working unchanged. The value
+is resolved through the framework's plugin settings chain
+(`get_plugin_config`), so per-project and per-agent overrides apply like
+any other plugin config key.
 
 ### `graph_enabled`
 

@@ -30,9 +30,12 @@ of a single memory document, plus the optional `task_status` for
 
 ### Purpose
 
-Adjust the per-memory scoring sidecar and FAISS metadata in a single
-atomic call, allowing the agent to mark memories as validated,
-deprecate them, or update their importance mid-conversation.
+Update the per-memory scoring sidecar (`scores.json`) — the single
+authoritative write path for mutable scores (per ADR-NC1-002) — allowing
+the agent to mark memories as validated, deprecate them, or update their
+importance mid-conversation. The score fields (`importance`,
+`confidence`, `stability`) are written **only** to the sidecar; only
+`validation_status` is additionally written to the FAISS metadata.
 
 ### Arguments
 

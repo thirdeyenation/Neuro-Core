@@ -275,6 +275,12 @@ The hybrid-retrieval pipeline is the heart of Neuro Core's value-add.
 It is invoked by `search_context_graph(memory, query, graph_store,
 score_store, config) -> ContextGraph` and runs in four stages.
 
+Retrieval through `NeuroCoreService.retrieve()` (exposed to agents as
+the `neuro_retrieve` tool) filters on the **exact** scope provided —
+`Scope(project, agent)`. Callers must pass the scope the memory was
+captured under: omitting `agent` silently misses agent-scoped memories,
+because the filter matches project AND agent exactly.
+
 ### Stage 1 — Semantic seed retrieval
 
 ```

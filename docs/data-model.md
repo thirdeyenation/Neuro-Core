@@ -221,6 +221,16 @@ If `scores.json` does not exist when the first `ScoreStore` operation
 runs, it is created with an empty dict (`{}`). The file is created
 lazily on first write, not on plugin load.
 
+### Degraded reads
+
+If a sidecar read fails at retrieval time (for example, a corrupted or
+unreadable `scores.json`), retrieval does **not** silently present the
+metadata/`0.5` fallback as a healthy sidecar-backed score. The affected
+node's metadata is stamped with an explicit `neuro_degraded` marker, and
+the importance-decay lifecycle job counts such failures in its
+`degraded` result field. Degradation is always explicit, never a silent
+fallback and never a fabricated baseline.
+
 ---
 
 ## Section 3 — `relationships.json` Schema
