@@ -17,7 +17,6 @@ where appropriate).
 | Key | Type | Default | Effect |
 |---|---|---|---|
 | `database_path` | str | `neuro_core.db` | Path to the plugin's SQLite domain-store database. Relative values resolve plugin-relative; absolute values are honored verbatim (existing deployments unaffected). Resolved through the framework's plugin settings chain (`get_plugin_config`). |
-| `graph_enabled` | bool | `true` | Master switch for graph-aware retrieval. When `false`, `search_context_graph()` skips the BFS expansion step and returns only semantic seeds. |
 | `decay_enabled` | bool | `true` | Master switch for the importance-decay job loop extension (`_10_access_decay.py`). |
 | `decay_interval_hours` | int | `24` | Minimum hours between decay runs. Gated through `lifecycle.should_run()`. |
 | `importance_decay_rate` | float | `0.02` | Per-run multiplier subtracted from importance: `importance *= (1 - importance_decay_rate)`. |
@@ -25,13 +24,17 @@ where appropriate).
 | `contradiction_llm_enabled` | bool | `false` | When `true`, the contradiction detector may call an LLM for pairwise NLI. **Off by default in v0.1.0** — the job loop is a no-op until enabled in a controlled setting. |
 | `contradiction_batch_size` | int | `100` | Maximum number of fact memories considered per pass of the contradiction sweep. |
 | `contradiction_interval_hours` | int | `168` | Minimum hours between contradiction sweeps (1 week). |
-| `reflection_enabled` | bool | `false` | Master switch for the episode reflection tool (`memory_reflect`). |
-| `reflection_max_memories` | int | `50` | Hard cap on the number of episode memories fed into a single reflection prompt. |
-| `graph_neighbors_max` | int | `40` | Upper bound on the number of neighbors retrieved per seed during BFS graph expansion. |
+| `graph_neighbors_max` | int | `10` | Upper bound on the number of neighbors retrieved per seed during BFS graph expansion. |
 | `graph_max_hops` | int | `2` | Maximum BFS depth from each seed node. |
 | `importance_weight` | float | `0.3` | Weight applied to the `importance` score during the rerank step of `search_context_graph()`. |
 | `recency_weight` | float | `0.2` | Weight applied to the recency term during the rerank step. |
 | `similarity_weight` | float | `0.5` | Weight applied to the cosine similarity term during the rerank step. The three rerank weights are expected to sum to `1.0`. |
+| `semantic_limit` | int | `5` | Maximum number of semantic seed memories retrieved before graph expansion. |
+| `semantic_threshold` | float | `0.6` | Minimum similarity for a candidate semantic seed. |
+| `contradiction_similarity_threshold` | float | `0.85` | Minimum cosine similarity for a pair of fact memories to be considered for opposition (read by `run_contradiction_detection()`). |
+| `graph_analytics_enabled` | bool | `true` | Master switch for the graph-analytics pass in `helpers/lifecycle.py`. |
+| `graph_analytics_top_pct` | float | `0.10` | Fraction of highest-degree nodes boosted by the graph-analytics pass. |
+| `graph_analytics_boost` | float | `0.05` | Importance increment applied to boosted nodes. |
 | `episode_boundary_hours` | int | `4` | Maximum gap between adjacent memories before a new episode starts in the episode-grouping job. |
 | `episode_min_memories` | int | `3` | Minimum number of memories required to form an episode. Groups below this size are not assigned an `episode_id`. |
 
@@ -47,13 +50,11 @@ is resolved through the framework's plugin settings chain
 (`get_plugin_config`), so per-project and per-agent overrides apply like
 any other plugin config key.
 
-### `graph_enabled`
+### Scope note
 
-Master switch for the **graph-aware** portion of retrieval. When `false`,
-`search_context_graph()` returns a `ContextGraph` whose `nodes` list
-contains only the semantic-seed documents and whose `edges` list is
-empty. The seed retrieval, importance-weighted rerank, and
-`ContextGraph.to_prompt_text()` assembly all still run.
+This table reflects the keys implemented and read at runtime as of
+v0.1.0 (WI-P3-MANIFEST-CONFIG). A full documentation reconciliation of
+all configuration surfaces is owned by the Phase E docs work item.
 
 ### `decay_enabled`
 
@@ -124,20 +125,7 @@ therefore not visible to the reflection tool.
 
 ## Internal default overrides
 
-`helpers/lifecycle.py` defines a module-level `DEFAULT_CONFIG` dict
-that is used when the plugin-level config is missing keys. The
-`DEFAULT_CONFIG` dict in code includes the following keys (in addition
-to the YAML keys above) that are **not** exposed in
-`default_config.yaml` but are read by the lifecycle functions:
-
-| Key | Type | Default | Read by |
-|---|---|---|---|
-| `contradiction_similarity_threshold` | float | `0.85` | `run_contradiction_detection()` — minimum cosine similarity for a pair to be considered for opposition. |
-| `graph_analytics_enabled` | bool | `true` | Reserved for the future `_40_graph_analytics` job loop extension. |
-| `graph_analytics_top_pct` | float | `0.10` | Reserved — fraction of highest-degree nodes to boost. |
-| `graph_analytics_boost` | float | `0.05` | Reserved — importance increment applied to top-degree nodes. |
-
-These keys are documented here because they appear in
-`helpers/lifecycle.py` even though they are not surfaced in
-`default_config.yaml`. Production callers should not rely on them being
-present in the user-facing config.
+`helpers/lifecycle.py` defines a module-level `DEFAULT_CONFIG` dict that
+is used when the plugin-level config is missing keys. As of v0.1.0, all
+of its keys are bundled in `default_config.yaml` and documented in the
+main table above, so no internal-only overrides remain.

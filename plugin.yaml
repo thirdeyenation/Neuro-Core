@@ -1,3 +1,9 @@
 name: neuro_core
+title: Neuro Core
+description: Explainable, scoped memory service backed by Neuro Core. Adds typed memory categories, graph relationships, importance/confidence/stability scoring, lifecycle jobs, and structured ContextGraph retrieval with explainable scoring factors.
 version: 0.1.0
-description: Explainable, scoped memory service backed by Neuro Core.
+settings_sections:
+  - agent
+per_project_config: true
+per_agent_config: true
+always_enabled: false

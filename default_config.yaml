@@ -1,2 +1,33 @@
+# Neuro Core plugin configuration defaults.
+# Resolution order (highest priority first): project/profile, project,
+# user/profile, user plugin config, then this bundled file.
+# Every key below is read at runtime; see docs/configuration.md.
+
+# Path to the plugin's SQLite domain-store database. Relative values
+# resolve plugin-relative; absolute values are honored verbatim.
 database_path: neuro_core.db
-default_namespace: default
+
+# ---- Lifecycle job-loop keys (helpers/lifecycle.py DEFAULT_CONFIG) ----
+decay_enabled: true
+decay_interval_hours: 24
+importance_decay_rate: 0.02
+contradiction_detection_enabled: true
+contradiction_batch_size: 100
+contradiction_similarity_threshold: 0.85
+contradiction_llm_enabled: false
+contradiction_interval_hours: 168
+graph_analytics_enabled: true
+graph_analytics_top_pct: 0.10
+graph_analytics_boost: 0.05
+episode_boundary_hours: 4
+episode_min_memories: 3
+
+# ---- ContextGraph retrieval keys (helpers/retrieval.py, via api/context_graph.py) ----
+# Values match the API's established effective defaults (behavior-preserving).
+graph_max_hops: 2
+graph_neighbors_max: 10
+similarity_weight: 0.5
+importance_weight: 0.3
+recency_weight: 0.2
+semantic_limit: 5
+semantic_threshold: 0.6
