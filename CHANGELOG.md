@@ -10,10 +10,11 @@ reconciliation, WI-P5-DOCS-RECON)
 
 Neuro Core v1.0.0 is the first stable release of the context graph and
 memory enhancement plugin for Agent Zero. It ships with all five core
-subsystems verified, 363 tests passing (full-suite count verified
-2026-09-09 against the plugin test suite; historical release notes had
-stated 290), 10 live integration scenarios
-confirmed, and all performance baselines met.
+subsystems verified, 393 tests passing (full-suite count verified
+2026-09-10 against the plugin test suite; count lineage 346→363→372→393,
+where 372 is the RG-P5-REMEDIATION baseline plus 21 new neuro_* tool
+contract tests; historical release notes had stated 290), 10 live
+integration scenarios confirmed, and all performance baselines met.
 
 ### What Neuro Core Does
 

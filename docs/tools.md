@@ -54,7 +54,8 @@ Capture a memory into the scoped SQLite domain store.
 **Behavior**
 
 - Raises `ValueError("text and project are required")` when `text` or
-  `project` is empty/missing.
+  `project` is explicitly empty (omitted arguments are valid:
+  `project` defaults to `"default"`).
 - Persists via `NeuroCoreService.capture(Memory(...))` and returns a
   plain dict: `{"memory_id": ..., "outcome": "stored", "scope": <project>}`.
 
@@ -73,7 +74,8 @@ Explainable retrieval from the scoped SQLite domain store.
 **Behavior**
 
 - Raises `ValueError("query and project are required")` when `query`
-  or `project` is empty/missing.
+  or `project` is explicitly empty (omitted arguments are valid:
+  `project` defaults to `"default"`).
 - Calls `NeuroCoreService.retrieve(query, Scope(project, agent or None))`
   and returns a list of dicts with `memory_id`, `text`, `source`,
   `score`, and `factors` (the explainable scoring factors).
@@ -102,6 +104,10 @@ Apply a lifecycle validation transition to a captured memory.
   is empty.
 - Raises `ValueError("state must be unreviewed, validated, disputed, or superseded")`
   for an unknown state.
+- Raises `KeyError` for an unknown `memory_id` — the underlying
+  `NeuroCoreService.validate()` lookup (`neuro_service.py`) does not
+  catch the missing ID, so the exception propagates to the caller
+  (pinned by `test_neuro_validate_tool.py`).
 - Returns `{"memory_id": ..., "validation": <state>, "outcome": "updated"}`.
 
 ---
