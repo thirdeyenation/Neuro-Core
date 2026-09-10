@@ -130,20 +130,15 @@ Edges are the deduplicated union of outbound and inbound edges
 Dump every edge in the `GraphStore` for a subdir (reads the sidecar's
 internal data map directly).
 
-> **Known routed defect (current behavior, WI-P5A-RELATIONSHIPS-QARG):**
-> this route reads `memory_subdir` **only** from the parsed `input`
-> dict, unlike the `?id=` route and sibling handlers, which also accept
-> `request.args`. A browser-style GET
-> `GET /relationships?memory_subdir=main` therefore returns
-> `{"success": false, "error": "`memory_subdir` is required"}` even
-> though the query string is present. The fix is routed to
-> WI-P5A-RELATIONSHIPS-QARG and intentionally **not** applied in this
-> documentation reconciliation. Programmatic POST-style clients that
-> populate the parsed `input` dict are unaffected.
+`memory_subdir` is accepted from the parsed `input` dict (POST/JSON
+body) or, for GET requests, from the query string — the same fallback
+order (`input` -> `request.args`) used by the `?id=` route and all
+sibling handlers. Programmatic clients that populate the parsed
+`input` dict keep precedence over the query string.
 
 | Name | Type | Required | Description |
 |---|---|---|---|
-| `memory_subdir` | str | yes | Read from parsed `input` only (query string currently ignored — see defect note). |
+| `memory_subdir` | str | yes | Accepted from parsed `input` or `request.args` (consistent with the `?id=` route and sibling handlers). |
 
 **Response**: `success`, `memory_subdir` (echo), `edges` (flat list
 with the same per-edge fields as above), `count`.

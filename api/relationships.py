@@ -148,7 +148,11 @@ class RelationshipsApi(ApiHandler):
 
     async def _list_all_relationships(self, input: dict, request: Request) -> dict:
         try:
-            memory_subdir = (input.get("memory_subdir") or "").strip()
+            memory_subdir = (
+                input.get("memory_subdir")
+                or request.args.get("memory_subdir")
+                or ""
+            ).strip()
             if not memory_subdir:
                 return {"success": False, "error": "`memory_subdir` is required"}
             store = GraphStore(memory_subdir)
