@@ -24,8 +24,8 @@ existing `_memory` plugin by adding:
    index is required — adding metadata keys is non-breaking.
 2. **A graph layer** of typed, weighted relationships between
    memories (`supports`, `contradicts`, `depends_on`, `derived_from`,
-   `related_to`, `precedes`, `follows`). The graph lives in two new
-   JSON sidecar files (`relationships.json` and `scores.json`)
+   `related_to`, `precedes`, `follows`, `part_of`). The graph lives in
+   two new JSON sidecar files (`relationships.json` and `scores.json`)
    placed in the same `abs_db_dir(memory_subdir)` directory as the
    FAISS index.
 3. **Hybrid retrieval** via `search_context_graph()`. A single
@@ -33,9 +33,10 @@ existing `_memory` plugin by adding:
    and importance/recency-weighted reranking, returning a structured
    `ContextGraph` (nodes + edges) that the agent can serialize to a
    prompt fragment.
-4. **Three new agent tools** — `memory_score`, `memory_relate`,
-   `memory_reflect` — that let the agent itself maintain the graph
-   and the score sidecar.
+4. **Six agent tools** — `memory_score`, `memory_relate`,
+   `memory_reflect`, plus `neuro_capture`, `neuro_retrieve`, and
+   `neuro_validate` — that let the agent capture, retrieve, and
+   maintain the graph and the score sidecar.
 5. **Three background lifecycle jobs** — importance decay, episode
    grouping, and contradiction detection — that run as `job_loop`
    extensions piggy-backing on Agent Zero's existing job scheduler.
@@ -77,7 +78,7 @@ Three reasons:
 ### Sidecar write pattern
 
 Both `ScoreStore` and `GraphStore` use the same atomic write pattern
-that the framework itself uses in `helpers/kvp.py`:
+that the framework itself uses in `/a0/helpers/kvp.py`:
 
 ```python
 fd, tmp = tempfile.mkstemp(dir=os.path.dirname(target_path))
@@ -284,13 +285,17 @@ because the filter matches project AND agent exactly.
 ### Stage 1 — Semantic seed retrieval
 
 ```
-seeds = memory.search_similarity_threshold(query, threshold=0.5, k=20)
+seed_docs = await memory.search_similarity_threshold(
+    query=query, limit=semantic_limit, threshold=semantic_threshold)
 ```
 
 This calls the existing `_memory` plugin's FAISS-based semantic
-search. The threshold and `k` are hard-coded inside
-`search_context_graph`; the rerank step (Stage 3) is what filters
-the result list down to the final returned node count.
+search. `semantic_limit` (default `10`) and `semantic_threshold`
+(default `0.5`) are config-resolved inside `search_context_graph`
+(`helpers/retrieval.py`); the final node list is re-ranked by the
+composite score computed during seed-node construction (Stage 1) and
+neighbor registration (Stage 2) — there is no separate top_k cut at
+assembly time.
 
 ### Stage 2 — BFS graph expansion
 
@@ -307,37 +312,46 @@ neighbors (hop 1) and their neighbors (hop 2). The BFS is capped at
 `graph_neighbors_max` (default `40`) neighbors per seed to bound
 latency.
 
-This stage is **skipped entirely** when `graph_enabled` is `false`
-in the config — in that mode the returned `ContextGraph` has the
-seed nodes and an empty `edges` list.
+This stage is **skipped entirely** when no graph store is available
+(`graph_store is None`) or when `graph_max_hops` is `0` — in that
+mode the returned `ContextGraph` has the seed nodes and an empty
+`edges` list. There is no separate `graph_enabled` config key; the
+pipeline is bounded by `graph_max_hops` (default `2`) and
+`graph_neighbors_max` (default `40` additional graph neighbors beyond
+the seed set, allocated hop-ascending then edge-confidence-descending).
 
-### Stage 3 — Importance-weighted rerank
+### Stage 3 — Importance/recency-weighted scoring (folded into Stages 1–2)
 
 ```
-for node in nodes:
-    scores = score_store.get(node.doc_id)
-    importance = scores.importance if scores else 0.5
-    recency = compute_recency(node.metadata["timestamp"])
-    node.score = (
-        config["similarity_weight"] * node.cosine_similarity
-      + config["importance_weight"] * importance
-      + config["recency_weight"]   * recency
-    )
+importance = score_store.get(doc_id) or metadata importance (0.5 fallback)
+recency    = _recency_score(last_accessed_at or timestamp)
+node.score = config["similarity_weight"] * semantic
+           + config["importance_weight"] * importance
+           + config["recency_weight"]   * recency
 ```
 
-The three weights are configurable (default: 0.5, 0.3, 0.2) and are
-expected to sum to `1.0`, but the helper does not enforce this.
+The three weights are configurable (defaults: 0.5, 0.3, 0.2). There
+is no separate rerank pass — the composite score is computed as each
+node is registered, and graph-only neighbors use a moderate semantic
+baseline of `0.5` so importance and recency differentiate them. When
+the score sidecar is unreadable, importance falls back to metadata
+and the node's metadata is flagged `neuro_degraded: true` (KI-008).
 
 ### Stage 4 — Assembly and serialization
 
 ```
 context_graph = ContextGraph(
+    nodes=sorted(nodes_by_id.values(), key=lambda n: (-n.score, n.doc_id)),
+    edges=list(edges_by_key.values()),
     query=query,
-    nodes=sorted(nodes, key=lambda n: n.score, reverse=True)[:top_k],
-    edges=deduplicated_edges,
+    seed_ids=seed_ids,
 )
 prompt_text = context_graph.to_prompt_text()
 ```
+
+Nodes are sorted by descending composite score (ties broken by
+`doc_id`); the full node set is returned — no top_k truncation.
+Edges are deduplicated by `(from_id, to_id, type)`.
 
 `ContextGraph.to_prompt_text()` produces a single LLM-ready string:
 
@@ -360,21 +374,21 @@ inspect the graph structure (e.g., the API and the WebUI panel).
 
 ## 6. Tool invocation flow
 
-All three Neuro Core tools follow the same pattern:
+All six Neuro Core tools follow the same general pattern:
 
 ```
 agent calls tool.execute(**kwargs)
         │
         ▼
 Tool class (helpers/tool.py subclass)
-        │ resolves memory_subdir from agent.config
+        │ resolves memory_subdir from the agent's memory db/config
         │ validates arguments
         ▼
 Helper class (ScoreStore / GraphStore / reflection helper)
         │ acquires per-subdir RLock
         │ reads / mutates JSON sidecar (atomic write)
         ▼
-FAISS metadata update (only for memory_score / memory_reflect)
+FAISS metadata update (only for fields routed to FAISS)
         │ calls mem.update_documents([doc])
         ▼
 Returns Response(message=json.dumps({...}))
@@ -384,15 +398,17 @@ Returns Response(message=json.dumps({...}))
 
 1. Agent calls `memory_score(id="mem_abc", importance=0.85,
    validation_status="validated")`.
-2. `MemoryScore.execute()` resolves the `Memory` instance from
-   `agent.config.memory_subdir`.
-3. The tool looks up the document by ID, splits the kwargs into
-   `FAISS_FIELDS = ("validation_status", "task_status")` and
-   `SCORECAR_FIELDS = ("importance", "confidence", "stability")`.
-4. `SCORECAR_FIELDS` go to `ScoreStore.set(id, MemoryScores(...))`
-   — atomic write of `scores.json`.
-5. `FAISS_FIELDS` go to `mem.update_documents([doc])` — FAISS
-   metadata update.
+2. `MemoryScore.execute()` resolves the memory db from the agent
+   context and derives the subdir from `db.memory_subdir`.
+3. The tool splits the kwargs into
+   `_FAISS_FIELDS = ("memory_type", "validation_status", "task_status")`
+   and `_SCORECAR_FIELDS = ("importance", "confidence", "stability")`
+   (`tools/memory_score.py:44-47`).
+4. `_SCORECAR_FIELDS` go to the `ScoreStore` (atomic write of
+   `scores.json` — the single authoritative score write path per
+   ADR-NC1-002).
+5. `_FAISS_FIELDS` go to FAISS metadata via
+   `mem.update_documents([doc])`.
 6. Tool returns `{"success": true, "id": "mem_abc", "updated":
    ["importance", "validation_status"]}`.
 
@@ -400,104 +416,103 @@ Returns Response(message=json.dumps({...}))
 
 1. Agent calls `memory_relate(from_id="A", to_id="B", rel_type="supports", weight=0.8)`.
 2. `MemoryRelate.execute()` validates `rel_type` against
-   `VALID_RELATIONSHIP_TYPES`.
+   `VALID_RELATIONSHIP_TYPES` (8 values incl. `part_of`).
 3. `GraphStore.add_edge(A, B, "supports", weight=0.8, source="agent")`
    writes the edge to `relationships.json` (atomic).
 4. If `rel_type == "related_to"`, a second `add_edge(B, A,
-   "related_to", weight=0.8, source="agent")` creates the symmetric
-   back-edge (D24).
+   "related_to", ...)` creates the symmetric back-edge — `related_to`
+   is the only symmetric type (D24).
 5. Tool returns the JSON success message.
 
-On `remove=True`, the same path is followed but `add_edge` is
-replaced by `GraphStore.remove_edges_for_id(A)` (which also
-removes the back-edge if it exists).
+On `remove=True` the tool performs a **surgical single-edge removal**
+(WI-P2-DEFECT-BATCH): it locates the specific `(from_id, to_id,
+rel_type)` edge in either direction, snapshots every edge touching
+that edge's anchor bucket, calls the public bulk
+`remove_edges_for_id(anchor)`, then re-adds everything except the
+one target edge — preserving all unrelated edges.
 
 ### `memory_reflect` flow
 
 1. Agent calls `memory_reflect(episode_id="ep_001", limit=20)`.
-2. `MemoryReflect.execute()` checks `config.reflection_enabled`;
-   returns an error string if `false`.
-3. `helpers/reflection.collect_episode_memories(memory,
-   episode_id, limit)` reads the FAISS index, filters documents
-   whose metadata has the matching `episode_id`, and returns the
-   list sorted by timestamp.
-4. `helpers/reflection.reflect_memories(memories)` calls the LLM
-   with `prompts/neuro.reflection.sys.md` as the system prompt and
-   the joined episode content as the user prompt. Returns the
-   reflection text.
-5. `helpers/reflection.write_reflection(memory, episode_id, text)`
-   inserts a new `memory_type="concept"` document into FAISS
-   carrying the reflection text and the source `episode_id`.
-6. Tool returns `{"success": true, "episode_id": "ep_001",
-   "new_memory_id": "<id>", "reflected_count": 12}`.
+2. `MemoryReflect.execute()` collects episode documents via
+   `helpers/reflection.collect_episode_memories(subdir, episode_id,
+   db, limit)`, returning an error Response if the episode is empty
+   or uncollectable.
+3. `helpers/reflection.reflect_memories(docs, agent)` calls the LLM
+   with `prompts/neuro.reflection.sys.md` (via
+   `DEFAULT_REFLECTION_PROMPT`, editable in-repo) as the system
+   prompt and the joined episode content as the user prompt. Returns
+   the reflection text; an LLM failure or empty content returns an
+   error Response.
+4. `helpers/reflection.write_reflection(subdir, content, episode_id,
+   db)` persists the reflection as a new memory carrying the source
+   `episode_id` and writes its ScoreStore sidecar entry (D50).
+5. Tool returns an acknowledgement message naming the new memory ID
+   and source-memory count.
 
 ---
 
 ## 7. WebUI panel
 
-The right-canvas WebUI panel is registered via the existing
-`MemoryDashboardApi` infrastructure. The panel is an Alpine.js
-component that loads a reactive store, calls the Neuro Core HTTP
-API, and renders the graph + node cards.
+The Neuro Core graph lives in the framework's right-canvas system.
+Four plugin assets make it up:
 
-### Registration
+- `extensions/webui/right-canvas-register-surfaces/neuro_register.js`
+  - registers the surface at framework init time via the framework's
+  `callJsExtensions("right_canvas_register_surfaces", ...)` hook:
+  `registerSurface({ id: 'neuro-core-graph', title: 'Neuro Core', icon: 'hub', order: 50, ... })`.
+  Registration is idempotent (upsert by surface id).
+- `extensions/webui/right-canvas-panels/graph-panel.html` - a
+  `data-surface-id="neuro-core-graph"` wrapper whose visibility is
+  gated by `$store.rightCanvas.isSurfaceVisible(...)`; it mounts the
+  actual panel via `<x-component path=".../graph-panel.html" mode="canvas">`.
+- `extensions/webui/sidebar-quick-actions-main-start/neuro-entry.html`
+  - a sidebar quick-action link that opens the surface with
+  `$store.rightCanvas.open('neuro-core-graph')`.
+- `webui/graph-store.js` - an Alpine store registered as
+  `Alpine.store('neuroGraph')`; `webui/graph-panel.css` holds the
+  panel styling, keyed to framework CSS custom properties.
 
-`api/context_graph.py` exposes a single `ContextGraphApi` class that
-the framework picks up automatically by filename convention. It is
-registered under the path prefix `/api/plugins/neuro_core/` and
-dispatches by HTTP method and path suffix inside the `process()`
-method:
+The panel body (`webui/right-canvas-panels/graph-panel.html`) is a
+self-contained Alpine.js component (`x-data` scope) rather than a
+thin client of the store: it owns its search state, Cytoscape
+instance, and rendering.
 
-- `GET /api/plugins/neuro_core/context_graph?query=...&memory_subdir=...`
-- `GET /api/plugins/neuro_core/relationships/<memory_id>?memory_subdir=...`
-- `POST /api/plugins/neuro_core/relationships`
-- `GET /api/plugins/neuro_core/relationships?memory_subdir=...`
+### Panel capabilities
 
-The panel's HTML template is loaded as an extension surface under
-`extensions/webui/panel.html` and injects a button in the existing
-Memory Dashboard toolbar that opens the right-canvas.
-
-### Alpine.js store wiring
-
-`webui/neuro_core_store.js` exports a singleton Alpine store that
-holds the panel's reactive state:
-
-```js
-Alpine.store('neuroCore', {
-  query: '',
-  memorySubdir: 'main',
-  contextGraph: null,
-  loading: false,
-  error: null,
-  async search() { ... },
-  async addRelationship(fromId, toId, relType, weight) { ... },
-  async deleteRelationship(fromId, toId, relType) { ... },
-});
-```
-
-The store's `search()` method calls the `/context_graph` endpoint
-and assigns the result to `contextGraph`, which the panel template
-iterates over to render node cards and edge pills.
+- Query search via `GET
+  /api/plugins/neuro_core/context_graph?query=...&memory_subdir=...`.
+- Memory-subdir chips (add/remove/persisted in
+  `localStorage['nc_memory_subdirs']`).
+- Advanced filters via `GET
+  /api/plugins/neuro_core/advanced_filters?...` with `memory_type`,
+  `validation_status`, `relationship_type`, `date_range_start/end`,
+  `importance_min`, `confidence_min`, `stability_min`, and
+  `episode_id` parameters.
+- Cytoscape rendering: nodes sized by importance, edges labeled by
+  `rel_type`, score-bucket styling (high >= 0.7, mid >= 0.4, low).
+- Node inspector: tapping a node opens a details card with content,
+  score badges, and its relationship list; clicking a related node
+  re-runs the search centered on that node.
+- Theme observation: a `MutationObserver` on the document element
+  re-applies Cytoscape styles when the framework theme changes.
 
 ### End-to-end search flow
 
-1. User types a query in the panel search input and clicks "Search".
-2. The panel calls `Alpine.store('neuroCore').search()`.
-3. The store makes a `GET` request to
+1. User types a query in the panel search input and clicks
+   "Search" (the panel auto-issues an initial `recent` search on
+   mount).
+2. The panel's `search()` fetches
    `/api/plugins/neuro_core/context_graph?query=...&memory_subdir=...`.
-4. The server-side handler instantiates `Memory` for the
-   subdir, calls `search_context_graph(...)`, and returns the
-   serialized `ContextGraph` as JSON.
-5. The store assigns the result to `contextGraph`. The panel
-   re-renders:
-   - The header shows the query echo and a node/edge count.
-   - Each `GraphNode` becomes a node card with color-coded score
-     badges (green ≥ 0.7, yellow 0.4–0.7, grey < 0.4).
-   - Each `GraphEdge` becomes an edge pill below the cards.
-6. The user can click an edge pill to delete it — the store calls
-   the `POST /relationships` endpoint (currently only adds; the
-   delete UI is wired but the endpoint is a no-op in v0.1.0).
+3. The server-side handler resolves the memory db for the subdir,
+   calls `search_context_graph(...)`, and returns the serialized
+   `ContextGraph` as JSON.
+4. The panel assigns `nodes`/`edges` and calls `renderGraph()`,
+   mapping each node to a Cytoscape node (id, label, content,
+   importance) and each edge to `source/target/rel_type`, then runs
+   the selected layout (`cose` default).
 
 The WebUI panel is the only Neuro Core surface that gives the user
 a visual graph; all other interaction is via the API and the agent
-tools.
+tools. The panel is read-only: it renders and inspects the graph
+but does not expose relationship add/delete controls.

@@ -1,8 +1,8 @@
 # NEURO CORE CHANGELOG
 
-**UPDATE REQUIRED**
-*CURRENT DATE:* 2026-09-06
-*UPDATE STATUS:* PENDING
+*CURRENT DATE:* 2026-09-09
+*UPDATE STATUS:* reconciled 2026-09-09 (Phase E documentation
+reconciliation, WI-P5-DOCS-RECON)
 
 ## [1.0.0] — 2026-06-25
 
@@ -10,7 +10,9 @@
 
 Neuro Core v1.0.0 is the first stable release of the context graph and
 memory enhancement plugin for Agent Zero. It ships with all five core
-subsystems verified, 290 tests passing, 10 live integration scenarios
+subsystems verified, 363 tests passing (full-suite count verified
+2026-09-09 against the plugin test suite; historical release notes had
+stated 290), 10 live integration scenarios
 confirmed, and all performance baselines met.
 
 ### What Neuro Core Does
@@ -62,8 +64,6 @@ genuinely structured knowledge over time.
 
 **Documentation**
 - `docs/` — architecture, API, tools, data model, configuration (5 docs)
-- KNOWN_FRAMEWORK_CONTRACTS.md — 11 sections of verified framework
-  behavior, test invocation contract, sidecar patterns
 
 # Changelog
 All notable changes to Neuro Core will be documented in this file.
