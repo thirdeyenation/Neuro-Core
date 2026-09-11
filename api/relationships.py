@@ -156,9 +156,12 @@ class RelationshipsApi(ApiHandler):
             if not memory_subdir:
                 return {"success": False, "error": "`memory_subdir` is required"}
             store = GraphStore(memory_subdir)
-            all_edges = store._data.values()  # type: ignore[attr-defined]
+            # Full adjacency map: {source_id: [GraphEdge, ...]} — the public
+            # no-arg form of get_edges() (helpers/graph_store.py). Do not
+            # access private store internals here.
+            adjacency = store.get_edges()
             flat: list[dict] = []
-            for edges in all_edges:
+            for edges in adjacency.values():
                 for e in edges:
                     flat.append(_serialize_edge(e))
             return _enum_safe_value({

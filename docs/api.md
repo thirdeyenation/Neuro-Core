@@ -26,12 +26,20 @@ query parameter, not a `/relationships/<id>` path segment.
 **Live-verified reachability:** in the Phase D host battery
 (WI-P4-HOST-BATTERY, Journey 4), all six handlers responded HTTP 200
 with structured payloads through the authenticated live-WebUI CSRF
-flow — success and required-arg-error shapes were captured. The POST
-`/relationships` write path was grounded in code only (not executed
-against live data). See
+flow. Per-surface accuracy note: for the relationships list-all route,
+the Phase D battery captured only the required-arg error shape — the
+success shape was never captured there, before or after the WI-P8
+fix. The list-all success path is instead live-verified at the
+in-process level against a real `GraphStore` with the real
+`ApiHandler` base class (WI-P8 validation evidence:
+`live_list_all_output.json` in
+`.a0proj/notepad_temp/val/20260910T1810-P8GRAPH-VAL/`); it has NOT
+been exercised through the live WebUI CSRF serving flow. The POST
+`/relationships` write path remains grounded in code only (not
+executed against live data). Phase D raw evidence:
 `.a0proj/team/work-items/WI-P4-HOST-BATTERY/validation-report.yaml`
 rev 2 and its `notepad_temp/val/20260909T1615-P4BATTERY-VAL/j4-*`
-artifacts for the raw evidence.
+artifacts.
 
 ## Auth
 
@@ -127,8 +135,12 @@ Edges are the deduplicated union of outbound and inbound edges
 
 ### `GET /api/plugins/neuro_core/relationships`
 
-Dump every edge in the `GraphStore` for a subdir (reads the sidecar's
-internal data map directly).
+Dump every edge in the `GraphStore` for a subdir. The list-all path
+reads the full adjacency map via the public no-arg
+`GraphStore.get_edges()` contract (`helpers/graph_store.py`); no
+private store internals are accessed (pinned by the test
+`test_relationships_api_has_no_private_store_access` in
+`tests/test_wip8_graph_blockers.py`).
 
 `memory_subdir` is accepted from the parsed `input` dict (POST/JSON
 body) or, for GET requests, from the query string — the same fallback

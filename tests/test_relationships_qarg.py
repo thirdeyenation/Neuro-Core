@@ -35,14 +35,18 @@ class _RecordingGraphStore:
         _RecordingGraphStore.constructed_with.append(memory_subdir)
         self.memory_subdir = memory_subdir
 
-    def get_edges(self, from_id: str):
+    def get_edges(self, from_id: Optional[str] = None):
+        """Match the real GraphStore.get_edges contract: with ``from_id`` a
+        list of that node's edges; with no argument the full adjacency map
+        (helpers/graph_store.py:321-339)."""
+        if from_id is None:
+            return self._adjacency
         return []
 
     def neighbors(self, from_id: str, hops: int = 1):
         return []
 
-    # _list_all_relationships reads store._data.values() directly.
-    _data: dict = {}
+    _adjacency: dict = {}
 
 
 def _install_stub(monkeypatch):
