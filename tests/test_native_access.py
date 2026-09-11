@@ -126,9 +126,22 @@ def test_delete_passes_cascade_and_filter_through(monkeypatch, memory_subdir):
     assert calls["delete"] == {"ids": ["idX"], "cascade": True, "filter": "area=='main'"}
 
 
-def test_delete_sidecar_cascade_runs_before_real_delete(monkeypatch, memory_subdir):
-    """D39-A/D53 (ARC cond 2): graph edges are removed BEFORE the framework delete.
-    Proven by a failing delete: the sidecar cascade has already happened."""
+def test_delete_sidecar_cascade_not_before_real_delete(monkeypatch, memory_subdir):
+    """WI-P10-DELETE-ORDERING (S1, ARC pre-design C2 realignment).
+
+    REALIGNMENT RECORD: this test previously encoded the superseded D39-A
+    sidecar-before-delete ordering as an ARC condition of the ADR-NC1-001
+    native-integration ratification ('ARC cond 2'). That ordering is the
+    KI-011 defect: a failing framework delete left edges of still-live
+    memories destroyed and unrecoverable. Superseded per WI-P10 ARC
+    pre-design C1 (open-question closure per D-NC1-035; WI-P8
+    stub-realignment precedent — corrected, never silently deleted).
+
+    NEW contract pinned: a failing framework delete leaves ALL sidecar
+    edges intact; cascade ownership belongs solely to the ratified
+    ``_10_graph_cascade`` end-hook, which fires strictly AFTER confirmed
+    deletion.
+    """
     import plugins._memory.helpers.memory as mem_mod
 
     calls = {}
@@ -138,14 +151,20 @@ def test_delete_sidecar_cascade_runs_before_real_delete(monkeypatch, memory_subd
 
     gs = GraphStore(memory_subdir)
     gs.add_edge(GraphEdge(from_id="mem3", to_id="mem4", type="related_to"))
+    before_hash = gs.load().get("mem3", [])
 
     async def failing_delete(self, ids, cascade=False, filter=""):
-        raise RuntimeError("simulated FAISS failure after sidecar step")
+        raise RuntimeError("simulated FAISS failure before any deletion")
 
     monkeypatch.setattr(Memory, "delete_documents_by_ids", failing_delete)
     with pytest.raises(RuntimeError):
         asyncio.run(na.delete(_FakeMem(), ["mem3"]))
-    assert gs.load().get("mem3", []) == []
+    # KI-011 signature pinned: no pre-delete cascade — sidecars intact.
+    after = gs.load().get("mem3", [])
+    after_tuples = [(e.get("from_id"), e.get("to_id"), e.get("type")) for e in after]
+    before_tuples = [(e.get("from_id"), e.get("to_id"), e.get("type")) for e in before_hash]
+    assert after_tuples == before_tuples
+    assert len(after_tuples) == 1
 
 
 def test_bookkeeping_failure_is_non_fatal(monkeypatch, memory_subdir):

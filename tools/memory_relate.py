@@ -19,9 +19,10 @@ Validation order (per spec):
        reject unknown values with a clear error.
     3. Verify both IDs exist in the active ``Memory`` instance —
        return a clear error if either is not found.
-    4. If ``remove=True``: call ``GraphStore.remove_edges_for_id()``
-       scoped to the specific (from_id, to_id, rel_type) tuple;
-       return a confirmation.
+    4. If ``remove=True``: remove the specific (from_id, to_id,
+       rel_type) edge via a targeted one-atomic-write removal
+       (WI-P10: exactly one ``GraphStore.remove_edge`` call; never a
+       bulk cascade); return a confirmation.
     5. Otherwise: call ``GraphStore.add_edge()``; return a confirmation
        with all applied values.
 
@@ -76,19 +77,27 @@ def _remove_specific_edge(
 ) -> int:
     """Remove the single edge matching (from_id, to_id, rel_type).
 
-    WI-P2-DEFECT-BATCH: removal must target ONLY the specific edge —
-    in either direction — preserving every unrelated edge. The old
-    implementation bulk-deleted ALL edges touching ``to_id`` (reverse
-    branch) and wiped-and-rewrote the ``from_id`` bucket (losing
-    incoming edges). The public API's only destructive primitive is
-    the bulk ``remove_edges_for_id``; we use it surgically: snapshot
-    every edge touching the target edge's bucket owner, bulk-remove,
-    then re-add everything except the target. Returns the number of
-    edges removed (0 or 1).
+    WI-P10-DELETE-ORDERING (S1, ARC pre-design C4): repair-by-replacement
+    of the WI-P2 surgical helper. Name, signature, and return contract
+    are preserved; the defective body is replaced.
+
+    Old body (KI-003/KI-013 defect site): snapshot every edge touching
+    the anchor, bulk ``remove_edges_for_id(anchor)``, then re-add all but
+    the target — multiple non-atomic writes; a failure/crash between the
+    bulk delete and any re-add permanently lost unrelated edges.
+
+    New body: read-only locate of the matched edge (either direction),
+    then exactly ONE targeted ``GraphStore.remove_edge`` call against
+    the bucket holding it (WI-P9 ratified pattern). No bulk cascade, no
+    snapshot, no re-add loop: unrelated edges are untouched by
+    construction and the entire removal effect is one locked atomic
+    write (KI-003/KI-013 signatures avoided by construction).
+    Returns the number of edges removed (0 or 1); a 0-match performs NO
+    store write.
     """
     edges_map = store.get_edges() or {}
 
-    def _matches(edge: Any, f: str, t: str) -> bool:
+    def _matches(edge, f: str, t: str) -> bool:
         return edge.from_id == f and edge.to_id == t and edge.type == rel_type
 
     target = None
@@ -102,21 +111,9 @@ def _remove_specific_edge(
     if target is None:
         return 0
 
-    anchor = target.from_id
-    # Snapshot every edge touching the anchor (outgoing + incoming) so
-    # the bulk remove can be fully undone except for the target.
-    touching: list = []
-    for src, edge_list in edges_map.items():
-        for e in edge_list:
-            if src == anchor or e.to_id == anchor:
-                touching.append(e)
-
-    store.remove_edges_for_id(anchor)
-    for e in touching:
-        if e is target:
-            continue
-        store.add_edge(e)
-    return 1
+    # Exactly one targeted, single-locked-atomic-write removal of the
+    # matched edge. No bulk removal, no snapshot, no re-add.
+    return store.remove_edge(target.from_id, target.to_id, target.type)
 
 
 # ---------------------------------------------------------------------------

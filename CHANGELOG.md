@@ -15,8 +15,12 @@ subsystems verified, 419 tests passing (full-suite count verified
 346→363→372→393→401→419, where 401 is the WI-P6 baseline plus the 8
 new WI-P8-GRAPH-BLOCKERS Context Graph defect-remediation tests, and
 419 adds 18 new WI-P9-EDGE-DELETE targeted edge-deletion tests —
-edge deletion implemented, pending live validation evidence;
-historical release notes had stated 290), 10 live
+edge deletion implemented, pending live validation evidence; and
+432 adds 13 new WI-P10-DELETE-ORDERING delete-ordering defect
+remediation tests (KI-003/KI-011/KI-013 signatures pinned, D39-A
+superseded by post-success hook cascade per D-NC1-035; suite count
+419->432 confirmed 2026-09-11; historical release notes had stated
+290), 10 live
 integration scenarios confirmed, and all performance baselines met.
 
 ### What Neuro Core Does

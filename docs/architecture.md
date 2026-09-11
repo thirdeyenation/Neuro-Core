@@ -268,6 +268,20 @@ The extension only fires on success — if the upstream
 `delete_documents_by_ids()` raises, no cleanup runs (which is
 correct, since no documents were actually deleted).
 
+**Delete ordering (WI-P10-DELETE-ORDERING).** The sidecar cascade is
+owned exclusively by this end-hook, strictly AFTER confirmed deletion.
+The former pre-delete cascade in the native access layer
+(`helpers/native_access.py`, D39-A ordering) is superseded — grounded
+provenance: D-NC1-035 explicitly recorded the delete-ordering question
+as REMAINS OPEN after its transfer to the native path, so closing it
+here is open-question closure, not ratified-policy amendment. Failure
+asymmetry: a failing framework delete leaves all sidecar edges intact;
+a success-then-crash-before-hook window leaves orphaned (recoverable,
+visible via the read-only reconcile scan) edges — never loss of live
+memories' edges. Single-edge unlink (``memory_relate`` remove path) is
+a targeted one-atomic-write removal; bulk ``remove_edges_for_id``
+remains the legitimate post-success document-deletion cascade.
+
 ---
 
 ## 5. ContextGraph pipeline

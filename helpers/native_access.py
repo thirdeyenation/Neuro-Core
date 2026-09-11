@@ -65,16 +65,23 @@ async def search_with_scores(agent_memory, query, limit=10, threshold=0.6, filte
 
 
 async def delete(agent_memory, ids, cascade=False, filter=""):
-    """NC1 delete: sidecar cascade FIRST (D39-A ordering preserved), then REAL delete
-    with cascade/filter passed through to the real signature."""
-    try:
-        from usr.plugins.neuro_core.helpers.graph_store import GraphStore
+    """NC1 delete: delegate solely to the REAL delete with cascade/filter passed
+    through to the real signature.
 
-        store = GraphStore(_subdir(agent_memory))
-        for doc_id in ids or []:
-            store.remove_edges_for_id(doc_id)
-    except Exception as e:
-        log.warning(f"[neuro_core] delete cascade non-fatal: {e}")
+    WI-P10-DELETE-ORDERING (S1, ARC pre-design C1/C5): the former pre-delete
+    sidecar cascade here (D39-A ordering, ``remove_edges_for_id`` per id BEFORE
+    the framework delete) is superseded. Grounded provenance: D-NC1-035
+    (decision_log/decisions.md:274) explicitly records the delete-ordering
+    question as REMAINS OPEN after its transfer to the native path — closing it
+    here is open-question closure, not ratified-policy amendment. The ratified
+    ``_10_graph_cascade`` end-hook (extensions/python/_functions/plugins/_memory/
+    helpers/memory/Memory/delete_documents_by_ids/end/_10_graph_cascade.py) owns
+    the sidecar cascade strictly AFTER confirmed deletion; its contract
+    (fires only on delete_documents_by_ids, never re-raises, logged-only) is
+    preserved untouched. Failure asymmetry (KI-011 fix): framework-delete
+    failure -> sidecars intact; success-then-crash-before-hook -> orphaned
+    (recoverable) edges — never loss of live memories' edges.
+    """
     Memory = _memory_class()
     return await Memory.delete_documents_by_ids(agent_memory, ids, cascade=cascade, filter=filter)
 
