@@ -318,6 +318,40 @@ class GraphStore:
                 self._atomic_write(self._adj)
             return removed
 
+    def remove_edge(self, from_id: str, to_id: str, rel_type: str) -> int:
+        """Remove exactly one edge matching ``(from_id, to_id, rel_type)``.
+
+        Targeted single-edge removal (WI-P9-EDGE-DELETE, ARC condition C1):
+        removes the first (and, under the D25 dedup invariant, only) edge in
+        the ``from_id`` bucket whose ``to_id`` and ``type`` both match. All
+        other edges — including unrelated edges in the same bucket and all
+        incoming edges to ``from_id`` — are left untouched (KI-003/KI-013
+        signatures are avoided by construction: no bulk cascade, no
+        wipe-and-rewrite).
+
+        Returns 1 if the edge was removed, 0 if no matching edge exists
+        (store unchanged, no write).
+
+        The symmetric reverse-direction pass for ``related_to`` edges is the
+        caller's responsibility (tool D24 precedent; see the relationships
+        API handler).
+        """
+        if not from_id or not to_id or not rel_type:
+            return 0
+        self._ensure_loaded()
+        with self._locked():
+            bucket = self._adj.get(from_id, [])
+            for i, raw in enumerate(bucket):
+                if raw.get("to_id") == to_id and raw.get("type") == rel_type:
+                    del bucket[i]
+                    if bucket:
+                        self._adj[from_id] = bucket
+                    else:
+                        self._adj.pop(from_id, None)
+                    self._atomic_write(self._adj)
+                    return 1
+            return 0
+
     def get_edges(
         self, from_id: Optional[str] = None
     ) -> Union[list[GraphEdge], dict[str, list[GraphEdge]]]:

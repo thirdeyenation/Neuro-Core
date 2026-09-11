@@ -11,7 +11,7 @@ server and reachable under the path prefix:
 | Handler file | Class | Methods | Routes |
 |---|---|---|---|
 | `api/context_graph.py` | `ContextGraphApi` | GET | `GET /context_graph` |
-| `api/relationships.py` | `RelationshipsApi` | GET, POST | `GET /relationships?id=<memory_id>`, `GET /relationships`, `POST /relationships` |
+| `api/relationships.py` | `RelationshipsApi` | GET, POST, DELETE | `GET /relationships?id=<memory_id>`, `GET /relationships`, `POST /relationships`, `DELETE /relationships` |
 | `api/advanced_filters.py` | `AdvancedFiltersApi` | GET | `GET /advanced_filters` |
 | `api/episode_audit.py` | `EpisodeAuditApi` | GET | `GET /episode_audit`, `GET /episode_audit?id=<episode_id>` |
 | `api/reflection_audit.py` | `ReflectionAuditApi` | GET | `GET /reflection_audit`, `GET /reflection_audit?id=<memory_id>` |
@@ -178,6 +178,42 @@ and the current UTC ISO-8601 `created_at`.
 **Error responses**: missing `memory_subdir` / `from_id` / `to_id`,
 `"self-referential edges are not allowed"` (from_id == to_id), and
 `"unknown rel_type '<value>'. Valid: [...]"`.
+
+### `DELETE /api/plugins/neuro_core/relationships`
+
+Remove one graph edge. Implemented in WI-P9-EDGE-DELETE.
+
+**Parameters** (query strings on DELETE — never path segments, as the
+framework routes on `path.split("/", 2)`; also accepted from a parsed
+`input` dict, query string taking the same fallback order as GET):
+
+| Name | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `memory_subdir` | str | yes | — | Subdir to operate in. |
+| `from_id` | str | yes | — | Source memory ID of the edge. |
+| `to_id` | str | yes | — | Target memory ID; must differ from `from_id`. |
+| `rel_type` | str | yes | — | One of the 8 valid types (same set as POST). |
+
+The edge is identified by the exact `(from_id, to_id, rel_type)` triple
+and removed via the public `GraphStore.remove_edge(from_id, to_id,
+rel_type) -> int` contract — a single targeted removal inside one locked
+atomic write. Deletion never bulk-rebuilds the store and does not route
+through the framework cascade hook. For `rel_type=related_to`, a
+symmetric reverse-direction pass (`to_id → from_id`) runs automatically
+as non-fatal best-effort, mirroring the `memory_relate` tool precedent
+(D24): its outcome is surfaced in the response, never swallowed.
+
+**Success response**: `{"success": true, "removed": 1, "from_id": ...,
+"to_id": ..., "rel_type": ..., "reverse_removed": <0|1|null>,
+"reverse_error": <only if the reverse pass failed>}`.
+
+**Error responses** (structured, nothing silently swallowed):
+missing `memory_subdir` / `from_id` / `to_id`,
+`"self-referential edges are not allowed"`,
+`"unknown rel_type '<value>'. Valid: [...]"`, and — for a 0-removal —
+a structured not-found error (`"edge not found: no edge matching ..."`)
+with `removed: 0` and no store write (idempotent re-DELETE is safe).
+Store failures surface as `"store removal failed: <exception>"`.
 
 ---
 

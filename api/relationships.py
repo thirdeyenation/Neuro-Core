@@ -5,6 +5,9 @@ Exposes relationship endpoints under ``/api/plugins/neuro_core/``:
 * ``GET  /relationships?id=<memory_id>`` — list all edges for a memory ID.
 * ``GET  /relationships`` — list all edges in the subdir.
 * ``POST /relationships`` — add a new graph edge.
+* ``DELETE /relationships`` — remove one graph edge, identified by the
+  query params ``?memory_subdir=<sub>&from_id=<id>&to_id=<id>&rel_type=<type>``
+  (query strings, NOT path segments — see the routing note above).
 
 All endpoints require an authenticated session (cookie or API key).
 Memory ID is passed as query param ``?id=<memory_id>`` — NOT as a path segment.
@@ -35,7 +38,7 @@ class RelationshipsApi(ApiHandler):
 
     @classmethod
     def get_methods(cls) -> list[str]:
-        return ["GET", "POST"]
+        return ["GET", "POST", "DELETE"]
 
     async def process(self, input: dict, request: Request) -> dict | Response:
         result: dict | Response
@@ -47,6 +50,8 @@ class RelationshipsApi(ApiHandler):
                 result = await self._list_all_relationships(input, request)
             elif method == "POST":
                 result = await self._post_relationship(input, request)
+            elif method == "DELETE":
+                result = await self._delete_relationship(input, request)
             else:
                 result = {
                     "success": False,
@@ -172,6 +177,85 @@ class RelationshipsApi(ApiHandler):
             })
         except Exception as e:  # pragma: no cover - defensive
             return {"success": False, "error": str(e)}
+
+
+    async def _delete_relationship(self, input: dict, request: Request) -> dict:
+        """DELETE: remove one edge identified by the (from_id, to_id,
+        rel_type) triple, passed as query strings (not path segments —
+        framework routing splits on path.split("/", 2)).
+
+        Failure contract (ARC condition C2): every validation and store
+        failure returns a structured {success: false, error: ...} — nothing
+        is swallowed. A symmetric reverse-removal failure for related_to
+        edges (D24 mirror) is reported in the response and does not fail the
+        request. A 0-removal (no matching edge) returns structured
+        not-found with no store write (ARC condition C3).
+        """
+        memory_subdir = (
+            input.get("memory_subdir")
+            or request.args.get("memory_subdir")
+            or ""
+        ).strip()
+        from_id = (input.get("from_id") or request.args.get("from_id") or "").strip()
+        to_id = (input.get("to_id") or request.args.get("to_id") or "").strip()
+        rel_type = (input.get("rel_type") or request.args.get("rel_type") or "").strip()
+
+        if not memory_subdir:
+            return {"success": False, "error": "`memory_subdir` is required"}
+        if not from_id or not to_id:
+            return {"success": False, "error": "`from_id` and `to_id` are required"}
+        if from_id == to_id:
+            return {"success": False, "error": "self-referential edges are not allowed"}
+        if rel_type not in VALID_RELATIONSHIP_TYPES:
+            return {
+                "success": False,
+                "error": (
+                    f"unknown rel_type '{rel_type}'. "
+                    f"Valid: {sorted(VALID_RELATIONSHIP_TYPES)}"
+                ),
+            }
+
+        store = GraphStore(memory_subdir)
+        try:
+            removed = store.remove_edge(from_id, to_id, rel_type)
+        except Exception as e:
+            # C2: store failures are surfaced, never swallowed.
+            return {"success": False, "error": f"store removal failed: {e}"}
+
+        if removed == 0:
+            # C3: structured not-found; the store was not modified.
+            return {
+                "success": False,
+                "error": (
+                    "edge not found: no edge matching "
+                    f"({from_id!r}, {to_id!r}, {rel_type!r}) in "
+                    f"memory_subdir '{memory_subdir}'"
+                ),
+                "removed": 0,
+            }
+
+        reverse_removed: int | None = None
+        reverse_error: str | None = None
+        if rel_type == "related_to":
+            # D24 mirror: symmetric reverse-direction pass is non-fatal
+            # best-effort; its outcome is surfaced, never swallowed.
+            try:
+                reverse_removed = store.remove_edge(to_id, from_id, rel_type)
+            except Exception as e:
+                reverse_error = str(e)
+
+        response: dict[str, Any] = {
+            "success": True,
+            "status": "ok",
+            "from_id": from_id,
+            "to_id": to_id,
+            "rel_type": rel_type,
+            "removed": 1,
+            "reverse_removed": reverse_removed,
+        }
+        if reverse_error is not None:
+            response["reverse_error"] = reverse_error
+        return response
 
 
 # ---------------------------------------------------------------------------

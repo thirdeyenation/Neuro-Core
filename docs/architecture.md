@@ -493,7 +493,14 @@ instance, and rendering.
   `rel_type`, score-bucket styling (high >= 0.7, mid >= 0.4, low).
 - Node inspector: tapping a node opens a details card with content,
   score badges, and its relationship list; clicking a related node
-  re-runs the search centered on that node.
+  re-runs the search centered on that node. Each relationship row in
+  the inspector carries a delete affordance (confirm step, then
+  `DELETE /api/plugins/neuro_core/relationships` with the edge's
+  `(from_id, to_id, rel_type)` triple); failures surface in the
+  panel's visible error state and a successful delete re-queries the
+  graph. Edge deletion is implemented (WI-P9-EDGE-DELETE), pending
+  live validation evidence; edge ADD controls are not yet exposed in
+  the panel (tracked as a separate work item).
 - Theme observation: a `MutationObserver` on the document element
   re-applies Cytoscape styles when the framework theme changes.
 
@@ -514,5 +521,9 @@ instance, and rendering.
 
 The WebUI panel is the only Neuro Core surface that gives the user
 a visual graph; all other interaction is via the API and the agent
-tools. The panel is read-only: it renders and inspects the graph
-but does not expose relationship add/delete controls.
+tools. The panel renders and inspects the graph and, since
+WI-P9-EDGE-DELETE, exposes a per-edge DELETE affordance in the node
+inspector (confirm-gated, described above); edge deletion is
+implemented pending live validation evidence. Relationship ADD
+controls are not exposed in the panel — that capability is tracked
+as a separate follow-up work item (KI-018-AK lineage).

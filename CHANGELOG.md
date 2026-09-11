@@ -10,10 +10,12 @@ reconciliation, WI-P5-DOCS-RECON)
 
 Neuro Core v1.0.0 is the first stable release of the context graph and
 memory enhancement plugin for Agent Zero. It ships with all five core
-subsystems verified, 401 tests passing (full-suite count verified
+subsystems verified, 419 tests passing (full-suite count verified
 2026-09-11 against the plugin test suite; count lineage
-346→363→372→393→401, where 393 is the WI-P6 baseline plus 8 new
-WI-P8-GRAPH-BLOCKERS Context Graph defect-remediation tests;
+346→363→372→393→401→419, where 401 is the WI-P6 baseline plus the 8
+new WI-P8-GRAPH-BLOCKERS Context Graph defect-remediation tests, and
+419 adds 18 new WI-P9-EDGE-DELETE targeted edge-deletion tests —
+edge deletion implemented, pending live validation evidence;
 historical release notes had stated 290), 10 live
 integration scenarios confirmed, and all performance baselines met.
 
@@ -40,8 +42,9 @@ genuinely structured knowledge over time.
   cleaned on every restart (D55)
 - Memory score write-back to FAISS metadata — score changes immediately
   visible in retrieval ranking (D41)
-- API relationships routing corrected — full CRUD on graph edges via
-  `/api/plugins/neuro_core/relationships` (D42, D45)
+- API relationships routing corrected — list, create, and targeted delete of graph edges via
+  `/api/plugins/neuro_core/relationships` (D42, D45; delete implemented and validated at
+  implementation level, WI-P9; live host/browser confirmation pending)
 
 **Reliability Fixes**
 - EpisodeGroupingJob silent failure resolved — `_iter_docs` and
