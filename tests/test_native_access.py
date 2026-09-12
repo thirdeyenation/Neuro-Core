@@ -91,10 +91,17 @@ def test_search_passes_embedding_through_full_signature(monkeypatch, memory_subd
 
 
 def test_search_tracks_access(monkeypatch, memory_subdir):
+    """WI-P12: access tracking records the sidecar; the FAISS metadata mirror
+    mutation (ADR-NC1-002 boundary 4) is gone — metadata must stay untouched."""
     calls = {}
     _install_recorders(monkeypatch, calls)
     result = asyncio.run(na.search(_FakeMem(), "q"))
-    assert result[0].metadata["access_count"] == 1
+    from usr.plugins.neuro_core.helpers.scores import ScoreStore
+
+    ms = ScoreStore(memory_subdir).get("mem1")
+    assert ms.access_count == 1
+    assert ms.last_accessed_at
+    assert "access_count" not in result[0].metadata
 
 
 def test_search_with_scores_passes_through_and_tracks(monkeypatch, memory_subdir):
@@ -103,7 +110,11 @@ def test_search_with_scores_passes_through_and_tracks(monkeypatch, memory_subdir
     _install_recorders(monkeypatch, calls)
     result = asyncio.run(na.search_with_scores(_FakeMem(), "q2"))
     assert calls["with_scores"] == {"query": "q2", "filter": ""}
-    assert result[0][0].metadata["access_count"] == 1
+    from usr.plugins.neuro_core.helpers.scores import ScoreStore
+
+    ms = ScoreStore(memory_subdir).get("mem1")
+    assert ms.access_count == 1
+    assert "access_count" not in result[0][0].metadata
 
 
 def test_access_tracking_updates_sidecar(monkeypatch, memory_subdir):

@@ -24,7 +24,11 @@ tests (graph-panel cleanup: minScore slider wired into render filtering,
 relationship-dropdown vocabulary completed to the full store enum,
 cytoscape vendored locally with zero external CDN references, dormant
 divergent webui/graph-store.js removed; suite count 432->441 confirmed
-2026-09-12; historical release notes had stated
+2026-09-12; and 446 adds 5 new WI-P12-SCORE-AUTHORITY sidecar-precedence tests
+(sidecar-over-stale-metadata precedence, legacy-record degraded fallback,
+sidecar-only access tracking, boundary-4 source-level pin, re-open
+persistence; suite count 441->446 confirmed 2026-09-12; historical
+release notes had stated
 290), 10 live
 integration scenarios confirmed, and all performance baselines met.
 
@@ -49,8 +53,13 @@ genuinely structured knowledge over time.
   now synthesizes concept memories from recurring patterns automatically
 - Startup sidecar reconciliation — orphan sidecar entries detected and
   cleaned on every restart (D55)
-- Memory score write-back to FAISS metadata — score changes immediately
-  visible in retrieval ranking (D41)
+- Sidecar-authoritative memory scores (supersedes D41 write-back) —
+  per ADR-NC1-002 (WI-P12-SCORE-AUTHORITY, KI-009 resolution), score and
+  access-count writes go only to the `scores.json` sidecar (single
+  authoritative writer); the FAISS metadata score copy is read-only and
+  never authoritative — retrieval surfaces `neuro_degraded` for legacy
+  records without sidecar entries instead of presenting the mirror as
+  healthy
 - API relationships routing corrected — list, create, and targeted delete of graph edges via
   `/api/plugins/neuro_core/relationships` (D42, D45; delete implemented and validated at
   implementation level, WI-P9; live host/browser confirmation pending)

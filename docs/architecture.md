@@ -55,7 +55,7 @@ All Neuro Core state lives in three places, all under
 | Substrate | File | Format | Written by | Read by |
 |---|---|---|---|---|
 | FAISS document metadata | `index.faiss` + `index.pkl` | FAISS + pickled docstore | `_memory` plugin, Neuro Core (validation_status, memory_type, episode_id) | `_memory` plugin, Neuro Core retrieval |
-| Scores sidecar | `scores.json` | JSON | `ScoreStore` (via `memory_score` tool, `run_importance_decay`, `update_access`) | `ScoreStore.get()` (via retrieval) |
+| Scores sidecar | `scores.json` | JSON | `ScoreStore` (via `memory_score` tool, `run_importance_decay`, `update_access`) | `ScoreStore.get_optional()` / `ScoreStore.get()` (via retrieval — absence-aware read; legacy `get()` retained for stub stores) |
 | Relationships sidecar | `relationships.json` | JSON | `GraphStore` (via `memory_relate` tool, `ContextGraphApi`, `execute.py` migration, contradiction detector, cascade-delete hook) | `GraphStore.neighbors()` (via retrieval), `GraphStore.get_edges()` (via `run_graph_analytics`) |
 
 The two existing sidecars from `_memory` (`embedding.json` and
@@ -337,7 +337,16 @@ the seed set, allocated hop-ascending then edge-confidence-descending).
 ### Stage 3 — Importance/recency-weighted scoring (folded into Stages 1–2)
 
 ```
-importance = score_store.get(doc_id) or metadata importance (0.5 fallback)
+importance = score_store.get_optional(doc_id)   # absence-aware read
+           # legacy stores without get_optional() keep their existing
+           # get() semantics (stub-store fallback only)
+           # sidecar entry exists  -> sidecar importance, healthy
+           # no sidecar entry      -> metadata importance + the explicit
+           #                          `neuro_degraded: true` marker — the
+           #                          metadata mirror is never authoritative
+           #                          (legacy-record semantics,
+           #                          ADR-NC1-002 boundary 3, WI-P12)
+           # metadata lacks importance -> 0.5 fallback
 recency    = _recency_score(last_accessed_at or timestamp)
 node.score = config["similarity_weight"] * semantic
            + config["importance_weight"] * importance
@@ -348,8 +357,11 @@ The three weights are configurable (defaults: 0.5, 0.3, 0.2). There
 is no separate rerank pass — the composite score is computed as each
 node is registered, and graph-only neighbors use a moderate semantic
 baseline of `0.5` so importance and recency differentiate them. When
-the score sidecar is unreadable, importance falls back to metadata
-and the node's metadata is flagged `neuro_degraded: true` (KI-008).
+the score sidecar is unreadable (KI-008), or when the document is a
+legacy record with no sidecar entry, importance falls back to the
+read-only metadata mirror and the node's metadata is flagged
+`neuro_degraded: true` — the fallback is surfaced as degraded, never
+presented as a healthy sidecar-backed score (WI-P12-SCORE-AUTHORITY).
 
 ### Stage 4 — Assembly and serialization
 

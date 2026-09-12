@@ -12,9 +12,14 @@ Why a sidecar file?
     ``memory_score`` tool) a cheap, lock-protected write target that does
     not touch the index.
 
-The FAISS metadata still carries a copy of the same fields so that the
-``MemoryObject`` and the Memory Dashboard can read them without opening
-the sidecar; the sidecar is the authoritative write target.
+Per the ratified ADR-NC1-002 assignment (WI-P1-OA1-CHARTER-ADR), the
+sidecar is the SINGLE writer of record for these mutable fields. FAISS
+metadata may carry a legacy read-only copy for backward-compatible
+reading by the ``MemoryObject`` and the Memory Dashboard; that copy is
+NEVER authoritative. Retrieval reads the sidecar first; legacy records
+lacking sidecar entries fall back to the metadata copy and surface an
+explicit ``neuro_degraded`` marker (no fabricated healthy baselines,
+KI-008 / WI-P12-SCORE-AUTHORITY).
 
 Concurrency:
     All reads and writes go through a per-subdir ``threading.RLock`` so
@@ -248,6 +253,19 @@ class ScoreStore:
             raw = self._data.get(memory_id)
         if raw is None:
             return MemoryScores()
+        return MemoryScores.from_dict(raw)
+
+    def get_optional(self, memory_id: str) -> Optional[MemoryScores]:
+        """Return ``MemoryScores`` or ``None`` when the memory has no sidecar
+        entry (absence-aware; no fabricated defaults — WI-P12-SCORE-AUTHORITY,
+        binding ARC C3: the metadata mirror is never authoritative)."""
+        if not memory_id:
+            return None
+        self._ensure_loaded()
+        with self._locked():
+            raw = self._data.get(memory_id)
+        if raw is None:
+            return None
         return MemoryScores.from_dict(raw)
 
     def set(

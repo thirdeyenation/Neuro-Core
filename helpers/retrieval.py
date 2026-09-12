@@ -129,22 +129,34 @@ def _importance_for(doc_id: str, doc: Any, score_store: Any) -> tuple:
     """Read the importance score from the sidecar; fall back to metadata.
 
     Returns ``(importance, degraded)``. ``degraded`` is True when the
-    sidecar read failed — callers must surface an explicit degradation
-    marker (``neuro_degraded``) instead of silently presenting the
-    metadata/0.5 fallback as a healthy sidecar-backed score (KI-008,
-    WI-P2-DEFECT-BATCH: no fabricated baselines).
+    sidecar read failed OR the document is a legacy record without a
+    sidecar entry — callers must surface an explicit degradation marker
+    (``neuro_degraded``) instead of silently presenting the metadata/0.5
+    fallback as a healthy sidecar-backed score (KI-008,
+    WI-P2-DEFECT-BATCH; legacy-record semantics per ADR-NC1-002
+    boundary 3, WI-P12-SCORE-AUTHORITY: the metadata copy is a
+    potentially stale mirror, never authoritative).
     """
     if score_store is not None:
         try:
-            rec = score_store.get(doc_id)
-            if rec is not None:
-                return float(rec.importance), False
+            # Absence-aware read when the store supports it; legacy stores
+            # (including test stubs) keep their existing get() semantics.
+            if hasattr(score_store, "get_optional"):
+                rec = score_store.get_optional(doc_id)
+            else:
+                rec = score_store.get(doc_id)
         except Exception as exc:
             logging.getLogger(__name__).warning(
                 "neuro_core retrieval: score sidecar read failed for %r: %s",
                 doc_id, exc,
             )
             return _metadata_importance(doc), True
+        if rec is not None:
+            return float(rec.importance), False
+        # Legacy record: no sidecar entry. The metadata copy is a
+        # potentially stale mirror — surface the degraded marker instead
+        # of presenting it as healthy sidecar-backed data.
+        return _metadata_importance(doc), True
     return _metadata_importance(doc), False
 
 

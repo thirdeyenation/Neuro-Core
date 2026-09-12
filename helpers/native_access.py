@@ -7,8 +7,11 @@ from the surviving .pyc; re-validated via the probe5b oracle after rebuild.
 Routes NC1 capture/search/delete through the REAL framework Memory API with
 full signature fidelity (KI-001/KI-002 structurally impossible: no signature
 replica exists) and tracks access on BOTH search paths (closes KI-021).
-Bookkeeping contracts: delete cascade runs sidecar-FIRST (D39-A/D53, ARC
-cond 2); every bookkeeping step is exception-safe and non-fatal (ARC cond 3).
+Bookkeeping contracts: the sidecar cascade is owned by the ratified
+_10_graph_cascade end-hook strictly AFTER confirmed deletion
+(WI-P10-DELETE-ORDERING supersedes the former sidecar-first D39-A
+ordering); every bookkeeping step is exception-safe and non-fatal
+(ARC cond 3).
 No host monkey-patching: the Memory class is never modified.
 """
 
@@ -96,10 +99,10 @@ def _track_access(agent_memory, docs):
                 continue
             doc_id = getattr(doc, "id", None) or (doc.metadata or {}).get("id")
             if doc_id:
-                updated = store.update_access(doc_id)
-                try:
-                    doc.metadata["access_count"] = updated.access_count
-                except Exception:
-                    pass
+                # WI-P12-SCORE-AUTHORITY (S1, ARC C2): ScoreStore remains the
+                # single writer of record for access_count. The former FAISS
+                # metadata mirror mutation is removed per ADR-NC1-002
+                # boundary 4. Non-fatal warning contract preserved below.
+                store.update_access(doc_id)
     except Exception as e:
         log.warning(f"[neuro_core] access tracking non-fatal: {e}")

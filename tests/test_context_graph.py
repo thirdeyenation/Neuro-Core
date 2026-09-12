@@ -212,6 +212,14 @@ def _make_score_store(scores_by_id):
             return scores_by_id[memory_id]
         return MemoryScores()
     ss.get = mock.MagicMock(side_effect=_get)
+
+    def _get_optional(memory_id):
+        # Emulate the absence-aware accessor (WI-P12): absent entries return
+        # None instead of fabricated defaults. Keeping get() semantics intact
+        # preserves legacy callers.
+        return scores_by_id.get(memory_id)
+
+    ss.get_optional = mock.MagicMock(side_effect=_get_optional)
     return ss
 
 
