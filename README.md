@@ -41,9 +41,10 @@ See `docs/tools.md` for per-tool behavior and arguments.
 See `docs/api.md` for routes, parameters, and response schemas.
 
 **WebUI assets** — a right-canvas graph panel
-(`extensions/webui/right-canvas-panels/graph-panel.html`) with its
-Alpine.js store (`webui/graph-store.js`) and a sidebar quick-action
-entry (`extensions/webui/sidebar-quick-actions-main-start/neuro-entry.html`).
+(`extensions/webui/right-canvas-panels/graph-panel.html`), its local
+vendored Cytoscape library (`webui/vendor/cytoscape-3.30.2.min.js`, served
+via the plugin-asset route with no external CDN dependency), and a sidebar
+quick-action entry (`extensions/webui/sidebar-quick-actions-main-start/neuro-entry.html`).
 
 **Lifecycle jobs** — three `job_loop` extensions
 (`_10_access_decay.py`, `_20_episode_grouping.py`,

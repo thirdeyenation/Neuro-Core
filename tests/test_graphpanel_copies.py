@@ -35,7 +35,7 @@ def test_shell_component_target_is_plugin_served():
 
 def test_webui_copy_is_the_content_source_not_a_duplicate():
     """The webui/ copy is the 29KB content source (not a shell); it must contain
-    the x-data graph panel and be referenced by graph-store.js docs."""
+    the x-data graph panel and its serving chain (graph-store.js was removed in WI-P11 as dormant divergent code)."""
     text = PANEL_CONTENT.read_text(encoding="utf-8")
     assert 'x-data=' in text
     assert 'nc-cy' in text  # cytoscape container

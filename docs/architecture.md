@@ -483,9 +483,15 @@ Four plugin assets make it up:
 - `extensions/webui/sidebar-quick-actions-main-start/neuro-entry.html`
   - a sidebar quick-action link that opens the surface with
   `$store.rightCanvas.open('neuro-core-graph')`.
-- `webui/graph-store.js` - an Alpine store registered as
-  `Alpine.store('neuroGraph')`; `webui/graph-panel.css` holds the
-  panel styling, keyed to framework CSS custom properties.
+- `webui/graph-panel.css` holds the panel styling, keyed to framework
+  CSS custom properties; the panel's Cytoscape library is vendored locally
+  at `webui/vendor/cytoscape-3.30.2.min.js` and served through the plugin
+  asset route (no external CDN dependency).
+
+Note: a historical `webui/graph-store.js` Alpine store existed but was never
+referenced by the panel (which uses an inline `x-data` scope) and diverged
+from the real API response shapes; it was removed in WI-P11 as dormant
+divergent code.
 
 The panel body (`webui/right-canvas-panels/graph-panel.html`) is a
 self-contained Alpine.js component (`x-data` scope) rather than a

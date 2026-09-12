@@ -19,7 +19,12 @@ edge deletion implemented, pending live validation evidence; and
 432 adds 13 new WI-P10-DELETE-ORDERING delete-ordering defect
 remediation tests (KI-003/KI-011/KI-013 signatures pinned, D39-A
 superseded by post-success hook cascade per D-NC1-035; suite count
-419->432 confirmed 2026-09-11; historical release notes had stated
+419->432 confirmed 2026-09-11; and 441 adds 9 new WI-P11-GRAPH-CLEANUP
+tests (graph-panel cleanup: minScore slider wired into render filtering,
+relationship-dropdown vocabulary completed to the full store enum,
+cytoscape vendored locally with zero external CDN references, dormant
+divergent webui/graph-store.js removed; suite count 432->441 confirmed
+2026-09-12; historical release notes had stated
 290), 10 live
 integration scenarios confirmed, and all performance baselines met.
 
