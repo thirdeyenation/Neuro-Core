@@ -145,12 +145,22 @@ class AdvancedFiltersApi(ApiHandler):
             graph_store = GraphStore(memory_subdir)
             score_store = ScoreStore(memory_subdir)
 
-            # Get all documents from FAISS index
-            all_docs = memory.db.get_all_documents() if hasattr(memory.db, "get_all_documents") else []
-            if not all_docs and hasattr(memory, "docstore"):
-                # Fallback: iterate docstore
+            # Get all documents from FAISS index. The framework FAISS db
+            # class (MyFaiss, /a0/plugins/_memory/helpers/memory.py) exposes
+            # get_all_docs() returning self.docstore._dict — there is no
+            # get_all_documents() method, and docstore lives on memory.db,
+            # not on the Memory wrapper (KI-018-AM root cause).
+            all_docs: list = []
+            db = getattr(memory, "db", None)
+            if db is not None and hasattr(db, "get_all_docs"):
                 try:
-                    all_docs = list(memory.docstore._dict.values())
+                    all_docs = list(db.get_all_docs().values())
+                except Exception:
+                    all_docs = []
+            if not all_docs and db is not None and hasattr(db, "docstore"):
+                # Fallback: iterate the db's docstore directly
+                try:
+                    all_docs = list(db.docstore._dict.values())
                 except Exception:
                     all_docs = []
 
@@ -210,12 +220,15 @@ class AdvancedFiltersApi(ApiHandler):
             # Apply limit
             filtered_nodes = filtered_nodes[:limit]
 
-            # Get edges between filtered nodes
+            # Get edges between filtered nodes. GraphStore exposes
+            # all_edges() (helpers/graph_store.py) — the previous
+            # get_all_edges() name never existed, so edges were always
+            # empty (same wrong-interface root cause as KI-018-AM).
             filtered_ids = {n["id"] for n in filtered_nodes if n["id"]}
-            all_edges = graph_store.get_all_edges() if hasattr(graph_store, "get_all_edges") else []
+            all_edges = graph_store.all_edges() if hasattr(graph_store, "all_edges") else []
             filtered_edges = []
             for edge in all_edges:
-                if relationship_types is not None and edge.rel_type not in relationship_types:
+                if relationship_types is not None and edge.type not in relationship_types:
                     continue
                 if edge.from_id in filtered_ids and edge.to_id in filtered_ids:
                     filtered_edges.append(_serialize_edge(edge))
@@ -313,7 +326,7 @@ def _serialize_edge(edge: GraphEdge) -> dict:
     return {
         "from_id": edge.from_id,
         "to_id": edge.to_id,
-        "type": edge.rel_type,
+        "type": edge.type,
         "weight": edge.weight,
         "created_at": edge.created_at.isoformat() if hasattr(edge.created_at, "isoformat") else str(edge.created_at),
     }
