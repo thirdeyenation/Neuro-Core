@@ -531,8 +531,11 @@ instance, and rendering.
   `(from_id, to_id, rel_type)` triple); failures surface in the
   panel's visible error state and a successful delete re-queries the
   graph. Edge deletion is implemented (WI-P9-EDGE-DELETE), pending
-  live validation evidence; edge ADD controls are not yet exposed in
-  the panel (tracked as a separate work item).
+  live validation evidence; edge ADD is implemented (WI-P13-ADD-EDGE-UI) as an inspector add-edge
+  form posting a JSON body to `POST
+  /api/plugins/neuro_core/relationships`, validated at integration
+  level on disposable fixtures; live browser/host confirmation is
+  pending the queued assurance pass.
 - Theme observation: a `MutationObserver` on the document element
   re-applies Cytoscape styles when the framework theme changes.
 
@@ -556,6 +559,9 @@ a visual graph; all other interaction is via the API and the agent
 tools. The panel renders and inspects the graph and, since
 WI-P9-EDGE-DELETE, exposes a per-edge DELETE affordance in the node
 inspector (confirm-gated, described above); edge deletion is
-implemented pending live validation evidence. Relationship ADD
-controls are not exposed in the panel — that capability is tracked
-as a separate follow-up work item (KI-018-AK lineage).
+implemented pending live validation evidence. Since
+WI-P13-ADD-EDGE-UI, the panel exposes both per-edge DELETE and
+inspector add-edge affordances — deletion implemented and
+validated at implementation level, edge creation implemented and
+validated at integration level — with live browser/host
+confirmation pending the queued assurance pass for both.

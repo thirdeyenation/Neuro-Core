@@ -158,7 +158,8 @@ with the same per-edge fields as above), `count`.
 ### `POST /api/plugins/neuro_core/relationships`
 
 Create a graph edge. Body is JSON-decoded by the framework into
-`input`.
+`input`. The Context Graph panel's inspector add-edge form consumes this
+route (WI-P13-ADD-EDGE-UI).
 
 **Body parameters**
 

@@ -32,7 +32,7 @@ See `docs/tools.md` for per-tool behavior and arguments.
 `/api/plugins/neuro_core/`:
 
 - `context_graph` — hybrid retrieval returning a serialized ContextGraph
-- `relationships` — list/create/delete graph edges (edge deletion implemented and validated at implementation level; live end-to-end host/browser confirmation pending)
+- `relationships` — list/create/delete graph edges (edge deletion implemented and validated at implementation level; panel add-edge UI implemented and validated at integration level; live end-to-end host/browser confirmation pending)
 - `advanced_filters` — filtered graph queries
 - `episode_audit` — episode listing and per-episode audit
 - `reflection_audit` — reflection-memory listing and audit
