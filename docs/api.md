@@ -231,7 +231,7 @@ Backend for the graph panel's advanced filter UI.
 | `memory_type` | str (CSV) or list | none | Filter by `MemoryType` values; invalid entries dropped. |
 | `validation_status` | str (CSV) or list | none | Filter by `ValidationStatus` values. |
 | `relationship_type` | str (CSV) or list | none | Filter edges by type (values validated only against the edge set present). |
-| `date_range` | JSON `{"start": ISO, "end": ISO}` | none | Timestamp window (numeric epoch or ISO-8601 accepted; unparseable per-doc dates are skipped, not rejected). |
+| `date_range` | JSON `{"start": ISO, "end": ISO}` | none | Timestamp window (numeric epoch or ISO-8601 accepted; a doc whose timestamp cannot be parsed is kept in the results with its date comparison skipped — the query itself is not rejected.) |
 | `importance_min` / `confidence_min` / `stability_min` | float | none | Sidecar score thresholds. |
 | `episode_id` | str | none | Exact `episode_id` metadata match. |
 | `query` | str | none | Accepted and echoed in `filters_applied`; **no semantic filtering is currently applied to the query value**. |
@@ -254,7 +254,9 @@ Backend for the graph panel's advanced filter UI.
 Notes on current behavior (verified against source):
 
 - Enum filters (`memory_type`, `validation_status`) silently drop
-  unknown values; a list with no valid values becomes "no filter".
+  unknown values; a list with no valid values after dropping matches nothing
+  — the filter is applied as an empty set and the query returns zero nodes
+  (success=true, node_count=0), not an unfiltered result.
 - Edges returned are only those whose **both** endpoints are in the
   filtered node set.
 - Edge serialization includes `from_id`, `to_id`, `type`, `weight`,
