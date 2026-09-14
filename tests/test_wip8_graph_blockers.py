@@ -138,9 +138,12 @@ def test_first_open_defaults_subdir_before_auto_search():
     saved chip (established panel default 'projects/neuro_core') before the
     auto-search runs, so the first-open journey reaches a valid subdir."""
     text = PANEL_CONTENT.read_text(encoding="utf-8")
+    # WI-P16 update: x-init has no component `this` in Alpine v3 — the pinned
+    # form reads subdirs[0] directly (KI-018-AE remediation).
     assert (
-        "if (!sub.trim()) sub = this.subdirs[0] || 'projects/neuro_core';" in text
+        "if (!sub.trim()) sub = subdirs[0] || 'projects/neuro_core';" in text
     )
+    assert "this.subdirs[0]" not in text
 
 
 def test_search_surfaces_success_false_payload():
