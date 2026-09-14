@@ -98,7 +98,11 @@ def test_ae_x_init_prefill_has_no_this_binding():
     prefill and the trailing search()."""
     src = PANEL_CONTENT.read_text(encoding="utf-8")
     assert "this.subdirs[0]" not in src, "x-init still uses this.subdirs[0] (KI-018-AE regression)"
-    assert "sub = subdirs[0] || 'projects/neuro_core'" in src
+    # WI-P18 AU: the prefill no longer reads subdirs[0] at all — it now uses
+    # the active-project store with a 'default' fallback (pinned in detail in
+    # test_wip18_panel_ux.py). Here we pin only that the prefill expression
+    # remains a direct store read with no component-`this` binding.
+    assert "sub = ($store.chats" in src
 
 
 def test_ae_subdirs_fallback_covers_empty_array_and_invalid_json():
@@ -160,5 +164,5 @@ def test_shell_copy_role_preserved():
     # The fixes must be in the content copy, never duplicated into the shell.
     assert "Both start and end are required" in content
     assert "Both start and end are required" not in shell
-    assert "sub = subdirs[0]" in content
-    assert "sub = subdirs[0]" not in shell
+    assert "sub = ($store.chats" in content
+    assert "sub = ($store.chats" not in shell

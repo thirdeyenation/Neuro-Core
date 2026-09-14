@@ -134,16 +134,23 @@ def test_relationships_api_has_no_private_store_access():
 
 
 def test_first_open_defaults_subdir_before_auto_search():
-    """x-init must not send an empty memory_subdir: it defaults to the first
-    saved chip (established panel default 'projects/neuro_core') before the
-    auto-search runs, so the first-open journey reaches a valid subdir."""
+    """x-init must not send an empty memory_subdir: it resolves a valid subdir
+    before the auto-search runs, so the first-open journey reaches a valid
+    subdir. WI-P18 AU update: the prefill now uses the ACTIVE project from the
+    Alpine chats store ('projects/<name>') with a 'default' fallback — a stale
+    localStorage chip is never the sole source (pinned in detail in
+    test_wip18_panel_ux.py)."""
     text = PANEL_CONTENT.read_text(encoding="utf-8")
-    # WI-P16 update: x-init has no component `this` in Alpine v3 — the pinned
-    # form reads subdirs[0] directly (KI-018-AE remediation).
     assert (
-        "if (!sub.trim()) sub = subdirs[0] || 'projects/neuro_core';" in text
+        "if (!sub.trim()) sub = ($store.chats"
+        " && $store.chats.selectedContext && $store.chats.selectedContext.project"
+        " && $store.chats.selectedContext.project.name)"
+        " ? ('projects/' + $store.chats.selectedContext.project.name)"
+        " : 'default';" in text
     )
     assert "this.subdirs[0]" not in text
+    # The old stale-chip prefill must be gone.
+    assert "sub = subdirs[0] || 'projects/neuro_core'" not in text
 
 
 def test_search_surfaces_success_false_payload():
