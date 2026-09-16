@@ -495,10 +495,15 @@ Four plugin assets make it up:
 - `extensions/webui/sidebar-quick-actions-main-start/neuro-entry.html`
   - a sidebar quick-action link that opens the surface with
   `$store.rightCanvas.open('neuro-core-graph')`.
-- `webui/graph-panel.css` holds the panel styling, keyed to framework
-  CSS custom properties; the panel's Cytoscape library is vendored locally
-  at `webui/vendor/cytoscape-3.30.2.min.js` and served through the plugin
-  asset route (no external CDN dependency).
+- Panel styling is inline in the panel body itself (a `<style>` block in
+  `webui/right-canvas-panels/graph-panel.html`), keyed to framework
+  CSS custom properties. A historical `webui/graph-panel.css` stylesheet
+  exists but is dormant: no loader references it anywhere in the plugin
+  (webui/, extensions/, api/, hooks.py) and it has diverged from the
+  classes the panel actually uses; it is retained pending an ORC-routed
+  disposition decision (KI-018-AA, WI-P21). The panel's Cytoscape library
+  is vendored locally at `webui/vendor/cytoscape-3.30.2.min.js` and served
+  through the plugin asset route (no external CDN dependency).
 
 Note: a historical `webui/graph-store.js` Alpine store existed but was never
 referenced by the panel (which uses an inline `x-data` scope) and diverged
@@ -515,7 +520,13 @@ instance, and rendering.
 - Query search via `GET
   /api/plugins/neuro_core/context_graph?query=...&memory_subdir=...`.
 - Memory-subdir chips (add/remove/persisted in
-  `localStorage['nc_memory_subdirs']`).
+  `localStorage['nc_memory_subdirs']`). The subdir dropdown options are
+  sourced as a deduplicated union of `GET /memory_subdirs` results and
+  `projects/<key>` entries composed from `POST /api/projects`
+  (`action=list_options`). Since the WI-P20 BE fix the API itself serves
+  project subdirs, so the panel-side composition is a redundant-but-
+  harmless dedupe union (WI-P19 panel-side composition, reconciled
+  WI-P21).
 - Advanced filters via `GET
   /api/plugins/neuro_core/advanced_filters?...` with `memory_type`,
   `validation_status`, `relationship_type`, `date_range_start/end`,

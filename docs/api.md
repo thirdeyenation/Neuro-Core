@@ -161,7 +161,12 @@ Create a graph edge. Body is JSON-decoded by the framework into
 `input`. The Context Graph panel's inspector add-edge form consumes this
 route (WI-P13-ADD-EDGE-UI).
 
-**Body parameters**
+**Parameters** (accepted from the parsed `input` dict (POST/JSON body)
+or the query string — same fallback order (`input` -> `request.args`)
+as the `?id=` route, list-all, DELETE, and all sibling handlers;
+KI-018-AL consistency fix, WI-P21). Parsed input keeps precedence.
+`weight` uses an explicit absence check so a legitimate `0.0` from the
+query string is preserved.
 
 | Name | Type | Required | Default | Description |
 |---|---|---|---|---|

@@ -102,11 +102,18 @@ class RelationshipsApi(ApiHandler):
 
     async def _post_relationship(self, input: dict, request: Request) -> dict:
         try:
-            memory_subdir = (input.get("memory_subdir") or "").strip()
-            from_id = (input.get("from_id") or "").strip()
-            to_id = (input.get("to_id") or "").strip()
-            rel_type = (input.get("rel_type") or "").strip()
-            weight = input.get("weight", 1.0)
+            # Input-handling consistency (KI-018-AL): accept params from the
+            # parsed input dict OR the query string, same fallback order as
+            # the ?id= route, list-all, DELETE, and all sibling GET handlers.
+            # Parsed input keeps precedence. weight uses an explicit None
+            # check so a legitimate 0.0 from the query string is preserved.
+            memory_subdir = (input.get("memory_subdir") or request.args.get("memory_subdir") or "").strip()
+            from_id = (input.get("from_id") or request.args.get("from_id") or "").strip()
+            to_id = (input.get("to_id") or request.args.get("to_id") or "").strip()
+            rel_type = (input.get("rel_type") or request.args.get("rel_type") or "").strip()
+            weight = input.get("weight")
+            if weight is None:
+                weight = request.args.get("weight", 1.0) if request.args.get("weight") not in (None, "") else 1.0
 
             if not memory_subdir:
                 return {"success": False, "error": "`memory_subdir` is required"}

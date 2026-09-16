@@ -32,6 +32,24 @@ release notes had stated
 290), 10 live
 integration scenarios confirmed, and all performance baselines met.
 
+Count-lineage continuation (reconciled 2026-09-16, WI-P21): 470 adds 24
+new WI-P13-ADD-EDGE-UI inspector add-edge tests (suite 446->470);
+482 adds 12 new WI-P14-GRAPH-FILTER-DEFECTS advanced-filters
+real-interface tests (470->482); 492 adds 10 new WI-P15-AP-AO docs/
+panel date_range contract tests (482->492); 499 adds 7 new
+WI-P16-PANEL-VISIBILITY inspector/visibility tests (492->499); 510
+adds 11 new WI-P17-SEARCH-JSONPARSE CSRF/response-validation tests
+(499->510); 525 adds 15 new WI-P18-PANEL-UX tests (510->525); 539
+adds 14 new WI-P19-PANEL-INTERACTION direction-aware labeling,
+post-create refresh, form-reset, and subdir-composition tests
+(525->539); 552 adds 13 new WI-P20-APISIDE-REMEDIATION
+memory_subdirs scan-location, delete-refresh, and multi-seed
+visited-set tests (539->552, confirmed 2026-09-15); 570 adds 18 new
+WI-P21-LEDGER-ZERO tests (AL query-args consistency pins, BH
+per-type/multi-edge behavior pins, AA dormancy pins, CHANGELOG
+lineage pin, api.md doc pin, shell-copy pointer; suite count
+552->570 confirmed 2026-09-16).
+
 ### What Neuro Core Does
 
 Neuro Core gives Agent Zero a persistent, structured memory layer that
