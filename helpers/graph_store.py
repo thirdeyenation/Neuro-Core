@@ -407,6 +407,7 @@ class GraphStore:
         self._ensure_loaded()
 
         visited: set[str] = set(seed_ids)
+        seed_set: set[str] = set(seed_ids)
         frontier: list[tuple[str, int, GraphEdge]] = []
         out: list[tuple[str, int, GraphEdge]] = []
 
@@ -434,6 +435,16 @@ class GraphStore:
                     if rel_type is not None and edge.type != rel_type:
                         continue
                     if edge.to_id in visited:
+                        # Hop-1 seed-to-seed edges must not be omitted: the
+                        # visited set is pre-seeded with all seed ids, which
+                        # previously swallowed edges BETWEEN seeds (a real
+                        # relationship silently dropped from multi-seed
+                        # retrieval). Emit such entries without enqueuing
+                        # them: seeds are already fully expanded at hop 1,
+                        # so re-adding them to the frontier would re-expand
+                        # them and change hop semantics.
+                        if hop == 1 and edge.to_id in seed_set and edge.to_id != node:
+                            out.append((edge.to_id, hop, edge))
                         continue
                     visited.add(edge.to_id)
                     entry = (edge.to_id, hop, edge)

@@ -99,11 +99,13 @@ def test_bc_refocus_reselects_inspected_node():
     assert "el.select()" in body
 
 
-def test_bc_deleteedge_unchanged_out_of_scope():
-    """deleteEdge keeps its existing behavior (outside this work item's
-    scope); its q-refresh pattern is untouched pending a follow-up item."""
+def test_bc_deleteedge_refresh_placeholder_superseded():
+    """WI-P19 left deleteEdge's q-overwrite as an explicit placeholder
+    "pending a follow-up item"; that follow-up is WI-P20, and the
+    overwrite is now removed from the deleteEdge span (see
+    test_wip20_apiside_remediation.py for the fixed-behavior pins)."""
     body = _body_between("async deleteEdge(", "async openAddForm() {")
-    assert "this.q = this.inspectNode.id" in body
+    assert "this.q = this.inspectNode.id" not in body
 
 
 # --------------------------------------------------------------------- BD

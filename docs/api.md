@@ -323,7 +323,9 @@ Discovers two path patterns and returns their union:
 
 - **Standard subdirs** — directories under `/a0/usr/memory/`
   (`type: "standard"`).
-- **Project subdirs** — `/a0/usr/projects/<project>/memory/`
+- **Project subdirs** — `/a0/usr/projects/<project>/.a0proj/memory/`
+  (the framework project-memory resolution: `get_project_meta(name)` +
+  `"memory"`, per `helpers/projects.py` `PROJECT_META_DIR`)
   directories (`type: "project"`, `name` = project name).
 
 **Response**
@@ -333,7 +335,7 @@ Discovers two path patterns and returns their union:
   "success": true,
   "subdirs": [
     {"name": "main", "path": "/a0/usr/memory/main/", "type": "standard"},
-    {"name": "nc1", "path": "/a0/usr/projects/nc1/memory/", "type": "project"}
+    {"name": "nc1", "path": "/a0/usr/projects/nc1/.a0proj/memory/", "type": "project"}
   ],
   "count": 2
 }
