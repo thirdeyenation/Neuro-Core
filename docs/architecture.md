@@ -534,8 +534,26 @@ instance, and rendering.
   `episode_id` parameters.
 - Cytoscape rendering: nodes sized by importance, edges labeled by
   `rel_type`, score-bucket styling (high >= 0.7, mid >= 0.4, low).
+  Edges are typed-colored per the 8-enumerated `rel_type` values
+  (theme CSS variables with hex fallbacks, applied via `rel_color`)
+  and width-scaled by weight (`mapData`, 1-6); `rel_type` text labels
+  are always retained (never color-only). Selecting an edge applies
+  an `edge:selected` highlight.
+- Layout selector: the panel exposes 7 bundled Cytoscape layouts
+  (`cose`, `concentric`, `breadthfirst`, `grid`, `circle`, `random`,
+  `preset`). The preset layout is limited to load-order placement;
+  positions are not persisted.
 - Node inspector: tapping a node opens a details card with content,
-  score badges, and its relationship list; clicking a related node
+  a `memory_type` badge (with a "type unknown" fallback when the
+  metadata does not carry a type), score badges, and its
+  relationship list. The score rows are metadata-borne: importance
+  and confidence are read from node metadata, a `validation_status`
+  chip is shown when present, and stability is explicitly rendered
+  as "unavailable" (it is not carried in node metadata). Tapping an
+  edge opens a display-only edge inspector overlay showing
+  `rel_type`, weight, confidence, and endpoints (read-only; the node
+  inspector contract is unchanged and a background tap clears the
+  overlay). Clicking a related node
   re-runs the search centered on that node. Each relationship row in
   the inspector carries a delete affordance (confirm step, then
   `DELETE /api/plugins/neuro_core/relationships` with the edge's
@@ -562,7 +580,9 @@ instance, and rendering.
    `ContextGraph` as JSON.
 4. The panel assigns `nodes`/`edges` and calls `renderGraph()`,
    mapping each node to a Cytoscape node (id, label, content,
-   importance) and each edge to `source/target/rel_type`, then runs
+   importance, metadata, `memory_type`) and each edge to
+   `source/target/rel_type` plus weight (0.5 default for
+   legacy/missing values), confidence, and `rel_color`, then runs
    the selected layout (`cose` default).
 
 The WebUI panel is the only Neuro Core surface that gives the user
