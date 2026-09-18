@@ -567,6 +567,28 @@ instance, and rendering.
   pending the queued assurance pass.
 - Theme observation: a `MutationObserver` on the document element
   re-applies Cytoscape styles when the framework theme changes.
+- Legend: a theme-aware legend is shown when nodes exist; it lists
+  all 8 relationship-type edge colors sourced exclusively from
+  `REL_TYPE_COLORS` via `relTypeColor()` (no duplicated hex values),
+  and its node rows explain that node size encodes importance and
+  describe the `memory_type` badge (with the "type unknown"
+  fallback).
+- Zoom controls: zoom in/out steps at ×1.25 / ÷1.25, clamped to
+  the existing `minZoom` 0.2 / `maxZoom` 3 config — `zoomIn`
+  applies `Math.min(zoom * 1.25, maxZoom)` and `zoomOut` applies
+  `Math.max(zoom / 1.25, minZoom)`; a fit/reset affordance calls
+  `cy.fit` with padding 30.
+- Density mitigation: rendering degrades by graph size —
+  `full` (≤200 nodes AND ≤400 edges), `simplified` (≤500 AND
+  ≤1000; edge labels dropped), `minimal` (above that; node labels
+  also dropped; size/color/weight encodings preserved).
+  Degradation is style-only (never data culling); the thresholds
+  are behavior-pinned by tests, not performance-proven.
+- Background polish: the `.nc-graph-canvas` wrapper carries a
+  subtle dot lattice via `color-mix(in srgb, var(--color-primary)
+  12%, transparent)` at 18px spacing; no custom property is
+  redefined and the effect is automatic in both dark and light
+  themes.
 
 ### End-to-end search flow
 
