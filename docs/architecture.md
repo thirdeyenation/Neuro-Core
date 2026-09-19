@@ -609,6 +609,35 @@ instance, and rendering.
   12%, transparent)` at 18px spacing; no custom property is
   redefined and the effect is automatic in both dark and light
   themes.
+- Node shape differentiation: nodes are shape-coded by memory
+  type via the bounded `NODE_TYPE_SHAPES` mapping (8 enumerated
+  `memory_type` values → 8 distinct Cytoscape shapes: concept=ellipse,
+  episode=round-rectangle, task=diamond, solution=hexagon,
+  reflection=pentagon, fragment=rectangle, observation=octagon,
+  summary=star). The node builder binds `node_shape` per node and
+  the always-applied node style block binds `shape:
+  data(node_shape)`, so the encoding is preserved at every density
+  level (including `minimal`, which drops only labels). An unknown
+  or missing `memory_type` falls back to `ellipse` — shape is
+  never the sole carrier of type information (the `memory_type`
+  badge in the inspector and legend remains). Shape encoding is
+  behavior-pinned by tests; legibility of complex shapes at the
+  smallest rendered size is subject to the panel's standing live
+  visual confirmation path.
+- Cluster coloring: when the displayed graph has more than one
+  connected component, nodes are colored by cluster — the panel
+  computes connected-component grouping entirely in-browser over
+  the nodes/edges arrays it already received (no API-side
+  companion). Component ordering is deterministic (components are
+  sorted by their minimum node index, so the same data always
+  yields the same colors); colors come from a dedicated cluster
+  palette that is disjoint from the 8 relationship-type edge
+  colors. A single-component graph stays visually calm (base node
+  coloring, no cluster override). Cluster legend rows (swatch plus
+  component size) appear in the legend only when more than one
+  component exists. Clustering is computed per render within the
+  displayed subgraph; it is not persisted, and no server-side
+  community detection is involved.
 
 ### End-to-end search flow
 
