@@ -543,6 +543,26 @@ instance, and rendering.
   (`cose`, `concentric`, `breadthfirst`, `grid`, `circle`, `random`,
   `preset`). The preset layout is limited to load-order placement;
   positions are not persisted.
+- Additionally, a `dagre` layout is available via a vendored
+  cytoscape-dagre extension (package version 4.0.1 per npm package
+  metadata, MIT license, vendored locally at
+  `webui/vendor/cytoscape-dagre.min.js` alongside the vendored Cytoscape
+  library). Dagre produces a left-to-right layered flow disposition
+  (the panel explicitly configures `rankDir: 'LR'` for the dagre
+  layout — the vendored extension's own default is top-to-bottom, so
+  the panel always passes the option at both layout call sites):
+  source nodes on the left, edges flowing left-to-right in layered
+  ranks, so directed pipelines and DAG-shaped
+  memory relationships are laid out as readable flows. Cycles and
+  disconnected components are handled by dagre's internal layout
+  logic (no special handling by the panel). The dagre layout is
+  registered only when the vendored script loads successfully; if it
+  fails to load, the dagre option is hidden from the layout dropdown
+  and the panel falls back to `cose`, leaving all other layouts and
+  panel behavior unchanged. Layout behavior is documented at the
+  behavior level from the vendored extension's documented semantics;
+  a live host-level visual confirmation pass for this layout is part
+  of the panel's standing assurance path (not yet executed for dagre).
 - Node inspector: tapping a node opens a details card with content,
   a `memory_type` badge (with a "type unknown" fallback when the
   metadata does not carry a type), score badges, and its

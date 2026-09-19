@@ -229,9 +229,12 @@ def test_c6_existing_5_options_unchanged():
     src = _source()
     for opt in ("cose", "concentric", "breadthfirst", "grid", "circle"):
         assert re.search('<option value="' + opt + '"[ >]', src), f"{opt} option must remain"
-    # exactly 7 options total
+    # WI-P27 (ORC bounded authorization, orc-disposition.yaml): approved C3 state
+    # is exactly 8 options - the original 7 in original order + dagre appended.
     opts = re.findall(r'<option value="([a-z]+)"[ >]', src)
-    assert len(opts) == 7, f"exactly 7 layout options expected, got {opts}"
+    assert opts == [
+        "cose", "concentric", "breadthfirst", "grid", "circle", "random", "preset", "dagre",
+    ], f"approved C3 layout list expected, got {opts}"
 
 
 def test_c6_preset_limitation_recorded():
@@ -246,7 +249,11 @@ def test_c6_preset_limitation_recorded():
 
 def test_c6_no_layout_option_removed():
     js = _xdata_js()
-    assert "name: this.layout" in js
+    # WI-P27 (ORC bounded authorization, orc-disposition.yaml): approved C4
+    # state - layout resolution goes through effectiveLayout() so a selected-
+    # but-unavailable dagre falls back to cose; the stale direct form is gone.
+    assert "name: this.effectiveLayout()" in js
+    assert "name: this.layout" not in js
 
 
 # ------------------------------------------------------- C7/C9 boundaries
