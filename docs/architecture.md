@@ -573,7 +573,17 @@ instance, and rendering.
   edge opens a display-only edge inspector overlay showing
   `rel_type`, weight, confidence, and endpoints (read-only; the node
   inspector contract is unchanged and a background tap clears the
-  overlay). Clicking a related node
+  overlay). Since WI-P31 (KI-018-BL/BN/BM), the edge plate dismisses
+  on any click outside the plate itself (a document-level mousedown
+  outside the plate, a graph-background tap, or re-clicking the same
+  edge); its only control is a non-destructive Exit/X button with
+  explicit edge-NOT-deleted wording — edge deletion remains the
+  separate, confirmed delete-affordance flow and this control never
+  deletes the edge; and its `from_name`/`to_name` rows are dormant
+  display hooks for the custom Memory Name feature (KI-031 is open;
+  the rows stay hidden today because the data carries no name fields,
+  and they surface without further panel changes once that feature
+  lands). Clicking a related node
   re-runs the search centered on that node. Each relationship row in
   the inspector carries a delete affordance (confirm step, then
   `DELETE /api/plugins/neuro_core/relationships` with the edge's
@@ -614,7 +624,17 @@ instance, and rendering.
   `memory_type` values → 8 distinct Cytoscape shapes: concept=ellipse,
   episode=round-rectangle, task=diamond, solution=hexagon,
   reflection=pentagon, fragment=rectangle, observation=octagon,
-  summary=star). The node builder binds `node_shape` per node and
+  summary=star). Since WI-P31 (KI-018-BJ), a supplemental
+  `NODE_TYPE_SHAPES_LIVE` mapping is checked first and covers the six
+  implemented `MemoryType` enum values absent from the P28 map:
+  fact=round-tag, event=round-diamond, decision=cut-rectangle,
+  skill=round-hexagon, preference=rhomboid, note=barrel (shape names
+  verified present in the vendored cytoscape-3.30.2 library and
+  disjoint from the 8 P28 shapes). The resolution order is
+  `NODE_TYPE_SHAPES_LIVE`, then `NODE_TYPE_SHAPES`, then the `ellipse`
+  fallback; the P28-pinned outputs are unchanged (task=diamond,
+  episode=round-rectangle, concept=ellipse, summary=star). The node
+  builder binds `node_shape` per node and
   the always-applied node style block binds `shape:
   data(node_shape)`, so the encoding is preserved at every density
   level (including `minimal`, which drops only labels). An unknown
@@ -625,19 +645,25 @@ instance, and rendering.
   smallest rendered size is subject to the panel's standing live
   visual confirmation path.
 - Cluster coloring: when the displayed graph has more than one
-  connected component, nodes are colored by cluster — the panel
-  computes connected-component grouping entirely in-browser over
-  the nodes/edges arrays it already received (no API-side
-  companion). Component ordering is deterministic (components are
-  sorted by their minimum node index, so the same data always
-  yields the same colors); colors come from a dedicated cluster
-  palette that is disjoint from the 8 relationship-type edge
-  colors. A single-component graph stays visually calm (base node
-  coloring, no cluster override). Cluster legend rows (swatch plus
-  component size) appear in the legend only when more than one
-  component exists. Clustering is computed per render within the
-  displayed subgraph; it is not persisted, and no server-side
-  community detection is involved.
+  connected component, nodes in real clusters are colored by cluster
+  — the panel computes connected-component grouping entirely
+  in-browser over the nodes/edges arrays it already received (no
+  API-side companion). Since WI-P31 (KI-018-BK), only real clusters
+  — components with 2+ nodes (`realClusters`) — receive cluster
+  coloring and legend rows; singleton components keep the calm base
+  node color even in a multi-component graph (a single node is not a
+  cluster). The legend's cluster section is collapsible and its rows
+  are capped at 6 with a `+k more clusters…` overflow row, so the
+  legend can no longer cover the middle pane. Component ordering is
+  deterministic (components are sorted by their minimum node index,
+  so the same data always yields the same colors); colors come from
+  a dedicated cluster palette that is disjoint from the 8
+  relationship-type edge colors. A single-component graph stays
+  visually calm (base node coloring, no cluster override). Cluster
+  legend rows (swatch plus component size) appear in the legend only
+  when more than one component exists. Clustering is computed per
+  render within the displayed subgraph; it is not persisted, and no
+  server-side community detection is involved.
 
 ### End-to-end search flow
 
