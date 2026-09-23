@@ -357,12 +357,18 @@ class TestGraphStoreNeighbors:
 
     def test_no_cycle(self, memory_subdir):
         gs = GraphStore(memory_subdir)
-        # a -> b -> a should only yield b once.
+        # a -> b -> a terminates (no infinite expansion). WI-P32 (KI-018-BO):
+        # edges to already-visited targets are now EMITTED (deduped only on
+        # the full (from, to, type) triple), so the back-edge b -> a appears
+        # once at hop 2; previously it was silently dropped. Expansion is
+        # still governed by the visited set, so the BFS terminates.
         gs.add_edge(GraphEdge("a", "b", "supports"))
         gs.add_edge(GraphEdge("b", "a", "supports"))
         out = gs.neighbors("a", max_hops=5)
-        neighbors = {n for n, _, _ in out}
-        assert neighbors == {"b"}
+        assert [(n, hop, e.type) for n, hop, e in out] == [
+            ("b", 1, "supports"),
+            ("a", 2, "supports"),
+        ]
 
     def test_unknown_start_returns_empty(self, memory_subdir):
         gs = GraphStore(memory_subdir)

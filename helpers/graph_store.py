@@ -387,7 +387,11 @@ class GraphStore:
         Returns a list of ``(neighbor_id, hop, triggering_edge)`` tuples.
         ``rel_type`` filters by ``RelationshipType`` value when provided.
         When ``from_id`` is a ``list``, BFS is run from each seed and the
-        results are merged (deduped via the visited set across seeds).
+        results are merged. Emitted edges are deduped on the FULL
+        ``(from_id, to_id, type)`` triple (the same key the retrieval build
+        uses), so parallel edges of different types to the same target are
+        all returned; node expansion is deduped via the visited set across
+        seeds.
 
         ``hops`` is accepted as a backward-compatible alias for ``max_hops``
         (used by earlier callers and the context_graph API). If both are
@@ -410,6 +414,13 @@ class GraphStore:
         seed_set: set[str] = set(seed_ids)
         frontier: list[tuple[str, int, GraphEdge]] = []
         out: list[tuple[str, int, GraphEdge]] = []
+        # KI-018-BO (WI-P32): dedupe emitted EDGES on the FULL
+        # (from_id, to_id, type) triple — the same key the retrieval build
+        # (search_context_graph edges_by_key) uses — so parallel edges of
+        # different types to the same target all survive the BFS. The
+        # visited set governs NODE expansion only; it must never suppress
+        # edge emission.
+        seen_keys: set[tuple[str, str, str]] = set()
 
         with self._locked():
             snapshot = {
@@ -434,22 +445,27 @@ class GraphStore:
                 for edge in snapshot.get(node, []):
                     if rel_type is not None and edge.type != rel_type:
                         continue
-                    if edge.to_id in visited:
-                        # Hop-1 seed-to-seed edges must not be omitted: the
-                        # visited set is pre-seeded with all seed ids, which
-                        # previously swallowed edges BETWEEN seeds (a real
-                        # relationship silently dropped from multi-seed
-                        # retrieval). Emit such entries without enqueuing
-                        # them: seeds are already fully expanded at hop 1,
-                        # so re-adding them to the frontier would re-expand
-                        # them and change hop semantics.
-                        if hop == 1 and edge.to_id in seed_set and edge.to_id != node:
-                            out.append((edge.to_id, hop, edge))
+                    # KI-018-BO (WI-P32): EDGE EMISSION is governed solely by
+                    # the full (from_id, to_id, type) triple. Edges to
+                    # already-visited targets are still emitted — only their
+                    # expansion is skipped — so parallel edges of different
+                    # types to the same target all appear. Previously any edge
+                    # whose target was already discovered was silently
+                    # dropped, so a second edge of a different type from an
+                    # already-connected node never reached retrieval/panel.
+                    key = (edge.from_id, edge.to_id, edge.type)
+                    if key in seen_keys:
                         continue
-                    visited.add(edge.to_id)
+                    seen_keys.add(key)
                     entry = (edge.to_id, hop, edge)
                     out.append(entry)
-                    next_frontier.append((edge.to_id, hop, edge))
+                    # Hop-1 seed-to-seed edges: emitted above but never
+                    # enqueued — seeds are already fully expanded at hop 1,
+                    # so re-adding them to the frontier would re-expand them
+                    # and change hop semantics.
+                    if edge.to_id not in visited:
+                        visited.add(edge.to_id)
+                        next_frontier.append(entry)
             frontier = next_frontier
             if not frontier:
                 break

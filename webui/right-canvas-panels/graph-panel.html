@@ -256,7 +256,7 @@ refresh() { this._csrfToken = null; if (this.q.trim()) this.search(); }, initCyt
             <div class="nc-filter-group">
               <label class="nc-filter-group__title">Memory Type</label>
               <div class="nc-filter-checkboxes">
-                <template x-for="t in ['concept','episode','reflection','task','solution','fragment','observation','summary']" :key="t">
+                <template x-for="t in ['fact','concept','task','event','decision','skill','preference','note']" :key="t">
                   <label class="nc-filter-checkbox" :class="{ 'is-active': isFilterActive('memory_types', t) }">
                     <input type="checkbox" :value="t" :checked="isFilterActive('memory_types', t)" @change="toggleFilter('memory_types', t)">
                     <span x-text="t"></span>
