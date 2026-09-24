@@ -443,11 +443,18 @@ Returns Response(message=json.dumps({...}))
 1. Agent calls `memory_relate(from_id="A", to_id="B", rel_type="supports", weight=0.8)`.
 2. `MemoryRelate.execute()` validates `rel_type` against
    `VALID_RELATIONSHIP_TYPES` (8 values incl. `part_of`).
-3. `GraphStore.add_edge(A, B, "supports", weight=0.8, source="agent")`
-   writes the edge to `relationships.json` (atomic).
-4. If `rel_type == "related_to"`, a second `add_edge(B, A,
-   "related_to", ...)` creates the symmetric back-edge — `related_to`
-   is the only symmetric type (D24).
+3. `MemoryRelate.execute()` builds a `GraphEdge` (`from_id="A"`,
+   `to_id="B"`, `type="supports"`, `weight=0.8`, `confidence=0.8`,
+   `source="agent"`, `created_at=<now ISO>`) and calls
+   `GraphStore.add_edge(edge)` — the only implemented form is
+   `add_edge(edge: GraphEdge) -> None` (`TypeError` on a
+   non-GraphEdge argument); the call writes the edge to
+   `relationships.json` (atomic), with D25 in-place dedup on the
+   `(from_id, to_id, type)` triple.
+4. If `rel_type == "related_to"`, a second `GraphEdge` (`from_id="B"`,
+   `to_id="A"`, same fields) is built and passed to
+   `GraphStore.add_edge(edge)` to create the symmetric back-edge —
+   `related_to` is the only symmetric type (D24).
 5. Tool returns the JSON success message.
 
 On `remove=True` the tool performs a **surgical single-edge removal**
