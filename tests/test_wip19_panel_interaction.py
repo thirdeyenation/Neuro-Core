@@ -180,3 +180,16 @@ def test_xdata_javascript_is_syntactically_valid():
             ["node", "--check", str(js)], capture_output=True, text=True, timeout=30
         )
     assert proc.returncode == 0, "x-data JS syntax invalid: " + proc.stderr
+
+
+# --------------------------------------------------------------- KI-018-BX
+
+def test_bx_refocus_rebuild_retains_metadata_and_memory_type():
+    """KI-018-BX (WI-P34): refocusInspectNode() rebuilds this.inspectNode
+    with the same field set as the node-tap handler — metadata and
+    memory_type must survive the refresh+refocus after an add/delete edge,
+    so metadata-borne inspector content (WI-P24 honest scores, type badge)
+    is not dropped until a manual re-tap."""
+    body = _body_between("async refocusInspectNode() {", "get relatedNodes() {")
+    assert "metadata: fresh.metadata || {}" in body
+    assert "memory_type: (fresh.metadata && fresh.metadata.memory_type) || ''" in body

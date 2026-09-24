@@ -304,11 +304,21 @@ types with a `400`-equivalent error message.)
 
 `GraphStore` exposes:
 
-- `add_edge(from_id, to_id, rel_type, weight=1.0, ...) -> GraphEdge`
+- `add_edge(edge: GraphEdge) -> None` — adds the edge to the adjacency
+  list. D25 deduplication: an existing edge with the same
+  `(from_id, to_id, type)` triple is updated in place (weight,
+  confidence, created_at, source) rather than appended; different
+  `(to_id, type)` combinations are kept as separate edges. Raises
+  `TypeError` on a non-`GraphEdge` argument.
 - `remove_edges_for_id(memory_id) -> int` — returns count removed
-- `neighbors(memory_id, hops: int = 1) -> set[str]` — set of memory IDs
-  reachable within `hops` (1 = direct neighbors, 2 = neighbors of
-  neighbors, ...)
+- `neighbors(from_id: str | list[str], max_hops: Optional[int] = None,
+  rel_type: Optional[str] = None, hops: Optional[int] = None)
+  -> list[tuple[str, int, GraphEdge]]` — BFS from one memory ID or a list
+  of seed IDs, merged and deduped on the full `(from_id, to_id, type)`
+  triple; each result is a `(memory_id, hops, GraphEdge)` triple.
+  `max_hops` bounds the traversal depth (direct neighbors = depth 1);
+  `rel_type` filters by relationship type. The legacy `hops` parameter
+  is accepted for backward compatibility (treated as `max_hops`).
 - `get_edges(from_id: str | None = None) -> Union[list[GraphEdge], dict[str, list[GraphEdge]]]` —
   with a `from_id`, returns that source's outgoing edges (backward
   compatible); with no argument, returns the full adjacency map
