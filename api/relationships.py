@@ -75,10 +75,19 @@ class RelationshipsApi(ApiHandler):
 
             store = GraphStore(memory_subdir)
             outbound = [_serialize_edge(e) for e in store.get_edges(memory_id)]
-            inbound_raw = store.neighbors(from_id=memory_id, hops=1)
+            # KI-018-BQ (WI-P33), two layers: (1) neighbors() returns a FLAT
+            # list of (neighbor_id, hop, edge) tuples; the previous nested
+            # iteration re-iterated each tuple and tried to unpack its
+            # heterogeneous (str, int, GraphEdge) elements, raising ValueError
+            # for any memory with outgoing edges. (2) neighbors() BFS emits
+            # OUTGOING edges only, so it could never yield inbound edges even
+            # if parsed. Inbound edges are read from the full adjacency map
+            # instead: edges whose to_id is the queried memory. The dedup
+            # below on the full (from_id, to_id, type) triple is unchanged.
+            adjacency = store.get_edges()
             inbound: list[dict] = []
-            for nl in inbound_raw:
-                for _target, _hop, edge in nl:
+            for _source_edges in adjacency.values():
+                for edge in _source_edges:
                     if edge.to_id == memory_id:
                         inbound.append(_serialize_edge(edge))
 

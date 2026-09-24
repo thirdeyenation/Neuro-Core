@@ -447,7 +447,7 @@ refresh() { this._csrfToken = null; if (this.q.trim()) this.search(); }, initCyt
           <div class="nc-details__rels">
             <div class="nc-details__rels-title">Relationships</div>
             <div class="nc-filter-hint" style="font-size: 0.65rem; opacity: 0.7;" x-show="relatedNodes.length === 0">No relationships yet — add one with Add edge</div>
-            <template x-for="rel in relatedNodes" :key="rel.otherId + rel.direction">
+            <template x-for="rel in relatedNodes" :key="rel.otherId + '|' + rel.direction + '|' + rel.relType">
               <div class="nc-details__rel" @click="q = rel.otherId; search()">
                 <span class="material-symbols-outlined" style="font-size: 0.75rem;" x-text="rel.direction === 'out' ? 'arrow_outward' : 'arrow_inward'"></span>
                 <span class="nc-details__rel-type" x-text="relLabel(rel)"></span>
