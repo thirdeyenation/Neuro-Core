@@ -207,7 +207,7 @@ refresh() { this._csrfToken = null; if (this.q.trim()) this.search(); }, initCyt
           </template>
         </select>
         <input x-model="sub" placeholder="memory subdir... (manual entry)" class="nc-input nc-input--sub" @keydown.enter="saveSubdir()" />
-        <button @click="saveSubdir()" class="nc-btn nc-btn--sm nc-btn--ghost" title="Save subdir as chip">+</button>
+        <button @click="saveSubdir()" class="nc-btn nc-btn--sm nc-btn--ghost" title="Save subdir as chip" aria-label="Save subdir as favorite chip"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true" focusable="false"><path d="M12 2l2.9 6.26L21.5 9.27l-4.75 4.63L17.85 20.5 12 17.27 6.15 20.5l1.1-6.6L2.5 9.27l6.6-1.01z"/></svg></button>
       </div>
       <div class="nc-chips">
         <template x-for="s in subdirs" :key="s">

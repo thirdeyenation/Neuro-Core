@@ -209,6 +209,49 @@ def test_aw_close_button_states_purpose():
     assert ">Close</button>" not in src
 
 
+# ------------------------------------------------- WI-P36 fav-star pin
+
+
+def test_wip36_favstar_affordance():
+    """WI-P36-FAVSTAR-ICON: the save-subdir-as-chip button carries a Star
+    favorite affordance (inline SVG star, HITL-preferred) instead of the bare
+    '+' glyph, with an accurate accessible name/tooltip, and the existing
+    click handler binding is intact."""
+    src = PANEL_CONTENT.read_text(encoding="utf-8")
+    # The save-subdir button: star SVG inside the button element.
+    button_idx = src.find('@click="saveSubdir()" class="nc-btn nc-btn--sm nc-btn--ghost"')
+    assert button_idx != -1, "save-subdir button markup not found"
+    button_end = src.find("</button>", button_idx)
+    button_html = src[button_idx:button_end]
+    assert "<svg" in button_html and "viewBox=\"0 0 24 24\"" in button_html, (
+        "save-subdir button must carry the inline SVG star"
+    )
+    assert (
+        "M12 2l2.9 6.26L21.5 9.27l-4.75 4.63L17.85 20.5 12 17.27 6.15 20.5l1.1-6.6L2.5 9.27l6.6-1.01z"
+        in button_html
+    ), "save-subdir button must carry the five-point star path"
+    # Accessible name/tooltip reflecting purpose.
+    assert 'title="Save subdir as chip"' in button_html
+    assert 'aria-label="Save subdir as favorite chip"' in button_html
+    # No new material-symbols ligature introduced (WI-P25 guard compliance).
+    assert "material-symbols-outlined" not in button_html
+    # The old bare '+' glyph is gone from this button element itself (the
+    # cluster-legend toggle elsewhere in the panel retains its own '+').
+    assert "+" not in button_html, "save-subdir button still carries a plus glyph"
+
+
+def test_wip36_favstar_click_binding_intact():
+    """WI-P36: the click handler binding on the save-subdir button is exactly
+    the pre-existing saveSubdir() call — behavior unchanged."""
+    src = PANEL_CONTENT.read_text(encoding="utf-8")
+    assert (
+        '<button @click="saveSubdir()" class="nc-btn nc-btn--sm nc-btn--ghost" title="Save subdir as chip" aria-label="Save subdir as favorite chip"><svg'
+        in src
+    )
+    # saveSubdir function definition remains in the panel x-data.
+    assert "saveSubdir() {" in src
+
+
 # ------------------------------------------------- copy-role preservation
 
 
