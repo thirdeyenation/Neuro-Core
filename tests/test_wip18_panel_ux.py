@@ -271,3 +271,50 @@ def test_shell_copy_role_preserved():
     ):
         assert marker in content, f"marker missing from content copy: {marker}"
         assert marker not in shell, f"marker leaked into shell copy: {marker}"
+
+
+# ------------------------------------------------- WI-P30 settings pins
+
+
+def test_wip30_opensettings_method_present_and_wired():
+    """WI-P30-SETTINGS-RECOVERY (KI-028, D-NC1-089 FIX-A): the Settings gear
+    must be wired to a panel openSettings() method that dynamically imports
+    the framework plugin-settings-store and calls openConfig('neuro_core')
+    with no scope preselection (default empty args, pluginListStore.js:119
+    precedent), with try/catch failure handling mirroring
+    pluginListStore.js:118-121."""
+    src = PANEL_CONTENT.read_text(encoding="utf-8")
+    # The method exists in the panel x-data scope.
+    assert "async openSettings() {" in src
+    # Dynamic import of the framework store (kokoro-tts-store.js:119-123 precedent).
+    assert "await import('/components/plugins/plugin-settings-store.js')" in src
+    # Canonical openConfig call with the plugin name and NO scope preselection.
+    assert "await store.openConfig('neuro_core');" in src
+    # Failure handling mirrors pluginListStore.js:118-121 (try/catch + notification).
+    assert "'Failed to open plugin config'" in src
+    # The Settings button is wired to the method (same line pattern as the Refresh pin).
+    assert '<button @click="openSettings()" class="nc-header__btn" title="Settings">' in src
+
+
+def test_wip30_dead_dispatch_gone():
+    """WI-P30: the dead window-event dispatch 'open-plugin-settings' — which
+    had no listener anywhere in the framework or plugin (diagnosis RC-1) — is
+    gone from the panel content copy."""
+    src = PANEL_CONTENT.read_text(encoding="utf-8")
+    assert "open-plugin-settings" not in src, (
+        "dead 'open-plugin-settings' dispatch still present in graph-panel.html"
+    )
+
+
+def test_wip30_refresh_handler_and_wording_retained():
+    """WI-P30 non-goal: Refresh semantics (WI-P29, KI-019) are untouched —
+    the Refresh button handler and the stale-token fallback guidance wording
+    remain intact."""
+    src = PANEL_CONTENT.read_text(encoding="utf-8")
+    # Refresh button handler unchanged.
+    assert '<button @click="refresh()" class="nc-header__btn" title="Refresh">' in src
+    # refresh() still resets the cached CSRF token before re-searching.
+    assert "refresh() { this._csrfToken = null; if (this.q.trim()) this.search(); }," in src
+    # WI-P29 stale-token fallback guidance wording still present.
+    assert "click the Refresh button (top-right of the panel header, left of the Settings gear)" in src
+    assert "withCsrfRetry" in src
