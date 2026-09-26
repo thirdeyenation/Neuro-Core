@@ -727,15 +727,18 @@ class TestContradictionDetectionJobHooks:
         mock_fn.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_contradiction_llm_disabled_early_returns(
+    async def test_contradiction_llm_disabled_heuristic_sweep_still_runs(
         self, monkeypatch: pytest.MonkeyPatch, contradiction_detection_module
     ) -> None:
-        """When ``contradiction_llm_enabled`` is False, the LLM call
-        is gated off and run_contradiction_detection is NEVER called.
+        """When ``contradiction_llm_enabled`` is False (the v0.1.0
+        default), the scheduled heuristic sweep STILL runs:
+        run_contradiction_detection is called exactly once with the
+        facts= triples and memory=None (WI-P41 fix for KI-032; the
+        previous behavior early-returned and never called it).
 
-        This is the safety gate that prevents a runaway LLM bill on
-        large memory corpora — it must be respected even when the
-        outer ``contradiction_detection_enabled`` is True.
+        The safety guarantee that remains is different: this job never
+        constructs or passes an LLM object, in either key state — the
+        LLM-assisted NLI path is not implemented in v0.1.0.
         """
         _patch_staticmethods(
             monkeypatch,
@@ -745,6 +748,11 @@ class TestContradictionDetectionJobHooks:
                 "contradiction_interval_hours": 168,
                 "contradiction_llm_enabled": False,
             },
+        )
+        # A fresh pytest process is always inside the 300s boot-grace
+        # window; neutralize the guard so the sweep body is exercised.
+        monkeypatch.setattr(
+            contradiction_detection_module, "_boot_grace_active", lambda: False
         )
         mock_fn = _patch_lifecycle(
             monkeypatch,
@@ -758,4 +766,8 @@ class TestContradictionDetectionJobHooks:
         result = await ext.execute()
 
         assert result is None
-        mock_fn.assert_not_called()
+        mock_fn.assert_called_once()
+        args, kwargs = mock_fn.call_args
+        assert kwargs.get("facts") == []  # _iter_docs default stub yields nothing
+        assert args[2] is None  # memory=None — no LLM/FAISS object passed
+        assert "docs" not in kwargs

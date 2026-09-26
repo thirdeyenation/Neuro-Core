@@ -1,20 +1,23 @@
 """Neuro Core — periodic contradiction-detection job.
 
-Sweeps ``fact`` memories in every subdir, pairs them with semantically
-similar but content-opposing candidates, and marks the older of the
-two ``validation_status = "disputed"``. The result is appended to the
-contradiction log so the agent (or a human reviewer) can adjudicate
-the dispute later.
+Sweeps ``fact`` memories in every subdir and compares them pairwise
+with the lexical heuristic in ``helpers/lifecycle.py``
+(``run_contradiction_detection``), returning the counters
+``{"checked": int, "disputed": int}`` — no memory is modified and no
+dispute is persisted in v0.1.0 (see KI-034). The only dispute audit
+trail is the per-subdir log line and the final summary log line.
 
 The extension is throttled to ``contradiction_interval_hours``
 (default ``168`` = one week) and never raises — errors are caught,
 logged and swallowed so the framework scheduler stays healthy.
 
-**v1 safety note:** the LLM-based contradiction detection path is
-**disabled by default** via the ``contradiction_llm_enabled`` config
-key (``False``). The job still runs every ``contradiction_interval_hours``
-to log a "skipped (LLM disabled)" message, but no LLM calls are made
-until the path is validated in a controlled setting.
+**v1 safety note:** the LLM-assisted contradiction detection path is
+**not implemented in v0.1.0** and no LLM calls are ever made from this
+job, regardless of the ``contradiction_llm_enabled`` config key
+(``False`` default). The ``contradiction_llm_enabled`` key changes only
+what gets logged: when false, a heuristic-only note is logged; when
+true, a "not yet implemented — heuristic fallback" note is logged.
+The heuristic sweep itself runs in both states (WI-P41 fix for KI-032).
 
 Stability contract (v2):
     - All throttle state is held in a module-level ``_STATE`` dict.
@@ -235,18 +238,24 @@ class ContradictionDetectionJob(Extension):
             return
 
         # ---- 1a. v1 LLM safety gate -------------------------------------------
-        # The LLM-based contradiction detection path is **disabled by
-        # default** in v1. We still log a "skipped" message on each
-        # scheduled run so the user can confirm the job is alive, but
-        # we never call ``run_contradiction_detection`` with a real
-        # LLM object. This ensures the job runs safely (does nothing)
-        # until the LLM path is validated in a controlled setting.
+        # LLM-assisted contradiction detection is **not implemented in
+        # v0.1.0** and this job never constructs or passes an LLM
+        # object (v1 safety guarantee, retained). The ``contradiction_llm_enabled``
+        # key therefore changes only what gets logged here — the
+        # heuristic sweep below runs in both states (WI-P41 fix for
+        # KI-032: previously the false-state branch early-returned and
+        # the scheduled sweep performed no check at all).
         if not config.get("contradiction_llm_enabled", False):
             PrintStyle().info(
-                "[neuro_core] ContradictionDetectionJob: LLM path disabled "
-                "(contradiction_llm_enabled=False) — skipping LLM scan"
+                "[neuro_core] ContradictionDetectionJob: heuristic-only "
+                "mode (contradiction_llm_enabled=False) — running heuristic sweep"
             )
-            return
+        else:
+            PrintStyle().info(
+                "[neuro_core] ContradictionDetectionJob: LLM-assisted NLI is "
+                "not yet implemented in v0.1.0 (contradiction_llm_enabled=True) — "
+                "falling back to the heuristic sweep; no LLM calls are made"
+            )
 
         interval = float(config.get(
             "contradiction_interval_hours",
@@ -281,7 +290,17 @@ class ContradictionDetectionJob(Extension):
                     run_contradiction_detection,
                 )
                 docs = list(self._iter_docs(subdir))
-                result = run_contradiction_detection(subdir, config, None, docs=docs)
+                # WI-P41 fix (KI-032): the verified signature
+                # (helpers/lifecycle.py) accepts ``facts=`` — an iterable
+                # of ``(memory_id, content, metadata)`` triples — not
+                # ``docs=``. With ``memory=None`` the function runs the
+                # O(n^2) lexical heuristic entirely on these triples
+                # (no LLM, no FAISS access).
+                facts = [
+                    (str(d["id"]), d.get("page_content", ""), dict(d.get("metadata") or {}))
+                    for d in docs
+                ]
+                result = run_contradiction_detection(subdir, config, None, facts=facts)
                 totals["checked"] += int(result.get("checked", 0))
                 totals["disputed"] += int(result.get("disputed", 0))
                 # Best-effort: persist disputed statuses to FAISS metadata.

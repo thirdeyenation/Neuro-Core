@@ -104,32 +104,37 @@ Settings Basic controls.
 #### `contradiction_batch_size`
 
 Hard cap on the number of fact memories inspected per pass. The
-contradiction detector uses `Memory.search_similarity_threshold(...)`
-to find candidates for each fact, and the result list is also capped at
-`contradiction_batch_size`.
+scheduled `_30` sweep passes at most this many fact memories to
+`run_contradiction_detection()`, and the result list of any
+similarity search is also capped at `contradiction_batch_size`.
 
 #### `contradiction_similarity_threshold`
 
 Minimum cosine similarity for a pair of fact memories to be considered
 for opposition (read by `run_contradiction_detection()`).
+**Memory-hook path only in v0.1.0:** candidate selection via
+`Memory.search_similarity_threshold(...)` and this threshold apply when
+the detector runs against a memory-backed store. The scheduled facts
+path (`memory=None`) uses the O(n^2) lexical pairwise fallback on the
+supplied facts and does not consult
+`contradiction_similarity_threshold`.
 
 #### `contradiction_llm_enabled`
 
 **Heuristic-only in v0.1.0.** When this key is `false` (the v0.1.0
-default), `run_contradiction_detection()` uses the lexical heuristic
+default), the scheduled `_30` job-loop sweep runs the lexical heuristic
 defined in `helpers/lifecycle.py` (`_NEGATION_TOKENS`,
-`_OPPOSITE_PAIRS`, `_semantically_oppose`).
+`_OPPOSITE_PAIRS`, `_semantically_oppose`) via
+`run_contradiction_detection(subdir, config, None, facts=...)`.
+The heuristic sweep runs in **both** states of this key.
 
 **Not yet implemented in v0.1.0:** when this key is `true`, the
 LLM-assisted pairwise-NLI path described here is planned but is not
-implemented and not verified in the v0.1.0 code. Its current scheduled
-behavior is a defect (KI-032): the `_30` job-loop extension calls
-`run_contradiction_detection(..., docs=docs)` per subdirectory, but the
-function's signature accepts `facts=` — each per-subdirectory call
-raises a `TypeError` (unexpected keyword argument `docs`), which is
-caught and reported as a warning, so **no contradiction check runs at
-all while the key is enabled**. A remediation proposal exists; until it
-lands, treat this key as currently non-functional.
+implemented and not verified in the v0.1.0 code. The `_30` job never
+constructs or passes an LLM object; in the `true` state it logs a
+"not yet implemented — heuristic fallback" note and runs the same
+heuristic sweep. When the key is `false`, a heuristic-only mode note is logged and
+the sweep runs; no early return occurs in either state.
 
 **Cost warning (precautionary, for when the LLM path ships):**
 LLM-based NLI makes LLM usage grow with high-similarity candidate-pair
