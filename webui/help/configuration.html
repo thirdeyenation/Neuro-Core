@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<!-- WI-P38-SETTINGS-CONFIG-SURFACE — plugin-native configuration help surface.
+     Served via the /usr/plugins/neuro_core/... static route (ui_server.py:198) from the
+     plugin webui/ directory; linked from webui/config.html with target="_blank" using
+     the fragment anchors below. Content mirrors docs/configuration.md. Implemented,
+     planned, and unverified behavior are kept distinct. -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Neuro Core — Configuration reference</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 1.5rem 2rem; max-width: 62rem; line-height: 1.55; background: var(--color-bg, #f7f9fb); color: var(--color-text, #1f2937); }
+  h1 { font-size: 1.4rem; border-bottom: 1px solid var(--color-border, #dde3ea); padding-bottom: 0.4rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; scroll-margin-top: 1rem; }
+  h3 { font-size: 0.95rem; margin-bottom: 0.2rem; scroll-margin-top: 1rem; }
+  code { background: var(--color-panel, #eef2f7); padding: 0.08em 0.35em; border-radius: 3px; font-size: 0.88em; }
+  table { border-collapse: collapse; width: 100%; margin: 0.6rem 0 1.2rem; font-size: 0.88rem; }
+  th, td { border: 1px solid var(--color-border, #dde3ea); padding: 0.35rem 0.6rem; text-align: left; vertical-align: top; }
+  th { background: var(--color-panel, #eef2f7); }
+  .warn { color: #b45309; font-weight: 700; }
+  .note { background: var(--color-panel, #eef2f7); border-left: 3px solid var(--color-accent, #5b9bd5); padding: 0.6rem 0.9rem; margin: 0.8rem 0; font-size: 0.9rem; }
+  .warnplate { background: rgba(180, 83, 9, 0.07); border-left: 3px solid #b45309; padding: 0.6rem 0.9rem; margin: 0.8rem 0; font-size: 0.9rem; }
+  p, td { color: var(--color-text, #1f2937); }
+</style>
+</head>
+<body>
+<h1>Neuro Core — Configuration reference</h1>
+<p>Every setting of the Neuro Core memory service lives in one bundled file,
+<code>default_config.yaml</code>, and can be overridden per project and per agent via the
+framework's plugin settings chain. This page gives key-level guidance for all 21 keys,
+mirroring <code>docs/configuration.md</code>. The Settings window exposes all 21 keys:
+five operator-level controls in Basic view, and every key grouped by territory under
+<strong>Advanced Settings</strong>. Changes apply to <strong>future operations</strong>
+after the Settings window is saved — already-stored memories and already-computed scores
+are not re-processed.</p>
+
+<h2 id="lifecycle">Lifecycle internals</h2>
+<p>Controls the two recurring maintenance passes: importance decay and episode grouping.</p>
+<h3><code>decay_enabled</code> (bool, default <code>true</code>)</h3>
+<p>Master switch for the importance-decay job loop. When <code>false</code>, the decay job
+short-circuits before reading any document — memory importance stops decaying between
+maintenance runs.</p>
+<h3><code>decay_interval_hours</code> (int, default <code>24</code>)</h3>
+<p>Minimum hours between decay runs (gated through the lifecycle scheduler). The
+Settings Basic selector &ldquo;Freshness speed&rdquo; writes this key together with
+<code>importance_decay_rate</code>; set it directly only for a custom cadence.</p>
+<h3><code>importance_decay_rate</code> (float, default <code>0.02</code>)</h3>
+<p>Per-run multiplier: <code>importance *= (1 - rate)</code>, clamped to [0, 1] before
+being written back. <code>0.02</code> means each run multiplies the current value by
+<code>0.98</code>.</p>
+<h3><code>episode_boundary_hours</code> (int, default <code>4</code>)</h3>
+<p>Maximum time gap between adjacent memories before a new episode starts in the
+episode-grouping job.</p>
+<h3><code>episode_min_memories</code> (int, default <code>3</code>)</h3>
+<p>Minimum number of memories required to form an episode. Groups whose size is strictly
+less than this are not assigned an <code>episode_id</code> and stay invisible to the
+reflection tool (<code>memory_reflect</code>).</p>
+
+<h2 id="contradiction">Contradiction internals</h2>
+<p>Controls the recurring pass that flags stored memories opposing each other.</p>
+<h3><code>contradiction_detection_enabled</code> (bool, default <code>true</code>)</h3>
+<p>Master switch for the contradiction-detection job loop. This is one of the five Basic
+controls; the keys below tune how the pass behaves once enabled.</p>
+<h3><code>contradiction_batch_size</code> (int, default <code>100</code>)</h3>
+<p>Hard cap on the number of fact memories inspected per contradiction-sweep pass.</p>
+<h3><code>contradiction_similarity_threshold</code> (float, default <code>0.85</code>)</h3>
+<p>Minimum cosine similarity for a pair of fact memories to be considered for opposition.</p>
+<h3><code>contradiction_llm_enabled</code> (bool, default <code>false</code>)</h3>
+<div class="warnplate"><span class="warn">&#9888; Cost warning.</span> When
+<code>true</code>, every contradiction sweep may additionally call an LLM for pairwise
+NLI between high-similarity candidates — LLM usage grows with candidate-pair volume.
+The default <code>false</code> keeps the detector heuristic-only (lexical negation and
+opposite-pair rules). Enable only in a controlled setting.</div>
+<h3><code>contradiction_interval_hours</code> (int, default <code>168</code>)</h3>
+<p>Minimum hours between contradiction sweeps (one week).</p>
+
+<h2 id="graph-analytics">Graph analytics internals</h2>
+<p>Controls the pass that boosts well-connected memories in the relationship graph.</p>
+<h3><code>graph_analytics_enabled</code> (bool, default <code>true</code>)</h3>
+<p>Master switch for the graph-analytics pass. This is one of the five Basic controls
+(&ldquo;Graph insights&rdquo;).</p>
+<h3><code>graph_analytics_top_pct</code> (float, default <code>0.10</code>)</h3>
+<p>Fraction of highest-degree nodes boosted by the pass.</p>
+<h3><code>graph_analytics_boost</code> (float, default <code>0.05</code>)</h3>
+<p>Importance increment applied to boosted nodes.</p>
+
+<h2 id="retrieval">Retrieval internals</h2>
+<p>Controls how the context-graph retrieval helper finds and ranks memories.</p>
+<h3><code>similarity_weight</code> (float, default <code>0.5</code>)</h3>
+<h3><code>importance_weight</code> (float, default <code>0.3</code>)</h3>
+<h3><code>recency_weight</code> (float, default <code>0.2</code>)</h3>
+<p>The three rerank weights combine in the final score, roughly
+<code>score = similarity_weight * cosine_similarity + importance_weight * importance + recency_weight * recency</code>.
+The helper does not enforce normalization; keep the triple summing to <code>1.0</code>.
+The Settings Basic preset selector writes these as named points (Balanced
+0.5/0.3/0.2, Freshest-first 0.2/0.3/0.5, Importance-first 0.3/0.5/0.2); editing any raw
+weight flips the preset display to <em>Custom</em>.</p>
+<h3><code>graph_max_hops</code> (int, default <code>2</code>)</h3>
+<p>Maximum BFS depth from each seed node (0 = seeds only). Larger values give richer
+context but increase retrieval latency.</p>
+<h3><code>graph_neighbors_max</code> (int, default <code>10</code>)</h3>
+<p>Maximum neighbors retrieved per seed at each hop.</p>
+<h3><code>semantic_limit</code> (int, default <code>5</code>)</h3>
+<p>Maximum semantic seed memories retrieved before graph expansion.</p>
+<h3><code>semantic_threshold</code> (float, default <code>0.6</code>)</h3>
+<p>Minimum similarity for a candidate semantic seed.</p>
+
+<h2 id="storage-recovery">Storage &amp; recovery</h2>
+<h3><code>database_path</code> (str, default <code>neuro_core.db</code>)</h3>
+<p>Path to the plugin's SQLite domain-store database. Relative values resolve
+plugin-relative; absolute values are honored verbatim, so existing deployments with an
+absolute location keep working unchanged.</p>
+<div class="warnplate"><span class="warn">&#9888; Relocation warning.</span> Changing
+this path relocates where the plugin reads and writes its memory database. Existing data
+is <strong>not</strong> moved automatically: memories at the old location stop being
+served, and a fresh database starts empty. To relocate deliberately, stop memory
+activity, move the database file to the new location, then update this key.</div>
+
+<h2 id="manual-reboot">Manual reboot failsafe</h2>
+<div class="note">After a framework server restart, graph-panel recovery is normally
+automatic (the panel retries with a fresh CSRF token on the next call). A deeper
+manual reboot control lives on the Neuro Core graph panel, beside the Refresh button in
+the panel header. It deliberately resets the panel's cached CSRF token, rebuilds the
+graph canvas, and re-runs the current search.</div>
+<p><strong>Why it lives on the graph panel and not in Settings:</strong> the panel's own
+script scope is the only place where its cached CSRF token and Cytoscape graph instance
+can be reset together — the Settings window does not own those objects. Use the manual
+reboot only if automatic recovery did not happen after a server restart.</p>
+
+<h2 id="scopes">Override scopes</h2>
+<p>All 21 keys resolve through the framework plugin settings chain with per-project and
+per-agent overrides applied on top of the bundled defaults. The Settings window edits the
+values for the scope you opened it from; changes take effect for future operations after
+saving.</p>
+
+</body>
+</html>

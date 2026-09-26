@@ -1,0 +1,349 @@
+<!-- WI-P38-SETTINGS-CONFIG-SURFACE (D-NC1-092 ratified design, D-NC1-093 key count 21).
+     Rendered inside the framework plugin-settings modal; `config` is provided by the
+     modal scope (plugin-settings.html:13-15 aliases context.settings). Load/save go
+     through POST /plugins actions get_config/save_config (plugin-settings-store.js);
+     there is NO server-side key validation (api/plugins.py:229-242), so this file is
+     the sole key-correctness boundary: every bound key MUST exist in default_config.yaml
+     (pinned in tests/test_wip38_settings_config.py). Changes apply to future operations
+     only, after the modal Save. -->
+<div x-data="{
+  advancedOpen: false,
+  NC_DEFAULTS: {
+    database_path: 'neuro_core.db',
+    decay_enabled: true,
+    decay_interval_hours: 24,
+    importance_decay_rate: 0.02,
+    contradiction_detection_enabled: true,
+    contradiction_batch_size: 100,
+    contradiction_similarity_threshold: 0.85,
+    contradiction_llm_enabled: false,
+    contradiction_interval_hours: 168,
+    graph_analytics_enabled: true,
+    graph_analytics_top_pct: 0.10,
+    graph_analytics_boost: 0.05,
+    episode_boundary_hours: 4,
+    episode_min_memories: 3,
+    graph_max_hops: 2,
+    graph_neighbors_max: 10,
+    similarity_weight: 0.5,
+    importance_weight: 0.3,
+    recency_weight: 0.2,
+    semantic_limit: 5,
+    semantic_threshold: 0.6
+  },
+  NC_PRESETS: {
+    balanced:    { similarity_weight: 0.5, importance_weight: 0.3, recency_weight: 0.2 },
+    freshest:    { similarity_weight: 0.2, importance_weight: 0.3, recency_weight: 0.5 },
+    importance:  { similarity_weight: 0.3, importance_weight: 0.5, recency_weight: 0.2 }
+  },
+  NC_FRESHNESS_POINTS: {
+    slow:     { decay_interval_hours: 72, importance_decay_rate: 0.01 },
+    standard: { decay_interval_hours: 24, importance_decay_rate: 0.02 },
+    fast:     { decay_interval_hours: 8,  importance_decay_rate: 0.05 }
+  },
+  ensureDefaults() {
+    if (!this.config) return;
+    Object.keys(this.NC_DEFAULTS).forEach(k => {
+      if (!(k in this.config) || this.config[k] === null || this.config[k] === undefined) {
+        this.config[k] = this.NC_DEFAULTS[k];
+      }
+    });
+  },
+  nearEq(a, b) { return Math.abs((Number(a) || 0) - (Number(b) || 0)) < 1e-9; },
+  /* Coherence rule (D-NC1-092): the display always derives from the raw weight keys,
+     so editing any raw weight in Advanced flips the preset display to Custom. */
+  get activePreset() {
+    if (!this.config) return 'custom';
+    for (const [name, p] of Object.entries(this.NC_PRESETS)) {
+      if (this.nearEq(this.config.similarity_weight, p.similarity_weight) &&
+          this.nearEq(this.config.importance_weight, p.importance_weight) &&
+          this.nearEq(this.config.recency_weight, p.recency_weight)) return name;
+    }
+    return 'custom';
+  },
+  set activePreset(v) { if (v !== 'custom') this.applyPreset(v); },
+  get freshnessSel() {
+    if (!this.config) return 'custom';
+    for (const [name, pt] of Object.entries(this.NC_FRESHNESS_POINTS)) {
+      if (this.nearEq(this.config.decay_interval_hours, pt.decay_interval_hours) &&
+          this.nearEq(this.config.importance_decay_rate, pt.importance_decay_rate)) return name;
+    }
+    return 'custom';
+  },
+  set freshnessSel(v) { if (v !== 'custom') this.applyFreshness(v); },
+  applyPreset(name) {
+    const p = this.NC_PRESETS[name];
+    if (!p || !this.config) return;
+    this.config.similarity_weight = p.similarity_weight;
+    this.config.importance_weight = p.importance_weight;
+    this.config.recency_weight = p.recency_weight;
+  },
+  applyFreshness(name) {
+    const pt = this.NC_FRESHNESS_POINTS[name];
+    if (!pt || !this.config) return;
+    this.config.decay_interval_hours = pt.decay_interval_hours;
+    this.config.importance_decay_rate = pt.importance_decay_rate;
+  },
+  restoreGroup(keys, label) {
+    if (!this.config || !window.confirm('Restore default values for ' + label + '?')) return;
+    keys.forEach(k => { if (k in this.NC_DEFAULTS) this.config[k] = this.NC_DEFAULTS[k]; });
+  },
+  resetAll() {
+    if (!this.config || !window.confirm('Reset ALL Neuro Core settings in this window to plugin defaults?')) return;
+    Object.keys(this.NC_DEFAULTS).forEach(k => { this.config[k] = this.NC_DEFAULTS[k]; });
+  }
+}" x-init="ensureDefaults()">
+  <template x-if="config">
+    <div>
+      <div class="section-title">Neuro Core settings</div>
+      <div class="section-description">
+        Basic settings cover the operator-level behavior of the memory service. Advanced
+        Settings expose every configuration key. Changes take effect for
+        <strong>future operations</strong> after you save this window — already-stored
+        memories and already-computed scores are not re-processed.
+      </div>
+
+      <!-- ================= BASIC (5 controls, operator-first) ================= -->
+      <div class="field">
+        <div class="field-label">
+          <div class="field-title">Memory fading <span title="Master switch for the importance-decay job loop. When off, memory importance stops decaying between maintenance runs." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          <div class="field-description">Gradually lowers the importance of memories that are not being used, so fresh, relevant knowledge floats to the top.</div>
+        </div>
+        <div class="field-control">
+          <label class="toggle">
+            <input type="checkbox" x-model="config.decay_enabled" />
+            <span class="toggler"></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">
+          <div class="field-title">Freshness speed <span title="How aggressively unused memories fade. Slow: decay runs every 72h at rate 0.01. Standard: every 24h at rate 0.02 (plugin default). Fast: every 8h at rate 0.05." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          <div class="field-description">How quickly unused memories fade. Standard matches the plugin defaults.</div>
+        </div>
+        <div class="field-control">
+          <select x-model="freshnessSel" title="Writes decay_interval_hours and importance_decay_rate as named points; a custom pair shows Custom">
+            <option value="slow">Slow</option>
+            <option value="standard">Standard</option>
+            <option value="fast">Fast</option>
+            <option value="custom" disabled>Custom (set in Advanced)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">
+          <div class="field-title">Contradiction detection <span title="Master switch for the contradiction-detection job loop, which flags stored memories that oppose each other." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          <div class="field-description">Periodically reviews stored memories and flags pairs that say opposite things, so disputed knowledge is visible.</div>
+        </div>
+        <div class="field-control">
+          <label class="toggle">
+            <input type="checkbox" x-model="config.contradiction_detection_enabled" />
+            <span class="toggler"></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">
+          <div class="field-title">Graph insights <span title="Master switch for the graph-analytics pass, which boosts highly connected memories during retrieval." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          <div class="field-description">Boosts memories that are strongly connected to others in the relationship graph, surfacing well-anchored knowledge.</div>
+        </div>
+        <div class="field-control">
+          <label class="toggle">
+            <input type="checkbox" x-model="config.graph_analytics_enabled" />
+            <span class="toggler"></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">
+          <div class="field-title">Retrieval balance <span title="Preset that writes the three retrieval weights. Balanced: similarity 0.5 / importance 0.3 / recency 0.2. Freshest-first: 0.2 / 0.3 / 0.5. Importance-first: 0.3 / 0.5 / 0.2. Editing a raw weight in Advanced shows Custom." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          <div class="field-description">What retrieved results favor most: overall match (Balanced), newest knowledge (Freshest-first), or strongly rated knowledge (Importance-first).</div>
+        </div>
+        <div class="field-control">
+          <select x-model="activePreset" title="Writes similarity_weight, importance_weight and recency_weight as a normalized set; a custom combination shows Custom">
+            <option value="balanced">Balanced</option>
+            <option value="freshest">Freshest-first</option>
+            <option value="importance">Importance-first</option>
+            <option value="custom" disabled>Custom (set in Advanced)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- ================= ADVANCED (toggle + separator) ================= -->
+      <hr style="border: none; border-top: 1px solid var(--color-border, #dde3ea); margin: 1.2rem 0;" />
+      <button type="button" @click="advancedOpen = !advancedOpen" style="cursor: pointer;"
+              title="Expand the advanced region: every Neuro Core configuration key, grouped by territory. For contributors and power users.">
+        <span x-text="advancedOpen ? '&#9650; Hide Advanced Settings' : '&#9660; Advanced Settings'"></span>
+      </button>
+
+      <div x-show="advancedOpen" style="margin-top: 1rem;">
+        <div class="section-description">
+          All 21 configuration keys, grouped by territory. Each group has its own
+          Restore-defaults action; changes apply to future operations after saving.
+        </div>
+
+        <!-- ---- Lifecycle internals (4 advanced keys) ---- -->
+        <div class="section-title">Lifecycle internals
+          <a href="/usr/plugins/neuro_core/webui/help/configuration.html#lifecycle" target="_blank" title="Open key-level guidance in a new tab" style="font-size: 0.75rem; margin-left: 0.5rem;">Learn More</a>
+          <button type="button" @click="restoreGroup(['decay_interval_hours','importance_decay_rate','episode_boundary_hours','episode_min_memories'], 'Lifecycle internals')" style="font-size: 0.7rem; margin-left: 0.5rem; cursor: pointer;">Restore defaults</button>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">decay_interval_hours <span title="Minimum hours between importance-decay runs. Written by the Freshness-speed selector; set directly only for a custom cadence." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="1" step="1" x-model.number="config.decay_interval_hours" /></div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">importance_decay_rate <span title="Per-run multiplier: importance *= (1 - rate), clamped to [0,1]. Written by the Freshness-speed selector." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="0" max="1" step="0.01" x-model.number="config.importance_decay_rate" /></div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">episode_boundary_hours <span title="Maximum time gap between adjacent memories before a new episode starts." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="0" step="1" x-model.number="config.episode_boundary_hours" /></div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">episode_min_memories <span title="Groups smaller than this get no episode_id and stay invisible to memory_reflect." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="1" step="1" x-model.number="config.episode_min_memories" /></div>
+        </div>
+
+        <!-- ---- Contradiction internals (4 advanced keys) ---- -->
+        <div class="section-title">Contradiction internals
+          <a href="/usr/plugins/neuro_core/webui/help/configuration.html#contradiction" target="_blank" title="Open key-level guidance in a new tab" style="font-size: 0.75rem; margin-left: 0.5rem;">Learn More</a>
+          <button type="button" @click="restoreGroup(['contradiction_batch_size','contradiction_similarity_threshold','contradiction_llm_enabled','contradiction_interval_hours'], 'Contradiction internals')" style="font-size: 0.7rem; margin-left: 0.5rem; cursor: pointer;">Restore defaults</button>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">contradiction_batch_size <span title="Hard cap on fact memories inspected per contradiction-sweep pass." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="1" step="1" x-model.number="config.contradiction_batch_size" /></div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">contradiction_similarity_threshold <span title="Minimum cosine similarity for a memory pair to be considered for opposition." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="0" max="1" step="0.01" x-model.number="config.contradiction_similarity_threshold" /></div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">contradiction_llm_enabled <span title="Cost warning: enabling this makes every contradiction sweep issue LLM calls proportional to high-similarity candidate pairs. Off by default; enable only in a controlled setting." style="cursor: help; color: #b45309; font-weight: 700;">&#9888;</span></div>
+          </div>
+          <div class="field-control">
+            <label class="toggle">
+              <input type="checkbox" x-model="config.contradiction_llm_enabled" />
+              <span class="toggler"></span>
+            </label>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">contradiction_interval_hours <span title="Minimum hours between contradiction sweeps (default: one week)." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="1" step="1" x-model.number="config.contradiction_interval_hours" /></div>
+        </div>
+
+        <!-- ---- Graph analytics internals (2 advanced keys) ---- -->
+        <div class="section-title">Graph analytics internals
+          <a href="/usr/plugins/neuro_core/webui/help/configuration.html#graph-analytics" target="_blank" title="Open key-level guidance in a new tab" style="font-size: 0.75rem; margin-left: 0.5rem;">Learn More</a>
+          <button type="button" @click="restoreGroup(['graph_analytics_top_pct','graph_analytics_boost'], 'Graph analytics internals')" style="font-size: 0.7rem; margin-left: 0.5rem; cursor: pointer;">Restore defaults</button>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">graph_analytics_top_pct <span title="Fraction of highest-degree nodes boosted by the graph-analytics pass." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="0" max="1" step="0.01" x-model.number="config.graph_analytics_top_pct" /></div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">graph_analytics_boost <span title="Importance increment applied to boosted nodes." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="0" max="1" step="0.01" x-model.number="config.graph_analytics_boost" /></div>
+        </div>
+
+        <!-- ---- Retrieval internals (7 advanced keys) ---- -->
+        <div class="section-title">Retrieval internals
+          <a href="/usr/plugins/neuro_core/webui/help/configuration.html#retrieval" target="_blank" title="Open key-level guidance in a new tab" style="font-size: 0.75rem; margin-left: 0.5rem;">Learn More</a>
+          <button type="button" @click="restoreGroup(['graph_max_hops','graph_neighbors_max','similarity_weight','importance_weight','recency_weight','semantic_limit','semantic_threshold'], 'Retrieval internals')" style="font-size: 0.7rem; margin-left: 0.5rem; cursor: pointer;">Restore defaults</button>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">graph_max_hops <span title="Maximum BFS depth from each seed node (0 = seeds only). Larger values give richer context but increase retrieval latency." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="0" step="1" x-model.number="config.graph_max_hops" /></div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">graph_neighbors_max <span title="Maximum neighbors retrieved per seed at each hop. Larger values give richer context but increase latency." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="1" step="1" x-model.number="config.graph_neighbors_max" /></div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">similarity_weight <span title="Raw rerank weight for cosine similarity. Editing any raw weight flips the Basic preset display to Custom. The three weights are an unnormalized weighted sum; keep them summing to 1.0." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="0" max="1" step="0.05" x-model.number="config.similarity_weight" /></div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">importance_weight <span title="Raw rerank weight for importance. Editing any raw weight flips the Basic preset display to Custom." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="0" max="1" step="0.05" x-model.number="config.importance_weight" /></div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">recency_weight <span title="Raw rerank weight for recency. Editing any raw weight flips the Basic preset display to Custom." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="0" max="1" step="0.05" x-model.number="config.recency_weight" /></div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">semantic_limit <span title="Maximum semantic seed memories retrieved before graph expansion." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="1" step="1" x-model.number="config.semantic_limit" /></div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">semantic_threshold <span title="Minimum similarity for a candidate semantic seed." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="0" max="1" step="0.05" x-model.number="config.semantic_threshold" /></div>
+        </div>
+
+        <!-- ---- Storage & recovery (1 advanced key + reboot note) ---- -->
+        <div class="section-title">Storage &amp; recovery
+          <a href="/usr/plugins/neuro_core/webui/help/configuration.html#storage-recovery" target="_blank" title="Open key-level guidance in a new tab" style="font-size: 0.75rem; margin-left: 0.5rem;">Learn More</a>
+          <button type="button" @click="restoreGroup(['database_path'], 'Storage &amp; recovery')" style="font-size: 0.7rem; margin-left: 0.5rem; cursor: pointer;">Restore defaults</button>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">database_path <span title="Relocation warning: changing this path relocates where the plugin reads and writes its memory database. Existing data is NOT moved automatically — memories at the old location stop being served. Relocate deliberately (stop activity, move the database file, then update this key)." style="cursor: help; color: #b45309; font-weight: 700;">&#9888;</span></div>
+          </div>
+          <div class="field-control"><input type="text" x-model="config.database_path" /></div>
+        </div>
+        <div class="section-description">
+          <span style="color: #b45309; font-weight: 700;">&#9888;</span>
+          Manual reboot failsafe: after a framework server restart, panel recovery is normally
+          automatic; the deeper manual reboot control lives on the Neuro Core graph panel beside
+          the Refresh button, because the panel's own script scope is the only place where its
+          cached token and graph instance can be reset.
+          <a href="/usr/plugins/neuro_core/webui/help/configuration.html#manual-reboot" target="_blank" title="Open the manual-reboot explanation in a new tab">Learn More</a>
+        </div>
+
+        <!-- ---- Window-level rollback ---- -->
+        <hr style="border: none; border-top: 1px solid var(--color-border, #dde3ea); margin: 1rem 0;" />
+        <button type="button" @click="resetAll()" style="cursor: pointer;"
+                title="Reset every key in this window to the plugin's bundled defaults (with confirmation). Nothing is saved until you save the window.">
+          Reset all to defaults
+        </button>
+      </div>
+    </div>
+  </template>
+</div>

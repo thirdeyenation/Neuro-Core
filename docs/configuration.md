@@ -12,6 +12,13 @@ Defaults below are quoted verbatim from the file. Keys whose type is
 on the consumer (most are read as `float` and clamped to `[0.0, 1.0]`
 where appropriate).
 
+The plugin's Settings window (WebUI) exposes all 21 keys: five
+operator-level controls in Basic view and every key grouped by territory
+under Advanced Settings. A plugin-native, key-level help surface with the
+same territory anchors is served at `webui/help/configuration.html` and
+linked from the Settings window. Changes made in the Settings window
+apply to future operations after saving.
+
 ## Configuration key table
 
 | Key | Type | Default | Effect |
@@ -40,30 +47,28 @@ where appropriate).
 
 ## Key details
 
-### `database_path`
+The subsections below give key-level guidance for every key, grouped by
+territory — the same grouping the Settings window and the plugin-native
+help surface (`webui/help/configuration.html`) use.
 
-Path to the plugin's SQLite domain-store database. The bundled default
-is the relative value `neuro_core.db`, which resolves plugin-relative.
-An absolute configured path is honored verbatim, so existing deployments
-that configured an absolute location keep working unchanged. The value
-is resolved through the framework's plugin settings chain
-(`get_plugin_config`), so per-project and per-agent overrides apply like
-any other plugin config key.
+### Lifecycle internals
 
-### Scope note
+#### `decay_enabled`
 
-This table reflects the keys implemented and read at runtime as of
-v0.1.0 (WI-P3-MANIFEST-CONFIG). A full documentation reconciliation of
-all configuration surfaces is owned by the Phase E docs work item.
-
-### `decay_enabled`
-
-When `false`, the `_10_access_decay.py` job loop extension short-circuits
-before reading any document. When `true`, the extension calls
+Master switch for the importance-decay job loop. When `false`, the
+`_10_access_decay.py` job loop extension short-circuits before reading
+any document. When `true`, the extension calls
 `helpers.lifecycle.run_importance_decay(...)` every
 `decay_interval_hours`.
 
-### `importance_decay_rate`
+#### `decay_interval_hours`
+
+Minimum hours between decay runs (gated through the lifecycle
+scheduler). The Settings Basic selector "Freshness speed" writes this
+key together with `importance_decay_rate`; set it directly only for a
+custom cadence.
+
+#### `importance_decay_rate`
 
 Per-run multiplier. The actual operation is
 
@@ -75,7 +80,37 @@ so `0.02` means each decay run multiplies the current value by `0.98`.
 The result is always clamped to `[0.0, 1.0]` before being written back
 to the `scores.json` sidecar.
 
-### `contradiction_llm_enabled`
+#### `episode_boundary_hours`
+
+Maximum time gap between adjacent memories before a new episode starts
+in the episode-grouping job (`_20_episode_grouping.py`).
+
+#### `episode_min_memories`
+
+The episode-grouping job groups memories by time-window. Groups whose
+size is **strictly less than** `episode_min_memories` are not assigned
+an `episode_id` and are therefore not visible to the reflection tool.
+
+### Contradiction internals
+
+#### `contradiction_detection_enabled`
+
+Master switch for the contradiction-detection job loop. One of the five
+Settings Basic controls.
+
+#### `contradiction_batch_size`
+
+Hard cap on the number of fact memories inspected per pass. The
+contradiction detector uses `Memory.search_similarity_threshold(...)`
+to find candidates for each fact, and the result list is also capped at
+`contradiction_batch_size`.
+
+#### `contradiction_similarity_threshold`
+
+Minimum cosine similarity for a pair of fact memories to be considered
+for opposition (read by `run_contradiction_detection()`).
+
+#### `contradiction_llm_enabled`
 
 **Heuristic-only by default.** When this key is `false` (the v0.1.0
 default), `run_contradiction_detection()` uses the lexical heuristic
@@ -84,25 +119,32 @@ defined in `helpers/lifecycle.py` (`_NEGATION_TOKENS`,
 may additionally call an LLM for pairwise NLI between high-similarity
 candidates.
 
-### `contradiction_batch_size`
+**Cost warning:** enabling LLM-based NLI makes LLM usage grow with
+high-similarity candidate-pair volume. Enable only in a controlled
+setting.
 
-Hard cap on the number of fact memories inspected per pass. The
-contradiction detector uses `Memory.search_similarity_threshold(...)`
-to find candidates for each fact, and the result list is also capped at
-`contradiction_batch_size`.
+#### `contradiction_interval_hours`
 
-### `graph_max_hops` and `graph_neighbors_max`
+Minimum hours between contradiction sweeps (one week).
 
-Both control the BFS expansion in `search_context_graph()`:
+### Graph analytics internals
 
-- `graph_max_hops` is the maximum depth (0 = seeds only, 1 = one hop,
-  2 = two hops).
-- `graph_neighbors_max` is the maximum number of neighbors visited per
-  seed at each hop.
+#### `graph_analytics_enabled`
 
-Larger values give richer context but increase retrieval latency.
+Master switch for the graph-analytics pass in `helpers/lifecycle.py`.
+One of the five Settings Basic controls ("Graph insights").
 
-### `importance_weight`, `recency_weight`, `similarity_weight`
+#### `graph_analytics_top_pct`
+
+Fraction of highest-degree nodes boosted by the graph-analytics pass.
+
+#### `graph_analytics_boost`
+
+Importance increment applied to boosted nodes.
+
+### Retrieval internals
+
+#### `similarity_weight`, `importance_weight`, `recency_weight`
 
 These three weights are combined during the rerank step of
 `search_context_graph()`. The final score is roughly
@@ -115,13 +157,67 @@ score = similarity_weight * cosine_similarity
 
 The retrieval helper does not enforce that the three weights sum to
 `1.0` — callers are expected to configure them as a normalized triple.
+The Settings Basic preset selector writes these as named points
+(Balanced 0.5/0.3/0.2, Freshest-first 0.2/0.3/0.5, Importance-first
+0.3/0.5/0.2); editing any raw weight flips the preset display to
+**Custom**.
 
-### `episode_min_memories`
+#### `graph_max_hops`
 
-The episode-grouping job (`_20_episode_grouping.py`) groups memories by
-time-window. Groups whose size is **strictly less than**
-`episode_min_memories` are not assigned an `episode_id` and are
-therefore not visible to the reflection tool.
+Maximum BFS depth from each seed node in `search_context_graph()`
+(0 = seeds only, 1 = one hop, 2 = two hops). Larger values give richer
+context but increase retrieval latency.
+
+#### `graph_neighbors_max`
+
+Upper bound on the number of neighbors visited per seed at each hop of
+the BFS expansion.
+
+#### `semantic_limit`
+
+Maximum number of semantic seed memories retrieved before graph
+expansion.
+
+#### `semantic_threshold`
+
+Minimum similarity for a candidate semantic seed.
+
+### Storage & recovery
+
+#### `database_path`
+
+Path to the plugin's SQLite domain-store database. The bundled default
+is the relative value `neuro_core.db`, which resolves plugin-relative.
+An absolute configured path is honored verbatim, so existing deployments
+that configured an absolute location keep working unchanged. The value
+is resolved through the framework's plugin settings chain
+(`get_plugin_config`), so per-project and per-agent overrides apply like
+any other plugin config key.
+
+**Relocation warning:** changing this path relocates where the plugin
+reads and writes its memory database. Existing data is **not** moved
+automatically — memories at the old location stop being served, and a
+fresh database starts empty. To relocate deliberately, stop memory
+activity, move the database file to the new location, then update this
+key.
+
+### Manual reboot failsafe
+
+After a framework server restart, graph-panel recovery is normally
+automatic. A deeper manual reboot control lives on the Neuro Core graph
+panel (beside the Refresh button in the panel header): it deliberately
+resets the panel's cached CSRF token, rebuilds the graph canvas, and
+re-runs the current search. It lives on the graph panel rather than in
+the Settings window because the panel's own script scope is the only
+place where its cached token and graph instance can be reset together.
+
+## Scope note
+
+This table reflects the keys implemented and read at runtime as of
+v0.1.0 (WI-P3-MANIFEST-CONFIG). The key details above mirror the
+plugin-native help surface at `webui/help/configuration.html` (WI-P38).
+Behavior documented here is implemented behavior; planned and
+unverified behavior remain distinct surfaces and are not claimed here.
 
 ## Internal default overrides
 
