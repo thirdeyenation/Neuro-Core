@@ -6,7 +6,10 @@ plugin. The file is `default_config.yaml` (note: it is **not** named
 overridden per project and per agent — `plugin.yaml` declares
 `per_project_config: true` and `per_agent_config: true` for that reason.
 
-All keys are listed in the order they appear in `default_config.yaml`.
+The key-details section below groups keys by territory — the same
+grouping used by the Settings window's Advanced view. (The reference
+table below lists all keys with their defaults; it does not follow
+`default_config.yaml` line order or the territory grouping.)
 Defaults below are quoted verbatim from the file. Keys whose type is
 `bool` are toggles; numeric keys are read as `int` or `float` depending
 on the consumer (most are read as `float` and clamped to `[0.0, 1.0]`
@@ -28,7 +31,7 @@ apply to future operations after saving.
 | `decay_interval_hours` | int | `24` | Minimum hours between decay runs. Gated through `lifecycle.should_run()`. |
 | `importance_decay_rate` | float | `0.02` | Per-run multiplier subtracted from importance: `importance *= (1 - importance_decay_rate)`. |
 | `contradiction_detection_enabled` | bool | `true` | Master switch for the contradiction detection job loop extension (`_30_contradiction_detection.py`). |
-| `contradiction_llm_enabled` | bool | `false` | When `true`, the contradiction detector may call an LLM for pairwise NLI. **Off by default in v0.1.0** — the job loop is a no-op until enabled in a controlled setting. |
+| `contradiction_llm_enabled` | bool | `false` | Intended to enable LLM-assisted pairwise NLI in the contradiction detector. **Off by default in v0.1.0; the LLM-assisted path is not yet implemented or verified in v0.1.0** — see the key-details note below. |
 | `contradiction_batch_size` | int | `100` | Maximum number of fact memories considered per pass of the contradiction sweep. |
 | `contradiction_interval_hours` | int | `168` | Minimum hours between contradiction sweeps (1 week). |
 | `graph_neighbors_max` | int | `10` | Upper bound on the number of neighbors retrieved per seed during BFS graph expansion. |
@@ -39,9 +42,9 @@ apply to future operations after saving.
 | `semantic_limit` | int | `5` | Maximum number of semantic seed memories retrieved before graph expansion. |
 | `semantic_threshold` | float | `0.6` | Minimum similarity for a candidate semantic seed. |
 | `contradiction_similarity_threshold` | float | `0.85` | Minimum cosine similarity for a pair of fact memories to be considered for opposition (read by `run_contradiction_detection()`). |
-| `graph_analytics_enabled` | bool | `true` | Master switch for the graph-analytics pass in `helpers/lifecycle.py`. |
-| `graph_analytics_top_pct` | float | `0.10` | Fraction of highest-degree nodes boosted by the graph-analytics pass. |
-| `graph_analytics_boost` | float | `0.05` | Importance increment applied to boosted nodes. |
+| `graph_analytics_enabled` | bool | `true` | Intended master switch for the graph-analytics pass in `helpers/lifecycle.py`. **Not yet wired in v0.1.0** — see the key-details note below. |
+| `graph_analytics_top_pct` | float | `0.10` | Fraction of highest-degree nodes boosted by the graph-analytics pass (pass not yet wired in v0.1.0). |
+| `graph_analytics_boost` | float | `0.05` | Importance increment applied to boosted nodes (pass not yet wired in v0.1.0). |
 | `episode_boundary_hours` | int | `4` | Maximum gap between adjacent memories before a new episode starts in the episode-grouping job. |
 | `episode_min_memories` | int | `3` | Minimum number of memories required to form an episode. Groups below this size are not assigned an `episode_id`. |
 
@@ -112,16 +115,25 @@ for opposition (read by `run_contradiction_detection()`).
 
 #### `contradiction_llm_enabled`
 
-**Heuristic-only by default.** When this key is `false` (the v0.1.0
+**Heuristic-only in v0.1.0.** When this key is `false` (the v0.1.0
 default), `run_contradiction_detection()` uses the lexical heuristic
 defined in `helpers/lifecycle.py` (`_NEGATION_TOKENS`,
-`_OPPOSITE_PAIRS`, `_semantically_oppose`). When `true`, the function
-may additionally call an LLM for pairwise NLI between high-similarity
-candidates.
+`_OPPOSITE_PAIRS`, `_semantically_oppose`).
 
-**Cost warning:** enabling LLM-based NLI makes LLM usage grow with
-high-similarity candidate-pair volume. Enable only in a controlled
-setting.
+**Not yet implemented in v0.1.0:** when this key is `true`, the
+LLM-assisted pairwise-NLI path described here is planned but is not
+implemented and not verified in the v0.1.0 code. Its current scheduled
+behavior is a defect (KI-032): the `_30` job-loop extension calls
+`run_contradiction_detection(..., docs=docs)` per subdirectory, but the
+function's signature accepts `facts=` — each per-subdirectory call
+raises a `TypeError` (unexpected keyword argument `docs`), which is
+caught and reported as a warning, so **no contradiction check runs at
+all while the key is enabled**. A remediation proposal exists; until it
+lands, treat this key as currently non-functional.
+
+**Cost warning (precautionary, for when the LLM path ships):**
+LLM-based NLI makes LLM usage grow with high-similarity candidate-pair
+volume. Enable only in a controlled setting.
 
 #### `contradiction_interval_hours`
 
@@ -131,8 +143,16 @@ Minimum hours between contradiction sweeps (one week).
 
 #### `graph_analytics_enabled`
 
-Master switch for the graph-analytics pass in `helpers/lifecycle.py`.
+Intended master switch for the graph-analytics pass in
+`helpers/lifecycle.py` (`run_graph_analytics()`).
 One of the five Settings Basic controls ("Graph insights").
+
+**Not yet wired in v0.1.0:** `run_graph_analytics()` is implemented as a
+function (defined in `helpers/lifecycle.py`) but has no invocation site
+in any scheduled job loop — no `_40` job-loop extension exists yet. As
+a result, toggling `graph_analytics_enabled` (and the related
+`graph_analytics_top_pct` / `graph_analytics_boost` values) has no
+observable effect until the wiring lands.
 
 #### `graph_analytics_top_pct`
 
