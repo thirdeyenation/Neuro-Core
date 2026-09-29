@@ -1,67 +1,71 @@
-"""Tests for ``tools/neuro_retrieve.py`` (KI-019, WI-P6-TOOLTESTS).
+"""Tests for ``tools/neuro_retrieve.py`` (re-homed, WI-P43, ADR-NC1-003).
 
-Contract coverage grounded in the actual source (not docs):
+The tool now serves the plugin's explainable hybrid pipeline
+(``search_context_graph`` over the HOST memory universe) instead of the
+retired SQLite-domain backend. Contract coverage:
 
-1. Happy path: valid ``query``/``project`` returns a list of dicts with
-   ``memory_id``, ``text``, ``source``, ``score``, ``factors`` keys, sorted
-   by score descending (grounded: ``retrieve()`` sorts by score desc).
-2. Invalid input: empty ``query`` or empty ``project`` raises
-   ``ValueError("query and project are required")`` before any store is
-   opened. Grounded nuance: ``query`` defaults to "" and ``project``
-   defaults to "default", so omitted args are valid - only explicitly
-   empty values trigger the error.
-3. Edge: memories in a different project scope are excluded (grounded:
-   ``retrieve()`` skips ``memory.scope != scope``).
-4. Edge: SUPERSEDED memories are excluded even within scope (grounded:
-   ``memory_lifecycle.retrievable()`` returns False for SUPERSEDED).
-5. Edge: results include only exact-scope matches - an agent-scoped memory
-   is not returned for the same project without agent (grounded: frozen
-   dataclass ``Scope`` equality in ``retrieve()``).
-6. Edge: zero-overlap in-scope memory still returns a result - there is no
-   score threshold in ``retrieve()``; the floor is
-   ``0.25*importance + 0.25*confidence`` (grounded in the source).
+1. Happy path: a valid ``query`` returns the structured context graph
+   (``query``, ``seed_ids``, ``nodes``, ``edges``) with per-node factor
+   records whose keys match the pipeline's ranking factors.
+2. Invalid input: an empty ``query`` returns an error Response without
+   constructing stores or touching host memory.
+3. Factor fidelity: hop-0 seeds use ``_semantic_for`` metadata semantics;
+   graph neighbors use the pipeline's ``sem = 0.5`` baseline; ``score``
+   is the pipeline's node score VERBATIM; importance/confidence are
+   sidecar-authoritative.
+4. Honest degradation (KI-008): an unavailable ScoreStore yields
+   ``neuro_degraded`` markers with metadata fallbacks - never fabricated
+   healthy baselines.
+5. Gate independence: factor records are served regardless of the
+   ``recall_shaping_enabled`` gate (that gate governs only the end-hook
+   re-ranking of ordinary host recall).
 
-DB isolation: module-level ``_resolve_db_path`` is monkeypatched to a
-``tmp_path``-rooted path for every test - the live ``neuro_core.db`` is
-never touched (fixture policy: disposable/synthetic).
+Store isolation: the conftest ``memory_subdir`` fixture patches
+``abs_db_dir`` to a per-test tmp directory (disposable/synthetic fixture
+policy); the live ``neuro_core.db`` is never touched. All pipeline and
+store collaborators are patched at the modules where the tool lazily
+imports them (verified by direct read of tools/neuro_retrieve.py).
 """
 
 from __future__ import annotations
 
 import sys
-from pathlib import Path
+import types
 
 import pytest
 
 
-_PLUGIN_ROOT = "/a0/usr/plugins/neuro_core"
-if _PLUGIN_ROOT not in sys.path:
-    sys.path.insert(0, _PLUGIN_ROOT)
+_PROJECT_ROOT = "/a0/usr/plugins/neuro_core"
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+pytestmark = pytest.mark.asyncio
 
 
-def _load_tool(monkeypatch, tmp_path):
-    """Import the tool module with its DB path pointed at a tmp file."""
-    db_path = tmp_path / "retrieve_test.db"
-    import importlib
+class _FakeScoreStore:
+    """Inert ScoreStore double with get_optional semantics."""
 
-    mod = importlib.import_module("tools.neuro_retrieve")
-    monkeypatch.setattr(mod, "_resolve_db_path", lambda: str(db_path))
-    return mod, db_path
+    instances: list = []
+
+    def __init__(self, subdir: str):
+        self.subdir = subdir
+        self.records: dict = dict(_FakeScoreStore._seed_records)
+        _FakeScoreStore.instances.append(self)
+
+    _seed_records: dict = {}
+
+    def get_optional(self, doc_id: str):
+        return self.records.get(doc_id)
 
 
-def _seed(mod, db_path, memories):
-    """Seed the disposable store directly through the service layer."""
-    from neuro_core import Memory, Scope
-    from neuro_service import NeuroCoreService
-    from sqlite_store import SQLiteStore
+class _FakeGraphStore:
+    """Inert GraphStore double (no filesystem access)."""
 
-    store = SQLiteStore(str(db_path))
-    try:
-        service = NeuroCoreService(store)
-        for mem in memories:
-            service.capture(mem)
-    finally:
-        store.close()
+    instances: list = []
+
+    def __init__(self, subdir: str):
+        self.subdir = subdir
+        _FakeGraphStore.instances.append(self)
 
 
 def _make_tool(mod):
@@ -71,155 +75,293 @@ def _make_tool(mod):
     )
 
 
-@pytest.mark.asyncio
-async def test_retrieve_returns_contract_shape_sorted_desc(
-    monkeypatch, tmp_path
-):
-    """Valid retrieve returns dicts with the exact contract keys, ordered
-    by score descending (grounded: sorted(..., reverse=True))."""
-    from neuro_core import Memory, Scope
+def _load_tool_module():
+    import importlib
 
-    mod, db_path = _load_tool(monkeypatch, tmp_path)
-    _seed(
-        mod,
-        db_path,
-        [
-            Memory("alpha beta", "agent_zero", Scope("p1"), 0.9, 0.9),
-            Memory("alpha gamma", "user", Scope("p1"), 0.3, 0.3),
-        ],
+    return importlib.import_module("tools.neuro_retrieve")
+
+
+def _node(doc_id, hop, score, metadata=None, content="content"):
+    return types.SimpleNamespace(
+        doc_id=doc_id, hop=hop, score=score,
+        metadata=dict(metadata or {}), content=content,
     )
-    tool = _make_tool(mod)
-
-    result = await tool.execute(query="alpha", project="p1")
-
-    assert isinstance(result, list) and len(result) == 2
-    for item in result:
-        assert set(item.keys()) == {"memory_id", "text", "source", "score", "factors"}
-        assert set(item["factors"].keys()) == {
-            "overlap", "importance", "confidence", "validation"
-        }
-    scores = [item["score"] for item in result]
-    assert scores == sorted(scores, reverse=True)
-    assert scores[0] > scores[1]
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("kwargs", [
-    {"query": "q", "project": ""},
-    {"query": "", "project": "p"},
-])
-async def test_retrieve_empty_required_args_raise_value_error(
-    monkeypatch, tmp_path, kwargs
-):
-    """Empty ``query`` and/or ``project`` raises ValueError before any
-    store is opened - no DB file is created on the failure path.
+def _edge(from_id, to_id, rel="related_to", confidence=0.9):
+    return types.SimpleNamespace(
+        from_id=from_id, to_id=to_id, type=rel, confidence=confidence,
+    )
 
-    Grounded: the guard is ``if not query or not project``; note that
-    ``project`` defaults to "default", so an omitted project is valid.
+
+def _graph(nodes, edges=None, seed_ids=None, query="alpha"):
+    return types.SimpleNamespace(
+        query=query,
+        seed_ids=list(seed_ids or [n.doc_id for n in nodes if n.hop == 0]),
+        nodes=list(nodes),
+        edges=list(edges or []),
+    )
+
+
+def _patch_collaborators(monkeypatch, graph, seed_records=None):
+    """Patch every lazily-imported collaborator at its source module.
+
+    - plugins._memory.helpers.memory.Memory.get_by_subdir -> fake memory
+    - usr.plugins.neuro_core.helpers.graph_store.GraphStore -> inert double
+    - usr.plugins.neuro_core.helpers.scores.ScoreStore -> inert double
+    - usr.plugins.neuro_core.helpers.retrieval.search_context_graph
+      -> returns the supplied ``graph`` (records stores/config seen)
     """
-    mod, db_path = _load_tool(monkeypatch, tmp_path)
-    tool = _make_tool(mod)
+    from plugins._memory.helpers import memory as host_memory_mod
+    from usr.plugins.neuro_core.helpers import graph_store as graph_mod
+    from usr.plugins.neuro_core.helpers import scores as scores_mod
+    from usr.plugins.neuro_core.helpers import retrieval as retrieval_mod
 
-    with pytest.raises(ValueError, match="query and project are required"):
-        await tool.execute(**kwargs)
+    _FakeScoreStore.instances = []
+    _FakeGraphStore.instances = []
+    _FakeScoreStore._seed_records = dict(seed_records or {})
 
-    assert not db_path.exists()
+    fake_memory = types.SimpleNamespace(memory_subdir="neuro_test")
 
+    async def _fake_get_by_subdir(memory_subdir, log_item=None,
+                                  preload_knowledge=True):
+        return fake_memory
 
-@pytest.mark.asyncio
-async def test_retrieve_excludes_other_project_scope(
-    monkeypatch, tmp_path
-):
-    """Memories in a different project are excluded (scope != scope skip,
-    grounded in neuro_core.retrieve)."""
-    from neuro_core import Memory, Scope
-
-    mod, db_path = _load_tool(monkeypatch, tmp_path)
-    _seed(
-        mod,
-        db_path,
-        [Memory("alpha secret other", "agent_zero", Scope("p2"))],
+    monkeypatch.setattr(
+        host_memory_mod.Memory, "get_by_subdir", _fake_get_by_subdir,
+        raising=False,  # conftest stub class may not predefine this attr
     )
-    tool = _make_tool(mod)
+    monkeypatch.setattr(graph_mod, "GraphStore", _FakeGraphStore)
+    monkeypatch.setattr(scores_mod, "ScoreStore", _FakeScoreStore)
 
-    result = await tool.execute(query="alpha secret other", project="p1")
+    async def _fake_pipeline(memory, query, graph_store, score_store, config):
+        graph._stores_seen = (graph_store, score_store)
+        graph._config_seen = dict(config)
+        return graph
 
-    assert result == []
+    monkeypatch.setattr(
+        retrieval_mod, "search_context_graph", _fake_pipeline, raising=True
+    )
+    return fake_memory
 
 
-@pytest.mark.asyncio
-async def test_retrieve_excludes_superseded_within_scope(
-    monkeypatch, tmp_path
-):
-    """A SUPERSEDED memory in scope is not retrievable (grounded:
-    retrievable() is False for SUPERSEDED)."""
-    from memory_lifecycle import ValidationState
-    from neuro_core import Memory, Scope
+# ---------------------------------------------------------------------------
+# 1. Happy path
+# ---------------------------------------------------------------------------
 
-    mod, db_path = _load_tool(monkeypatch, tmp_path)
-    _seed(
-        mod,
-        db_path,
+
+async def test_returns_structured_graph_with_factor_records(monkeypatch):
+    doc_meta = {
+        "id": "doc-1", "area": "main",
+        "similarity": 0.8, "importance": 0.9, "confidence": 0.7,
+        "validation_status": "validated",
+        "timestamp": "2026-09-28T00:00:00+00:00",
+    }
+    graph = _graph([_node("doc-1", 0, 0.83, doc_meta)], seed_ids=["doc-1"])
+    _patch_collaborators(monkeypatch, graph)
+    tool = _make_tool(_load_tool_module())
+
+    result = await tool.execute(query="alpha", memory_subdir="neuro_test")
+
+    assert result["query"] == "alpha"
+    assert result["seed_ids"] == ["doc-1"]
+    node = result["nodes"][0]
+    assert node["doc_id"] == "doc-1" and node["hop"] == 0
+    factors = node["factors"]
+    assert set(factors.keys()) == {
+        "similarity", "importance", "confidence", "recency",
+        "validation_status", "score",
+    }
+    # Pipeline's node score verbatim (JSON-rounded only).
+    assert factors["score"] == pytest.approx(0.83)
+    # No sidecar records exist -> honest degradation marker (KI-008).
+    assert node["neuro_degraded"] is True
+    assert factors["validation_status"] == "validated"
+    assert 0.0 <= factors["recency"] <= 1.0
+    # The tool passed the right stores and gated config to the pipeline.
+    assert graph._config_seen["semantic_limit"] == 10
+    assert graph._config_seen["semantic_threshold"] == pytest.approx(0.6)
+
+
+async def test_edges_serialized_with_type_and_confidence(monkeypatch):
+    graph = _graph(
         [
-            Memory(
-                "alpha superseded", "agent_zero", Scope("p1"),
-                validation=ValidationState.SUPERSEDED,
-            ),
+            _node("a", 0, 0.9, {"id": "a"}),
+            _node("b", 1, 0.5, {"id": "b"}),
         ],
+        edges=[_edge("a", "b", "supports", 0.85)],
+        seed_ids=["a"],
     )
-    tool = _make_tool(mod)
+    _patch_collaborators(monkeypatch, graph)
+    tool = _make_tool(_load_tool_module())
 
-    result = await tool.execute(query="alpha superseded", project="p1")
+    result = await tool.execute(query="alpha", memory_subdir="neuro_test")
 
-    assert result == []
+    assert result["edges"] == [
+        {"from_id": "a", "to_id": "b", "type": "supports",
+         "confidence": pytest.approx(0.85)},
+    ]
+    assert [n["hop"] for n in result["nodes"]] == [0, 1]
 
 
-@pytest.mark.asyncio
-async def test_retrieve_agent_scoped_memory_requires_matching_agent(
-    monkeypatch, tmp_path
-):
-    """An agent-scoped memory (project, agent) is NOT returned for a
-    bare project query (frozen Scope equality in retrieve())."""
-    from neuro_core import Memory, Scope
+# ---------------------------------------------------------------------------
+# 2. Invalid input
+# ---------------------------------------------------------------------------
 
-    mod, db_path = _load_tool(monkeypatch, tmp_path)
-    _seed(
-        mod,
-        db_path,
-        [Memory("alpha agent memory", "agent_zero", Scope("p1", "agentA"))],
+
+async def test_empty_query_returns_error_without_touching_stores(monkeypatch):
+    from helpers.tool import Response
+
+    _FakeScoreStore.instances = []
+    _FakeGraphStore.instances = []
+
+    tool = _make_tool(_load_tool_module())
+    result = await tool.execute(query="   ")
+
+    assert isinstance(result, Response)
+    assert result.break_loop is False
+    assert "query" in result.message.lower()
+    assert _FakeScoreStore.instances == []
+    assert _FakeGraphStore.instances == []
+
+
+# ---------------------------------------------------------------------------
+# 3. Factor fidelity
+# ---------------------------------------------------------------------------
+
+
+async def test_hop0_similarity_from_metadata_neighbors_get_baseline(monkeypatch):
+    graph = _graph(
+        [
+            _node("seed", 0, 0.7, {"id": "seed", "similarity": 0.9}),
+            _node("nbr", 1, 0.4, {"id": "nbr", "similarity": 0.99}),
+        ],
+        seed_ids=["seed"],
     )
-    tool = _make_tool(mod)
+    _patch_collaborators(monkeypatch, graph)
+    tool = _make_tool(_load_tool_module())
 
-    result = await tool.execute(query="alpha agent memory", project="p1")
-    assert result == []
+    result = await tool.execute(query="alpha", memory_subdir="neuro_test")
+    by_id = {n["doc_id"]: n for n in result["nodes"]}
 
-    scoped = await tool.execute(
-        query="alpha agent memory", project="p1", agent="agentA"
+    # Hop-0 seed: metadata similarity honored (pipeline semantics).
+    assert by_id["seed"]["factors"]["similarity"] == pytest.approx(0.9)
+    # Graph neighbor: pipeline's sem = 0.5 baseline — NOT its metadata
+    # similarity, which the pipeline never consulted for expansion nodes.
+    assert by_id["nbr"]["factors"]["similarity"] == pytest.approx(0.5)
+    # Scores are the pipeline's node scores verbatim.
+    assert by_id["seed"]["factors"]["score"] == pytest.approx(0.7)
+    assert by_id["nbr"]["factors"]["score"] == pytest.approx(0.4)
+
+
+async def test_sidecar_authoritative_importance_and_confidence(monkeypatch):
+    graph = _graph(
+        [_node("doc-1", 0, 0.6, {"id": "doc-1", "importance": 0.2})],
+        seed_ids=["doc-1"],
     )
-    assert len(scoped) == 1
-    assert scoped[0]["text"] == "alpha agent memory"
-
-
-@pytest.mark.asyncio
-async def test_retrieve_zero_overlap_in_scope_still_returns_with_floor_score(
-    monkeypatch, tmp_path
-):
-    """Grounded edge: retrieve() applies NO score threshold — an in-scope
-    retrievable memory always returns, even with zero term overlap. The
-    score floor is 0.25*importance + 0.25*confidence."""
-    from neuro_core import Memory, Scope
-
-    mod, db_path = _load_tool(monkeypatch, tmp_path)
-    _seed(
-        mod,
-        db_path,
-        [Memory("unrelated words", "agent_zero", Scope("p1"), 0.5, 0.5)],
+    _patch_collaborators(
+        monkeypatch, graph,
+        seed_records={
+            "doc-1": types.SimpleNamespace(importance=0.95, confidence=0.8),
+        },
     )
-    tool = _make_tool(mod)
+    tool = _make_tool(_load_tool_module())
 
-    result = await tool.execute(query="zzz qqq", project="p1")
+    result = await tool.execute(query="alpha", memory_subdir="neuro_test")
 
-    assert len(result) == 1
-    assert result[0]["text"] == "unrelated words"
-    assert result[0]["score"] == 0.25
-    assert result[0]["factors"]["overlap"] == 0.0
+    factors = result["nodes"][0]["factors"]
+    # Sidecar wins over the stale metadata mirror (ADR-NC1-002 authority).
+    assert factors["importance"] == pytest.approx(0.95)
+    assert factors["confidence"] == pytest.approx(0.8)
+    assert result["nodes"][0]["neuro_degraded"] is False
+
+
+async def test_unavailable_score_store_degrades_honestly(monkeypatch):
+    graph = _graph(
+        [_node("doc-1", 0, 0.6, {"id": "doc-1"})], seed_ids=["doc-1"],
+    )
+    from usr.plugins.neuro_core.helpers import scores as scores_mod
+
+    def _boom(subdir):
+        raise RuntimeError("sidecar unavailable")
+
+    _patch_collaborators(monkeypatch, graph)
+    monkeypatch.setattr(scores_mod, "ScoreStore", _boom)
+    tool = _make_tool(_load_tool_module())
+
+    result = await tool.execute(query="alpha", memory_subdir="neuro_test")
+
+    node = result["nodes"][0]
+    # Missing store -> metadata fallbacks WITH the degraded marker,
+    # never presented as healthy sidecar-backed data (KI-008).
+    assert node["neuro_degraded"] is True
+    assert node["factors"]["importance"] == pytest.approx(0.5)
+    assert node["factors"]["confidence"] == pytest.approx(0.7)
+
+
+# ---------------------------------------------------------------------------
+# 4. Gate independence + invocation defaults
+# ---------------------------------------------------------------------------
+
+
+async def test_tool_independent_of_recall_shaping_gate(monkeypatch):
+    """Factor records are served with the gate on AND off."""
+    graph = _graph([_node("doc-1", 0, 0.6, {"id": "doc-1"})],
+                   seed_ids=["doc-1"])
+    _patch_collaborators(monkeypatch, graph)
+    tool = _make_tool(_load_tool_module())
+
+    import sys as _sys
+    import types as _types
+
+    for gate in (False, True):
+        stub = _types.ModuleType("helpers.plugins")
+        stub.get_plugin_config = (
+            lambda name, agent=None, _g=gate: {"recall_shaping_enabled": _g}
+        )
+        monkeypatch.setitem(_sys.modules, "helpers.plugins", stub)
+        result = await tool.execute(query="alpha", memory_subdir="neuro_test")
+        assert result["nodes"][0]["factors"]["score"] == pytest.approx(0.6)
+
+
+async def test_invocation_args_override_config_defaults(monkeypatch):
+    graph = _graph([_node("doc-1", 0, 0.6, {"id": "doc-1"})],
+                   seed_ids=["doc-1"])
+    _patch_collaborators(monkeypatch, graph)
+    tool = _make_tool(_load_tool_module())
+
+    import sys as _sys
+    import types as _types
+
+    stub = _types.ModuleType("helpers.plugins")
+    stub.get_plugin_config = lambda name, agent=None: {}
+    monkeypatch.setitem(_sys.modules, "helpers.plugins", stub)
+
+    result = await tool.execute(query="alpha", limit=4, threshold=0.5,
+                                memory_subdir="neuro_test")
+    assert result["nodes"][0]["factors"]["score"] == pytest.approx(0.6)
+    assert graph._config_seen["semantic_limit"] == 4
+    assert graph._config_seen["semantic_threshold"] == pytest.approx(0.5)
+
+    graph._config_seen = None
+    await tool.execute(query="alpha", memory_subdir="neuro_test")
+    # Documented tool defaults apply when args and config are silent.
+    assert graph._config_seen["semantic_limit"] == 10
+    assert graph._config_seen["semantic_threshold"] == pytest.approx(0.6)
+
+
+async def test_unavailable_host_memory_returns_error_response(monkeypatch):
+    from helpers.tool import Response
+    from plugins._memory.helpers import memory as host_memory_mod
+
+    async def _boom(memory_subdir, log_item=None, preload_knowledge=True):
+        raise RuntimeError("faiss down")
+
+    monkeypatch.setattr(host_memory_mod.Memory, "get_by_subdir", _boom,
+                        raising=False)
+    tool = _make_tool(_load_tool_module())
+
+    result = await tool.execute(query="alpha", memory_subdir="neuro_test")
+    assert isinstance(result, Response)
+    assert result.break_loop is False
+    assert "unavailable" in result.message.lower()

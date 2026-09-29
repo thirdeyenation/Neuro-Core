@@ -106,6 +106,24 @@ context but increase retrieval latency.</p>
 <h3><code>semantic_threshold</code> (float, default <code>0.6</code>)</h3>
 <p>Minimum similarity for a candidate semantic seed.</p>
 
+<h2 id="recall-shaping">Recall shaping internals</h2>
+<p>Phase-1 recall shaping (ADR-NC1-003): when <code>recall_shaping_enabled</code> is true, Neuro Core re-ranks the host Memory search results it serves — combining sidecar-importance x confidence, validation demotion, recency, and a bounded additive graph-neighbor expansion. When the gate is false the native result is byte-identical to baseline.</p>
+<h3><code>recall_shaping_enabled</code> (bool, default <code>false</code>)</h3>
+<p>Master gate. Temporarily default false per D-NC1-113, pending the KI-036 sanitizer (update_documents metadata round-trip). When set to <code>false</code>, native recall is byte-identical to baseline.</p>
+<p>Honest boundaries of Phase-1 recall shaping:</p>
+<ol>
+<li>Captured-domain (SQLite) memory integration is Phase 2 — shaping currently operates on the host-stack working universe.</li>
+<li>Graph-neighbor deliveries carry native relevance score <code>0.0</code> — the shaped score lives only in <code>neuro_factors.shaped_score</code>.</li>
+<li>Neighbor expansion is bounded: neighbors are appended, never displacing native results, capped at <code>recall_shaping_neighbors_max</code>.</li>
+</ol>
+<h3><code>recall_shaping_neighbors_max</code> (int, default <code>3</code>)</h3>
+<p>Maximum graph neighbors appended per recall. Neighbors NEVER displace native results and are excluded from access tracking (importance/decay signals are not inflated by graph proximity).</p>
+<h3><code>validation_factor_validated</code> (float, default <code>1.0</code>)</h3>
+<h3><code>validation_factor_unvalidated</code> (float, default <code>0.8</code>)</h3>
+<h3><code>validation_factor_disputed</code> (float, default <code>0.6</code>)</h3>
+<h3><code>validation_factor_deprecated</code> (float, default <code>0.4</code>)</h3>
+<p>Demotion factors applied by validation status. Annotation only — validation status NEVER filters or gates recall (C12). Missing/unknown status takes the unvalidated factor.</p>
+
 <h2 id="storage-recovery">Storage &amp; recovery</h2>
 <h3><code>database_path</code> (str, default <code>neuro_core.db</code>)</h3>
 <p>Path to the plugin's SQLite domain-store database. Relative values resolve

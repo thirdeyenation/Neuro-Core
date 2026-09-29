@@ -207,6 +207,43 @@ expansion.
 
 Minimum similarity for a candidate semantic seed.
 
+### Recall shaping internals
+
+Phase-1 recall shaping (ADR-NC1-003, HITL-approved D-NC1-106): when
+`recall_shaping_enabled` is true, Neuro Core re-ranks the host Memory
+search results it serves, combining sidecar-importance x confidence,
+validation demotion, recency, and a bounded additive graph-neighbor
+expansion. When the gate is false the native result is byte-identical
+to baseline.
+
+#### `recall_shaping_enabled`
+
+Master gate, default `false` (temporarily — per D-NC1-113; the default was
+flipped to `true` per D-NC1-110 and is reverted pending the KI-036 sanitizer,
+which covers the `update_documents` FAISS-metadata round-trip). When set to
+`false`, the native result is byte-identical to baseline.
+
+Honest boundaries of Phase-1 recall shaping:
+
+1. Captured-domain (SQLite) memory integration is Phase 2 — shaping
+   currently operates on the host-stack working universe.
+2. Graph-neighbor deliveries carry native relevance score `0.0` — the
+   shaped score lives only in `neuro_factors.shaped_score`.
+3. Neighbor expansion is bounded: neighbors are appended, never
+   displacing native results, capped at `recall_shaping_neighbors_max`.
+
+#### `recall_shaping_neighbors_max`
+
+Maximum graph neighbors appended per recall (never displaces native
+results; excluded from access tracking so importance/decay signals are
+not inflated by graph proximity).
+
+#### `validation_factor_validated` / `validation_factor_unvalidated` / `validation_factor_disputed` / `validation_factor_deprecated`
+
+Demotion factors applied by validation status (1.0 / 0.8 / 0.6 / 0.4).
+Annotation only — validation status never filters or gates recall.
+Missing/unknown status takes the unvalidated factor.
+
 ### Storage & recovery
 
 #### `database_path`

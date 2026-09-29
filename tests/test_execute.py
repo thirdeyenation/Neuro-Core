@@ -485,7 +485,10 @@ class TestConfigRelativeDbPath:
             monkeypatch,
             lambda *a, **kw: {"database_path": "/tmp/custom/named.db"},
         )
-        for name in ("neuro_capture", "neuro_retrieve", "neuro_validate"):
+        # WI-P43 (ADR-NC1-003 §3, D-NC1-106): neuro_retrieve is re-homed to
+        # the explainable hybrid pipeline and no longer resolves a
+        # SQLite-domain db path; capture/validate keep _resolve_db_path.
+        for name in ("neuro_capture", "neuro_validate"):
             mod = _load_neuro_tool(name)
             assert mod._resolve_db_path() == "/tmp/custom/named.db", name
 
@@ -499,7 +502,8 @@ class TestConfigRelativeDbPath:
             monkeypatch,
             lambda *a, **kw: {"database_path": "data/named.db"},
         )
-        for name in ("neuro_capture", "neuro_retrieve", "neuro_validate"):
+        # WI-P43 re-homing: see test_configured_absolute_path_is_honored.
+        for name in ("neuro_capture", "neuro_validate"):
             mod = _load_neuro_tool(name)
             assert mod._resolve_db_path() == os.path.join(
                 _PLUGIN_ROOT, "data", "named.db"
@@ -517,7 +521,8 @@ class TestConfigRelativeDbPath:
             raise RuntimeError("simulated config chain failure")
 
         _stub_get_plugin_config(monkeypatch, _boom)
-        for name in ("neuro_capture", "neuro_retrieve", "neuro_validate"):
+        # WI-P43 re-homing: see test_configured_absolute_path_is_honored.
+        for name in ("neuro_capture", "neuro_validate"):
             mod = _load_neuro_tool(name)
             assert mod._resolve_db_path() == os.path.join(
                 _PLUGIN_ROOT, "neuro_core.db"

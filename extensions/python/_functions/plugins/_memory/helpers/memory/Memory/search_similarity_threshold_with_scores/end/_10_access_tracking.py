@@ -53,6 +53,11 @@ class NeuroWithScoresAccessTracking(Extension):
             for doc in docs:
                 try:
                     md = getattr(doc, "metadata", None)
+                    # V2 (WI-P43, D-NC1-106): graph-neighbor deliveries are
+                    # excluded from access tracking so importance/decay
+                    # signals are never inflated by graph proximity.
+                    if isinstance(md, dict) and md.get("neuro_neighbor"):
+                        continue
                     doc_id = None
                     if isinstance(md, dict):
                         doc_id = md.get("id")

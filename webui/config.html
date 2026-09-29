@@ -1,4 +1,4 @@
-<!-- WI-P38-SETTINGS-CONFIG-SURFACE (D-NC1-092 ratified design, D-NC1-093 key count 21).
+<!-- WI-P38-SETTINGS-CONFIG-SURFACE (D-NC1-092 ratified design, D-NC1-093 key count 21, amended to 27 keys by D-NC1-106 / WI-P43 Phase-1 recall shaping).
      Rendered inside the framework plugin-settings modal; `config` is provided by the
      modal scope (plugin-settings.html:13-15 aliases context.settings). Load/save go
      through POST /plugins actions get_config/save_config (plugin-settings-store.js);
@@ -29,7 +29,13 @@
     importance_weight: 0.3,
     recency_weight: 0.2,
     semantic_limit: 5,
-    semantic_threshold: 0.6
+    semantic_threshold: 0.6,
+    recall_shaping_enabled: false,
+    recall_shaping_neighbors_max: 3,
+    validation_factor_validated: 1.0,
+    validation_factor_unvalidated: 0.8,
+    validation_factor_disputed: 0.6,
+    validation_factor_deprecated: 0.4
   },
   NC_PRESETS: {
     balanced:    { similarity_weight: 0.5, importance_weight: 0.3, recency_weight: 0.2 },
@@ -315,6 +321,49 @@
             <div class="field-title">semantic_threshold <span title="Minimum similarity for a candidate semantic seed." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
           </div>
           <div class="field-control"><input type="number" min="0" max="1" step="0.05" x-model.number="config.semantic_threshold" /></div>
+        </div>
+
+        <!-- ---- Recall shaping internals (6 keys, WI-P43/ADR-NC1-003, D-NC1-106) ---- -->
+        <div class="section-title">Recall shaping internals
+          <a href="/usr/plugins/neuro_core/webui/help/configuration.html#recall-shaping" target="_blank" title="Open key-level guidance in a new tab" style="font-size: 0.75rem; margin-left: 0.5rem;">Learn More</a>
+          <button type="button" @click="restoreGroup(['recall_shaping_enabled','recall_shaping_neighbors_max','validation_factor_validated','validation_factor_unvalidated','validation_factor_disputed','validation_factor_deprecated'], 'Recall shaping internals')" style="font-size: 0.7rem; margin-left: 0.5rem; cursor: pointer;">Restore defaults</button>
+        </div>
+        <div class="section-description">Phase-1 recall shaping (ADR-NC1-003): Neuro Core intelligence re-ranks host recall — importance x confidence, validation demotion (annotation, NOT gating), recency, and bounded graph-neighbor expansion. Default false and TEMPORARILY DISABLED per D-NC1-113, pending the KI-036 sanitizer; while off, host recall is byte-identical to baseline.</div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">recall_shaping_enabled <span title="Master gate. Default false — temporarily disabled per D-NC1-113, pending the KI-036 sanitizer (update_documents metadata round-trip). While off, host recall is byte-identical to baseline." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><label style="display:inline-flex; align-items:center; gap:0.4rem;"><input type="checkbox" x-model="config.recall_shaping_enabled" /> Enabled</label></div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">recall_shaping_neighbors_max <span title="Maximum graph neighbors appended per recall (never displaces native results)." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="0" step="1" x-model.number="config.recall_shaping_neighbors_max" /></div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">validation_factor_validated <span title="Demotion factor applied to validated memories. Annotation only — validation status never filters results." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="0" max="1" step="0.05" x-model.number="config.validation_factor_validated" /></div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">validation_factor_unvalidated <span title="Demotion factor for unvalidated memories (the default status)." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="0" max="1" step="0.05" x-model.number="config.validation_factor_unvalidated" /></div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">validation_factor_disputed <span title="Demotion factor for disputed memories." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="0" max="1" step="0.05" x-model.number="config.validation_factor_disputed" /></div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <div class="field-title">validation_factor_deprecated <span title="Demotion factor for deprecated memories (ADR named this status 'superseded'; the real status vocabulary is 'deprecated')." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+          </div>
+          <div class="field-control"><input type="number" min="0" max="1" step="0.05" x-model.number="config.validation_factor_deprecated" /></div>
         </div>
 
         <!-- ---- Storage & recovery (1 advanced key + reboot note) ---- -->

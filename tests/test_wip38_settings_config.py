@@ -32,9 +32,9 @@ def _defaults_keys() -> set[str]:
     return keys
 
 
-def test_default_config_has_exactly_21_keys():
+def test_default_config_has_exactly_27_keys():
     keys = _defaults_keys()
-    assert len(keys) == 21, f"expected exactly 21 keys, got {len(keys)}: {sorted(keys)}"
+    assert len(keys) == 27, f"expected exactly 27 keys, got {len(keys)}: {sorted(keys)}"
 
 
 def test_every_x_model_bound_key_exists_in_default_config():
@@ -43,10 +43,10 @@ def test_every_x_model_bound_key_exists_in_default_config():
     keys = _defaults_keys()
     text = _config_html_text()
     bound = set(re.findall(r"x-model(?:\.number)?=\"(?:this\.)?config\.([a-z_]+)\"", text))
-    assert len(bound) == 21, f"expected 21 bound keys, got {len(bound)}: {sorted(bound)}"
+    assert len(bound) == 27, f"expected 27 bound keys, got {len(bound)}: {sorted(bound)}"
     missing = bound - keys
     assert not missing, f"config.html binds keys absent from default_config.yaml: {sorted(missing)}"
-    # and the reconciliation is exact: all 21 default keys are surfaced
+    # and the reconciliation is exact: all 27 default keys are surfaced
     assert bound == keys
 
 
@@ -155,7 +155,7 @@ def test_help_surface_exists_and_is_referenced():
     assert HELP_HTML.is_file(), "webui/help/configuration.html missing"
     help_text = HELP_HTML.read_text(encoding="utf-8")
     # all territory anchors exist (config.html links target these)
-    for anchor in ("lifecycle", "contradiction", "graph-analytics", "retrieval", "storage-recovery", "manual-reboot"):
+    for anchor in ("lifecycle", "contradiction", "graph-analytics", "retrieval", "recall-shaping", "storage-recovery", "manual-reboot"):
         assert f'id="{anchor}"' in help_text, f"help anchor missing: #{anchor}"
     # key-level coverage: all 21 keys named in the help surface
     keys = _defaults_keys()
@@ -164,15 +164,75 @@ def test_help_surface_exists_and_is_referenced():
     # config.html links to it with target=_blank and fragment anchors
     text = _config_html_text()
     refs = re.findall(r'href="(/usr/plugins/neuro_core/webui/help/configuration.html#([a-z-]+))" target="_blank"', text)
-    assert len(refs) >= 6, f"expected >=6 Learn More links, got {len(refs)}"
+    assert len(refs) >= 7, f"expected >=7 Learn More links, got {len(refs)}"
     linked_anchors = {a for _, a in refs}
-    assert linked_anchors <= {"lifecycle", "contradiction", "graph-analytics", "retrieval", "storage-recovery", "manual-reboot"}
+    assert linked_anchors <= {"lifecycle", "contradiction", "graph-analytics", "retrieval", "recall-shaping", "storage-recovery", "manual-reboot"}
 
 
-def test_docs_configuration_covers_all_21_keys():
+def test_docs_configuration_covers_all_27_keys():
     docs = (PLUGIN / "docs" / "configuration.md").read_text(encoding="utf-8")
     for key in _defaults_keys():
         assert f"`{key}`" in docs, f"docs/configuration.md missing key: {key}"
     # territory anchors mirror the help surface
     for heading in ("Lifecycle internals", "Contradiction internals", "Graph analytics internals", "Retrieval internals", "Storage & recovery"):
         assert heading in docs
+
+
+def _xdata_object_literal() -> str:
+    """Extract the full x-data object literal from config.html (brace-matching
+    scan that tracks quote state), as a standalone JS expression string."""
+    text = _config_html_text()
+    start = text.index('x-data="') + len('x-data="')
+    assert text[start] == "{", "x-data does not start with an object literal"
+    depth = 0
+    in_str = None
+    for i in range(start, len(text)):
+        c = text[i]
+        if in_str:
+            if c == in_str:
+                in_str = None
+        elif c in ('"', "'"):
+            in_str = c
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    raise AssertionError("no matching closing brace for x-data object literal")
+
+
+def test_nc_defaults_xdata_object_parses_as_javascript():
+    """KI-035 remediation pin: the x-data object literal in config.html must be
+    syntactically valid JavaScript (a missing comma once broke the whole
+    settings-page Alpine scope). Uses node --check on the extracted literal."""
+    import shutil
+    import subprocess
+    import tempfile
+
+    node = shutil.which("node")
+    assert node, "node is required to pin the config.html x-data JS syntax"
+    obj = _xdata_object_literal()
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write("(" + obj + ");\n")
+        tmp = f.name
+    try:
+        r = subprocess.run([node, "--check", tmp], capture_output=True, text=True)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+    assert r.returncode == 0, f"config.html x-data object is not valid JS: {r.stderr}"
+
+
+def test_nc_defaults_recall_shaping_enabled_matches_default_config_false():
+    """KI-035 remediation pin (updated per D-NC1-113): NC_DEFAULTS carries the
+    shipped default recall_shaping_enabled: false — TEMPORARILY disabled
+    pending the KI-036 sanitizer (update_documents metadata round-trip) —
+    and matches default_config.yaml."""
+    text = _config_html_text()
+    m = re.search(r"recall_shaping_enabled:\s*(true|false)", text)
+    assert m, "NC_DEFAULTS.recall_shaping_enabled not found in config.html"
+    assert m.group(1) == "false", "NC_DEFAULTS.recall_shaping_enabled must default false (D-NC1-113, pending KI-036 sanitizer)"
+    # coherence with the shipped config default
+    yaml_val = re.search(r"^recall_shaping_enabled:\s*(true|false)", DEFAULTS_YAML.read_text(encoding="utf-8"), re.M)
+    assert yaml_val, "recall_shaping_enabled not found in default_config.yaml"
+    assert yaml_val.group(1) == m.group(1), "NC_DEFAULTS and default_config.yaml disagree on recall_shaping_enabled"

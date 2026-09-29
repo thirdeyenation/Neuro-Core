@@ -124,6 +124,13 @@ _EXPECTED_CONFIG_KEYS = {
     "recency_weight",
     "semantic_limit",
     "semantic_threshold",
+    # WI-P43 Phase-1 recall shaping (ADR-NC1-003, D-NC1-106):
+    "recall_shaping_enabled",
+    "recall_shaping_neighbors_max",
+    "validation_factor_validated",
+    "validation_factor_unvalidated",
+    "validation_factor_disputed",
+    "validation_factor_deprecated",
 }
 
 
