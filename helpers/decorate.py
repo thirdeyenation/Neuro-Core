@@ -2,10 +2,15 @@
 
 Re-applies the framework's public helpers.extension.extensible decorator to
 Memory.search_similarity_threshold, .search_similarity_threshold_with_scores,
-and .delete_documents_by_ids at FULL identity, derived from the live method
-objects (ARC condition 4). Idempotent: never double-wraps. Asserts identity
-after decoration. Zero framework source modification. All bookkeeping is
-exception-safe (ARC condition 3).
+.delete_documents_by_ids, and .update_documents at FULL identity, derived from
+the live method objects (ARC condition 4). Idempotent: never double-wraps.
+Asserts identity after decoration. Zero framework source modification. All
+bookkeeping is exception-safe (ARC condition 3).
+
+WI-P45-KI036-SANITIZER amendment: Memory.update_documents is added as the
+fourth decoration target so the start-hook neuro_* metadata sanitizer
+(_05_neuro_sanitizer.py) fires on the FAISS write path (KI-036; ADR-NC1-001
+amendment). The decoration machinery itself is unchanged.
 """
 
 from __future__ import annotations
@@ -20,6 +25,7 @@ _TARGETS = (
     "search_similarity_threshold",
     "search_similarity_threshold_with_scores",
     "delete_documents_by_ids",
+    "update_documents",
 )
 
 
@@ -93,7 +99,7 @@ def _decorate_one_for_class(cls, method_name, decorator=None):
 
 
 def decorate_memory_for_class(cls, decorator=None):
-    """Decorate all three target methods on a Memory class. Never raises.
+    """Decorate the target methods on a Memory class. Never raises.
 
     Returns a status dict keyed by method name (testable, loggable).
     """
@@ -108,7 +114,7 @@ def decorate_memory_for_class(cls, decorator=None):
 
 
 def decorate_memory():
-    """Decorate the three target methods on the REAL framework Memory class.
+    """Decorate the target methods on the REAL framework Memory class.
 
     Stores originals for undecorate_memory(); idempotent and exception-safe.
     """

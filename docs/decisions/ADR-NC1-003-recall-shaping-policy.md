@@ -184,3 +184,33 @@ ARC conformance (required), VAL integration level (required — scenarios: shape
 - Design basis: `.a0proj/team/work-items/WI-P42-TWOSTORE-RECALL/design-request.yaml` rev 1 (13 grounding citations, all independently ARC-verified), `architecture-analysis.md` §0/§7, `steward-design-decision.yaml` rev 1 (approved-with-conditions, C1–C12)
 - Framework source (all read directly, this session): `/a0/plugins/_memory/helpers/memory.py:343-386,43,337,607-612`; `/a0/plugins/_memory/tools/memory_load.py:19`; `/a0/helpers/extension.py:145-190,326-358,367`
 - Plugin source: `helpers/decorate.py`; `helpers/scores.py`; `helpers/graph_store.py`; `helpers/retrieval.py:88-350`; `helpers/metadata.py:255-266`; `helpers/lifecycle.py:304-418`; `default_config.yaml`; `hooks.py:38-51`; `docs/tools.md:13-15`; `docs/decisions/ADR-NC1-001-native-memory-integration.md`; existing handlers under `extensions/python/_functions/plugins/_memory/helpers/memory/Memory/*/end/_10_access_tracking.py`
+
+---
+
+## Amendment Record (WI-P45-KI036-SANITIZER, 2026-09-29) — Marker-Never-Persisted Invariant
+
+Amended per ARC condition 1 (`steward-design-decision.yaml` rev 1,
+WI-P45-KI036-SANITIZER). No policy clause is changed; a durability guarantee
+is added.
+
+**New invariant — marker-never-persisted:** shaped `neuro_*` metadata markers
+(`neuro_shaped`, `neuro_factors`, `neuro_degraded`, `neuro_neighbor`) are
+**delivery-time only**. They are shaped onto delivered Documents at recall
+time and must never persist into FAISS metadata through any write path. The
+guarantee is enforced by the write-path sanitizer start hook on
+`Memory.update_documents` (`_05_neuro_sanitizer.py`, ADR-NC1-001 amendment —
+fourth decoration target), which strips the NC1-owned `neuro_` prefix
+generically (four markers individually test-pinned) before persistence.
+
+**Role in gating:** this invariant is a **precondition for D-NC1-113** (the
+Phase-2 recall-shaping gate flip). With the gate ON, shaped markers now flow
+on every recall; the sanitizer guarantees the dashboard edit-save round trip
+cannot echo them back into FAISS. Gate flip remains conditional on clean
+gates and remains a separate pre-authorized committed change — not part of
+this work item.
+
+**Test pins:** the invariant is pinned in `tests/test_wip45_sanitizer.py` —
+real decorated `update_documents` round-trip (markers never survive),
+gate-OFF byte-identity companion assertion, docs-position resolution order,
+four markers individually pinned, sanitizer-internal-failure safety, and
+resolution-order/idempotency pins.

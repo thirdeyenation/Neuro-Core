@@ -70,3 +70,43 @@ The NC1 native access layer module (`helpers/native_access.py`) is a behavior-id
 - ARC decision: `steward-design-decision.yaml` rev 1 (approved-with-conditions; grounding_review verification_scope: all)
 - Evidence: `research-findings-report.md`, `validation-report.yaml` rev 3 (pass, 296/296 suite, 8/8 native checks), `restart-verification-record.yaml` rev 1 (F2–F4, FINAL probe pass)
 - Framework grounding: `/a0/helpers/extension.py` (extensible decorator, `_functions` discovery, data contract, no exception containment in dispatch); `/a0/plugins/_memory/helpers/memory.py` (no `@extensible` decorators); `/a0/plugins/_memory/helpers/memory_consolidation.py:340/354, 588/666/715`
+## Amendment (WI-P45-KI036-SANITIZER, 2026-09-29) — Fourth Decoration Target + Write-Path Sanitizer
+
+This ADR is amended (ARC condition 1, `steward-design-decision.yaml` rev 1,
+WI-P45-KI036-SANITIZER) to record two bounded extensions of the ratified
+native-integration boundary:
+
+1. **Fourth decoration target.** `Memory.update_documents` joins
+   `search_similarity_threshold`, `search_similarity_threshold_with_scores`,
+   and `delete_documents_by_ids` in `helpers/decorate.py::_TARGETS`. The
+   decoration machinery (`_decorate_one_for_class`: full-identity derivation
+   from the live method object, post-decoration identity assertion with
+   rollback, idempotency markers, exception-safe bookkeeping) is reused
+   UNCHANGED; registration reuses the existing `hooks.py` `decorate_memory()`
+   startup invocation. No new trigger code.
+2. **Write-path sanitizer guarantee.** A new start-hook extension at
+   `extensions/python/_functions/plugins/_memory/helpers/memory/Memory/update_documents/start/_05_neuro_sanitizer.py`
+   strips every metadata key starting with the NC1-owned `neuro_` prefix from
+   every Document in the incoming `docs` list BEFORE the wrapped persistence
+   body runs (prevent-not-repair). The sanitizer:
+   - resolves `docs` defensively (args[1] -> kwargs['docs'] -> first
+     list/tuple-of-Documents positional; no docs -> no action);
+   - replaces `doc.metadata` with a shallow filtered copy and never mutates
+     caller metadata in place;
+   - is exception-safe: log-and-proceed, never re-raises, never sets
+     `data['exception']` — persistence must never break because of the
+     sanitizer (same contract as the shipped `_10_*` end hooks).
+
+**Guarantee:** with the recall-shaping gate ON, shaped `neuro_*` metadata
+markers (`neuro_shaped`, `neuro_factors`, `neuro_degraded`, `neuro_neighbor`)
+can never persist into FAISS metadata through the dashboard edit-save round
+trip (`Memory.update_documents` -> delete + re-add + `_save_db()`), closing
+KI-036. This is the pre-gating precondition for D-NC1-113 (gate flip) — see
+ADR-NC1-003 amendment record.
+
+**Scope boundary (ARC condition 5, non-goals):** no `add_documents` guarding;
+no dashboard-side changes; no framework-source writes (D-NC1-006); no cleanup
+of already-persisted contamination (one-time read-only FAISS audit is VAL
+scope; cleanup, if needed, is separately routed). ADR-NC1-002 (dual-store
+verdict) is not amended — this is a write-path metadata filter, not a
+store-authority change.

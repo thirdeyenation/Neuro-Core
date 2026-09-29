@@ -97,11 +97,15 @@ class _StubMemory:
     async def delete_documents_by_ids(self, ids, cascade=False, filter=''):
         return []
 
+    async def update_documents(self, docs):
+        return len(docs)
+
 
 for _name in (
     'search_similarity_threshold',
     'search_similarity_threshold_with_scores',
     'delete_documents_by_ids',
+    'update_documents',
 ):
     _m = getattr(_StubMemory, _name)
     _m.__module__ = 'plugins._memory.helpers.memory'
@@ -115,6 +119,7 @@ _ORIGINALS = {
         'search_similarity_threshold',
         'search_similarity_threshold_with_scores',
         'delete_documents_by_ids',
+        'update_documents',
     )
 }
 
@@ -184,7 +189,7 @@ def test_identity_unavailable_is_skipped_not_wrapped():
     _set_handlers({})
 
 
-def test_all_three_methods_decorated():
+def test_all_four_methods_decorated():
     _set_handlers({})
     r = dec.decorate_memory_for_class(_StubMemory, decorator=_FakeExtensible())
     assert all(v == 'decorated' for v in r.values())
@@ -192,6 +197,7 @@ def test_all_three_methods_decorated():
         'search_similarity_threshold',
         'search_similarity_threshold_with_scores',
         'delete_documents_by_ids',
+        'update_documents',
     }
     _set_handlers({})
 
