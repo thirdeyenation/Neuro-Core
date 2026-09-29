@@ -15,7 +15,7 @@ Defaults below are quoted verbatim from the file. Keys whose type is
 on the consumer (most are read as `float` and clamped to `[0.0, 1.0]`
 where appropriate).
 
-The plugin's Settings window (WebUI) exposes all 21 keys: five
+The plugin's Settings window (WebUI) exposes all 27 keys: five
 operator-level controls in Basic view and every key grouped by territory
 under Advanced Settings. A plugin-native, key-level help surface with the
 same territory anchors is served at `webui/help/configuration.html` and
