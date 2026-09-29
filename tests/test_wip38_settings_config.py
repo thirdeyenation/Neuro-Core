@@ -223,15 +223,15 @@ def test_nc_defaults_xdata_object_parses_as_javascript():
     assert r.returncode == 0, f"config.html x-data object is not valid JS: {r.stderr}"
 
 
-def test_nc_defaults_recall_shaping_enabled_matches_default_config_false():
-    """KI-035 remediation pin (updated per D-NC1-113): NC_DEFAULTS carries the
-    shipped default recall_shaping_enabled: false — TEMPORARILY disabled
-    pending the KI-036 sanitizer (update_documents metadata round-trip) —
+def test_nc_defaults_recall_shaping_enabled_matches_default_config_true():
+    """KI-035 remediation pin (final state per D-NC1-113 fast-follow): NC_DEFAULTS
+    carries the shipped default recall_shaping_enabled: true — the KI-036
+    sanitizer (update_documents metadata round-trip) shipped in 2461102 —
     and matches default_config.yaml."""
     text = _config_html_text()
     m = re.search(r"recall_shaping_enabled:\s*(true|false)", text)
     assert m, "NC_DEFAULTS.recall_shaping_enabled not found in config.html"
-    assert m.group(1) == "false", "NC_DEFAULTS.recall_shaping_enabled must default false (D-NC1-113, pending KI-036 sanitizer)"
+    assert m.group(1) == "true", "NC_DEFAULTS.recall_shaping_enabled must match shipped default true (D-NC1-113 fast-follow, sanitizer shipped)"
     # coherence with the shipped config default
     yaml_val = re.search(r"^recall_shaping_enabled:\s*(true|false)", DEFAULTS_YAML.read_text(encoding="utf-8"), re.M)
     assert yaml_val, "recall_shaping_enabled not found in default_config.yaml"

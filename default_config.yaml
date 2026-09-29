@@ -34,7 +34,7 @@ semantic_threshold: 0.6
 
 # ---- Recall shaping (helpers/recall_shaping.py, ADR-NC1-003, D-NC1-106) ----
 # Phase-1 recall shaping is TEMPORARILY DISABLED (D-NC1-113): pending KI-036 sanitizer (update_documents metadata round-trip); flip to true as pre-authorized fast-follow.
-recall_shaping_enabled: false
+recall_shaping_enabled: true
 recall_shaping_neighbors_max: 3
 validation_factor_validated: 1.0
 validation_factor_unvalidated: 0.8
