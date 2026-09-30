@@ -218,10 +218,12 @@ to baseline.
 
 #### `recall_shaping_enabled`
 
-Master gate, default `false` (temporarily — per D-NC1-113; the default was
-flipped to `true` per D-NC1-110 and is reverted pending the KI-036 sanitizer,
-which covers the `update_documents` FAISS-metadata round-trip). When set to
-`false`, the native result is byte-identical to baseline.
+Master gate, default `true` (stable shipped behavior). The gate shipped
+default `false` during WI-P43 Phase-1 hardening per D-NC1-113 and was flipped
+to `true` via the pre-authorized fast-follow after the KI-036 sanitizer
+shipped, covering the `update_documents` FAISS-metadata round-trip
+(ADR-NC1-003 gate-state record). When set to `false`, the native result is
+byte-identical to baseline.
 
 Honest boundaries of Phase-1 recall shaping:
 

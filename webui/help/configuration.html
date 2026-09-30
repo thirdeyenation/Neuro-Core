@@ -108,8 +108,8 @@ context but increase retrieval latency.</p>
 
 <h2 id="recall-shaping">Recall shaping internals</h2>
 <p>Phase-1 recall shaping (ADR-NC1-003): when <code>recall_shaping_enabled</code> is true, Neuro Core re-ranks the host Memory search results it serves — combining sidecar-importance x confidence, validation demotion, recency, and a bounded additive graph-neighbor expansion. When the gate is false the native result is byte-identical to baseline.</p>
-<h3><code>recall_shaping_enabled</code> (bool, default <code>false</code>)</h3>
-<p>Master gate. Temporarily default false per D-NC1-113, pending the KI-036 sanitizer (update_documents metadata round-trip). When set to <code>false</code>, native recall is byte-identical to baseline.</p>
+<h3><code>recall_shaping_enabled</code> (bool, default <code>true</code>)</h3>
+<p>Master gate. Stable shipped default true (ADR-NC1-003 as amended); during WI-P43 Phase-1 hardening the gate shipped default false per D-NC1-113 and was flipped to true via the pre-authorized fast-follow after the KI-036 sanitizer shipped. When set to <code>false</code>, native recall is byte-identical to baseline.</p>
 <p>Honest boundaries of Phase-1 recall shaping:</p>
 <ol>
 <li>Captured-domain (SQLite) memory integration is Phase 2 — shaping currently operates on the host-stack working universe.</li>

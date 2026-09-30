@@ -328,10 +328,10 @@
           <a href="/usr/plugins/neuro_core/webui/help/configuration.html#recall-shaping" target="_blank" title="Open key-level guidance in a new tab" style="font-size: 0.75rem; margin-left: 0.5rem;">Learn More</a>
           <button type="button" @click="restoreGroup(['recall_shaping_enabled','recall_shaping_neighbors_max','validation_factor_validated','validation_factor_unvalidated','validation_factor_disputed','validation_factor_deprecated'], 'Recall shaping internals')" style="font-size: 0.7rem; margin-left: 0.5rem; cursor: pointer;">Restore defaults</button>
         </div>
-        <div class="section-description">Phase-1 recall shaping (ADR-NC1-003): Neuro Core intelligence re-ranks host recall — importance x confidence, validation demotion (annotation, NOT gating), recency, and bounded graph-neighbor expansion. Default false and TEMPORARILY DISABLED per D-NC1-113, pending the KI-036 sanitizer; while off, host recall is byte-identical to baseline.</div>
+        <div class="section-description">Phase-1 recall shaping (ADR-NC1-003): Neuro Core intelligence re-ranks host recall — importance x confidence, validation demotion (annotation, NOT gating), recency, and bounded graph-neighbor expansion. Default true (stable shipped behavior, ADR-NC1-003 as amended); while off, host recall is byte-identical to baseline.</div>
         <div class="field">
           <div class="field-label">
-            <div class="field-title">recall_shaping_enabled <span title="Master gate. Default false — temporarily disabled per D-NC1-113, pending the KI-036 sanitizer (update_documents metadata round-trip). While off, host recall is byte-identical to baseline." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
+            <div class="field-title">recall_shaping_enabled <span title="Master gate. Default true — stable shipped behavior (ADR-NC1-003 as amended; flipped to true via the pre-authorized fast-follow after the KI-036 sanitizer shipped). While off, host recall is byte-identical to baseline." style="cursor: help; opacity: 0.6;">&#9432;</span></div>
           </div>
           <div class="field-control"><label style="display:inline-flex; align-items:center; gap:0.4rem;"><input type="checkbox" x-model="config.recall_shaping_enabled" /> Enabled</label></div>
         </div>
