@@ -135,6 +135,21 @@ is <strong>not</strong> moved automatically: memories at the old location stop b
 served, and a fresh database starts empty. To relocate deliberately, stop memory
 activity, move the database file to the new location, then update this key.</div>
 
+<h2 id="panel-refresh">Panel Refresh button</h2>
+<p>The Refresh button (top-right of the Neuro Core graph panel header, left of the
+Settings gear) resets the panel's cached CSRF token and re-runs the current search.
+The next authenticated call then fetches a fresh token automatically.</p>
+<p>Refresh is also the manual fallback named in the panel's stale-CSRF error guidance:
+if an authenticated panel call fails with HTTP 403, the panel automatically retries once
+with a fresh token; if that retry also fails, the error message directs you to click
+Refresh to recover.</p>
+<p><strong>Refresh vs. Reboot:</strong> the adjacent Reboot control does more than
+Refresh. Reboot resets the cached CSRF token <em>and</em> destroys and rebuilds the
+graph canvas (full panel re-init) before re-running the search. Use Refresh for a
+stale-token 403 that the automatic retry did not resolve; use Reboot only as a
+failsafe when the panel did not recover automatically after a framework server
+restart. See <a href="#manual-reboot">Manual reboot failsafe</a> below.</p>
+
 <h2 id="manual-reboot">Manual reboot failsafe</h2>
 <div class="note">After a framework server restart, graph-panel recovery is normally
 automatic (the panel retries with a fresh CSRF token on the next call). A deeper
