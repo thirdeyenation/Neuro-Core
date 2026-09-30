@@ -71,3 +71,14 @@ extensions and graph cascade-delete cleanup. See
 - `docs/configuration.md` — configuration keys
 - `docs/data-model.md` — storage and data model
 - `CHANGELOG.md` — change history
+
+## Tests
+
+Run the full suite with the committed wrapper (it sets `PYTHONPATH=/a0` and
+runs from the plugin root automatically; extra pytest args are forwarded):
+
+```bash
+/a0/usr/plugins/neuro_core/tests/run_suite.sh
+```
+
+See `CONTRIBUTING.md` for contribution requirements.

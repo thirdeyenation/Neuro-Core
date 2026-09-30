@@ -13,10 +13,15 @@ Neuro Core runs inside a live Agent Zero container. All plugin code lives at:
 - Python 3.12+
 - `networkx>=3.0` (installed by `hooks.py` on plugin enable)
 ### Running Tests
+The standing suite entry point is the committed wrapper `tests/run_suite.sh` —
+it sets `PYTHONPATH=/a0` itself and always runs from the plugin root:
+
 ```bash
-cd /a0
-python -m pytest usr/plugins/neuro_core/tests/ -x -q
+/a0/usr/plugins/neuro_core/tests/run_suite.sh
+# extra pytest args are forwarded, e.g.:
+/a0/usr/plugins/neuro_core/tests/run_suite.sh tests/test_api.py -k graph
 ```
+
 The full test suite must pass before submitting a PR. No exceptions. The current test count is reported at run time by pytest.
 ### Plugin Review
 ```bash
