@@ -32,11 +32,13 @@ framework memory internals).
 from __future__ import annotations
 
 import asyncio
+import json
 import tempfile
 import os
 
 from usr.plugins.neuro_core.api import relationships as api_mod
 from usr.plugins.neuro_core.helpers.graph_store import GraphEdge, GraphStore
+from usr.plugins.neuro_core.helpers.retrieval import search_context_graph
 
 
 def _run(coro):
@@ -120,12 +122,46 @@ class TestBqGetRelationshipsInbound:
         assert ("C", "A", "related_to") in got
 
     def test_dedup_full_triple(self):
+        """KI-018-BU (WI-P50): structurally exercise the handler's dedup
+        branch (api/relationships.py seen-set skip on the full
+        (from_id, to_id, type) triple).
+
+        The branch is only reachable when the same triple appears in BOTH
+        the outbound list (from_id == queried id) and the inbound adjacency
+        scan (to_id == queried id) — which via GraphEdge construction would
+        require a self-loop GraphStore rejects. The sanctioned structural
+        path is the persistence layer: GraphStore._read_file() applies no
+        dedup or validation to relationships.json (it only tolerates
+        corrupt JSON), so a persisted file carrying a duplicate raw entry
+        in one bucket loads as two identical GraphEdges. That is exactly
+        the on-disk anomaly the dedup branch defends against: without the
+        branch, the duplicate triple appears twice in the response.
+        """
         td = tempfile.mkdtemp(prefix="p33_bq3_")
         subdir = os.path.join(td, "sub")
         gs = GraphStore(subdir)
         gs.add_edge(_edge("A", "B", "supports", 0))
+        # Inject a duplicate (from_id, to_id, type) raw entry directly into
+        # the persisted relationships.json — the data shape the handler's
+        # dedup branch exists to defend against. GraphStore.add_edge() would
+        # dedupe this (D25), so the fixture must be written at the file
+        # layer the store is required to tolerate.
+        with open(gs._path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        duplicate_raw = dict(data["A"][0])
+        duplicate_raw["created_at"] = "2026-09-24T00:00:05Z"
+        data["A"].append(duplicate_raw)
+        with open(gs._path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+
+        # Fresh instance: loads the duplicate-carrying file from disk.
+        gs_loaded = GraphStore(subdir)
+        assert len(gs_loaded.get_edges("A")) == 2, (
+            "fixture must actually carry the duplicate triple into the store"
+        )
+
         orig = api_mod.GraphStore
-        api_mod.GraphStore = lambda _subdir: gs
+        api_mod.GraphStore = lambda _subdir: gs_loaded
         handler = api_mod.RelationshipsApi()
         try:
             result = _run(handler._get_relationships(
@@ -183,12 +219,52 @@ class TestBhMultiEdgeComplexity:
         assert rev == {("B", "A", "precedes")}
 
     def test_retrieval_build_edge_key_distinguishes_types(self):
-        """The retrieval build keys edges on (from_id, to_id, type) — the same
-        triple the BFS dedupe uses; parallel edges of different types must
-        not collapse into one key."""
+        """KI-018-BV (WI-P50): structurally exercise the REAL retrieval
+        build-side edge dedupe — ``search_context_graph``'s ``edges_by_key``
+        registration (helpers/retrieval.py, "Register the edge (dedup by
+        from/to/type)") — instead of recomputing keys from GraphStore output.
+
+        Parallel edges of different types between the same node pair must
+        both survive the build: if the build-side key omitted ``type``, the
+        second edge would collapse into the first and ``result.edges`` would
+        hold a single edge.
+        """
         td = tempfile.mkdtemp(prefix="p33_bh2_")
         gs = GraphStore(os.path.join(td, "sub"))
         gs.add_edge(_edge("A", "B", "supports", 0))
         gs.add_edge(_edge("A", "B", "contradicts", 1))
-        keys = {(e.from_id, e.to_id, e.type) for e in gs.get_edges("A")}
-        assert len(keys) == 2
+
+        # Minimal test-only Memory/Document stubs (same contract the real
+        # build consumes: search_similarity_threshold + db.get_by_ids).
+        class _P50Doc:
+            def __init__(self, doc_id):
+                self.metadata = {"id": doc_id}
+                self.page_content = "content-" + doc_id
+
+        class _P50DB:
+            def __init__(self, by_ids):
+                self._by_ids = by_ids
+
+            def get_by_ids(self, ids):
+                return [self._by_ids[i] for i in ids if i in self._by_ids]
+
+        class _P50Memory:
+            def __init__(self, seeds, by_ids):
+                self._seeds = seeds
+                self.db = _P50DB(by_ids)
+
+            async def search_similarity_threshold(self, query, limit, threshold):
+                return self._seeds
+
+        memory = _P50Memory(
+            seeds=[_P50Doc("A")],
+            by_ids={"A": _P50Doc("A"), "B": _P50Doc("B")},
+        )
+        result = _run(search_context_graph(memory, "probe", gs, None))
+
+        built_keys = [(e.from_id, e.to_id, e.type) for e in result.edges]
+        assert built_keys.count(("A", "B", "supports")) == 1
+        assert built_keys.count(("A", "B", "contradicts")) == 1
+        # The build-side dedupe actually ran over both edges without
+        # collapsing the different-type pair into one key.
+        assert len(built_keys) == 2
