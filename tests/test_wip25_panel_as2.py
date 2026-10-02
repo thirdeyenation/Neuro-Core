@@ -314,6 +314,7 @@ def test_guard_no_new_endpoints():
         "/api/plugins/neuro_core/memory_subdirs",
         "/api/plugins/neuro_core/projects",
         "/api/plugins/neuro_core/advanced_filters",
+        "/api/plugins/neuro_core/memory_names",  # WI-P52-KI031: authorized additive endpoint
     }, f"unexpected API endpoint usage: {endpoints}"
 
 

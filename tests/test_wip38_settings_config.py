@@ -146,7 +146,8 @@ def test_reboot_failsafe_in_graph_panel_without_retry_semantics_change():
     assert re.search(r'@click="rebootPanel\(\)"[^>]*><svg[^>]*aria-hidden="true"', panel)
     # the WI-P29 pins still hold verbatim
     assert "async withCsrfRetry(doCall)" in panel
-    assert panel.count("withCsrfRetry(async () => fetch") == 6
+    # WI-P52-KI031: six original + three additive memory_names sites, same shared wrapper
+    assert panel.count("withCsrfRetry(async () => fetch") == 9
     # no second retry wrapper was introduced
     assert panel.count("async withCsrfRetry") == 1
 

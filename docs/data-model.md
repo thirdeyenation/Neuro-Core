@@ -164,6 +164,23 @@ invalid `memory_type` or `validation_status` raises `ValueError`.
 
 ---
 
+### `memory_name`
+
+- **Type**: `str`
+- **Default**: absent (the key does not exist until a user assigns a name)
+- **Set by**: `POST /api/plugins/neuro_core/memory_names` (Memory Name
+  kind) via `Memory.get_by_subdir` + `Memory.update_documents` — the
+  standard metadata write path. Cleared by POSTing an empty/null name
+  (the key is removed, not blanked).
+- **Description**: User-assigned display alias for the memory
+  (WI-P52-KI031 / KI-031). The framework Memory ID is immutable; this
+  key only adds a human-readable alias displayed in the Context Graph
+  panel (node Details panel and edge plates). Additive-only: unknown
+  metadata keys pass `validate_neuro_metadata` unchanged and the
+  `neuro_*`-only sanitizer does not strip plain keys, so this field
+  rides future storage migrations (Phase 2 absorb) without further
+  change.
+
 ## Section 2 — `scores.json` Schema
 
 `scores.json` is the sidecar file written by `helpers/scores.py`
@@ -282,6 +299,31 @@ A flat dict from source memory ID (str) to a list of outgoing edges:
 | `confidence` | float | `1.0` | Confidence in the relationship in `[0.0, 1.0]`. |
 | `source` | str | `"agent"` | Origin tag — `"agent"` for `memory_relate` calls, `"api"` for the HTTP API, `"lifecycle"` for the contradiction detector, `"migration"` for the `execute.py` one-shot import. |
 | `created_at` | str (ISO-8601) | current UTC | Timestamp of edge creation. |
+
+### Reserved key `_cluster_names`
+
+Besides the adjacency buckets, the top-level dict may carry one
+reserved key, `_cluster_names`: a mapping from a stable cluster key to
+a user-assigned custom cluster name (WI-P52-KI031 / KI-031). The
+cluster key is the lexicographically smallest member memory ID of the
+2+-node connected component the name labels (deterministic per view;
+components themselves are computed client-side from current edges).
+The key is additive: files written before WI-P52-KI031 have no
+`_cluster_names` key and load unchanged, the key is never returned as
+adjacency by `GraphStore`, and it is preserved across adjacency
+writes. Legacy files do not gain an empty key on first write.
+
+```json
+{
+  "_cluster_names": {"mem_abc123": "Alpha Cluster"},
+  "mem_abc123": [ ...outgoing edges... ]
+}
+```
+
+Custom names are read and written through `GraphStore`
+(`get_cluster_names()` / `set_cluster_name()`), exposed via the
+`memory_names` API handler, and rendered in the graph panel cluster
+legend.
 
 ### `VALID_RELATIONSHIP_TYPES`
 

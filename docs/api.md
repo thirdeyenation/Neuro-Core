@@ -1,6 +1,6 @@
 # Neuro Core HTTP API
 
-Neuro Core ships **six** API handler files under
+Neuro Core ships **seven** API handler files under
 `usr/plugins/neuro_core/api/`, all registered with the Agent Zero API
 server and reachable under the path prefix:
 
@@ -16,6 +16,7 @@ server and reachable under the path prefix:
 | `api/episode_audit.py` | `EpisodeAuditApi` | GET | `GET /episode_audit`, `GET /episode_audit?id=<episode_id>` |
 | `api/reflection_audit.py` | `ReflectionAuditApi` | GET | `GET /reflection_audit`, `GET /reflection_audit?id=<memory_id>` |
 | `api/memory_subdirs.py` | `MemorySubdirsApi` | GET | `GET /memory_subdirs` |
+| `api/memory_names.py` | `MemoryNamesApi` | GET, POST | `GET /memory_names?id=<memory_id>`, `GET /memory_names?cluster_names=1`, `POST /memory_names` |
 
 Framework routing maps one handler file to exactly one routable URL
 prefix (the framework splits paths on `"/", 2`), so a single `.py`
@@ -351,6 +352,54 @@ not fatal.
 
 ---
 
+## `api/memory_names.py`
+
+User-assigned display aliases (WI-P52-KI031 / KI-031). Two kinds of
+names, two persistence targets, one endpoint:
+
+- **Memory Name** — a user-assigned alias for an existing memory,
+  stored as the plain `memory_name` key in the FAISS document
+  `metadata` dict via the standard metadata write path
+  (`Memory.get_by_subdir` + `Memory.update_documents`). The framework
+  Memory ID is immutable; no endpoint reads or writes it.
+- **Custom Cluster name** — a user-assigned label for a graph cluster,
+  stored in the reserved `_cluster_names` key of the existing
+  `relationships.json` sidecar through `GraphStore` (see
+  `docs/data-model.md`, Section 3). No new store, no schema migration.
+
+### `GET /api/plugins/neuro_core/memory_names?id=<memory_id>&memory_subdir=<subdir>`
+
+Returns the Memory Name for one memory (`null` when unset):
+
+```json
+{"success": true, "memory_subdir": "projects/neuro_core", "memory_id": "mem_abc123", "memory_name": "Grocery List"}
+```
+
+### `GET /api/plugins/neuro_core/memory_names?cluster_names=1&memory_subdir=<subdir>`
+
+Returns the full custom Cluster name mapping for a subdir (cluster
+keys are stable: the lexicographically smallest member memory ID of
+each 2+-node component):
+
+```json
+{"success": true, "memory_subdir": "projects/neuro_core", "cluster_names": {"mem_abc123": "Alpha Cluster"}}
+```
+
+### `POST /api/plugins/neuro_core/memory_names`
+
+JSON body, exactly **one** name per request: `{"memory_subdir": "...",
+"id": "<memory_id>", "name": "<new name>"}` sets/changes a Memory
+Name; `{"memory_subdir": "...", "cluster_key": "<cluster key>",
+"name": "<new name>"}` sets/changes a Cluster name. An empty string or
+`null` name clears the alias (removes the key). Successful POSTs echo
+the stored name (`memory_name` or `cluster_name`).
+
+Validation: names are trimmed and limited to 120 characters; memory
+POST requires the id to exist. Authenticated (same framework
+auth/CSRF gate as all Neuro Core handlers).
+
+---
+
 ## Error responses
 
 All error responses are `{"success": false, "error": "<message>"}`
@@ -363,6 +412,10 @@ the handler runs). Common handler-level messages:
 - `"self-referential edges are not allowed"` — relationships POST.
 - `"unknown rel_type '<value>'. Valid: [...]"` — relationships POST.
 - `"Reflection with id '<id>' not found"` — reflection_audit detail.
+- `` "`id` or `cluster_names=1` is required" `` — memory_names GET.
+- `"exactly one of id (memory name) or cluster_key (cluster name) is required"` — memory_names POST.
+- `"name must be at most 120 characters"` — memory_names POST.
+- `"memory id not found: <id>"` — memory_names POST.
 - `"Unknown route: <METHOD> <path>"` — unmatched path/method.
 
 ## Serialization notes

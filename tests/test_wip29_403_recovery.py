@@ -150,7 +150,10 @@ def _run_scenario(scenario: str) -> dict:
 
 
 def _graph_calls(calls: list) -> list:
-    return [c for c in calls if c["url"].startswith("/api/plugins/neuro_core/")]
+    # WI-P52-KI031: narrowed to the context_graph endpoint these retry pins
+    # protect; the additive memory_names fetches (also withCsrfRetry-wrapped)
+    # are separate authenticated calls and must not inflate retry counts.
+    return [c for c in calls if c["url"].startswith("/api/plugins/neuro_core/context_graph")]
 
 
 def _token_calls(calls: list) -> list:
@@ -240,7 +243,10 @@ class TestPanelSourcePins:
         the panel goes through withCsrfRetry (search, advanced_filters,
         deleteEdge, addEdge, and both subdir-discovery calls)."""
         text = PANEL.read_text(encoding="utf-8")
-        assert text.count("withCsrfRetry(async () => fetch") == 6
+        # WI-P52-KI031: six original sites + three additive memory_names sites
+        # (loadClusterNames, saveMemoryName, saveClusterName), all through the
+        # same shared withCsrfRetry path.
+        assert text.count("withCsrfRetry(async () => fetch") == 9
 
     def test_refresh_button_resets_token_before_research(self):
         text = PANEL.read_text(encoding="utf-8")
