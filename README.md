@@ -28,7 +28,7 @@ no external service or database daemon is required.
 
 See `docs/tools.md` for per-tool behavior and arguments.
 
-**HTTP API** — six handler modules under `api/`, served under
+**HTTP API** — seven handler modules under `api/`, served under
 `/api/plugins/neuro_core/`:
 
 - `context_graph` — hybrid retrieval returning a serialized ContextGraph
@@ -37,6 +37,7 @@ See `docs/tools.md` for per-tool behavior and arguments.
 - `episode_audit` — episode listing and per-episode audit
 - `reflection_audit` — reflection-memory listing and audit
 - `memory_subdirs` — memory subdir discovery
+- `memory_names` — user-assigned Memory Name aliases and custom Cluster names
 
 See `docs/api.md` for routes, parameters, and response schemas.
 

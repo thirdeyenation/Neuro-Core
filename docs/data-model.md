@@ -313,6 +313,12 @@ The key is additive: files written before WI-P52-KI031 have no
 adjacency by `GraphStore`, and it is preserved across adjacency
 writes. Legacy files do not gain an empty key on first write.
 
+KI-040 parse hardening (WI-P55): every top-level key is list-validated
+at the single ingestion point in `GraphStore._read_file`; non-list
+values that are not reserved keys are skipped as adjacency buckets with
+a warning log and never reach any reader, while underscore-prefixed
+reserved keys are preserved verbatim across writes.
+
 ```json
 {
   "_cluster_names": {"mem_abc123": "Alpha Cluster"},

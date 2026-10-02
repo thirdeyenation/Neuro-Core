@@ -413,8 +413,8 @@ the handler runs). Common handler-level messages:
 - `"unknown rel_type '<value>'. Valid: [...]"` — relationships POST.
 - `"Reflection with id '<id>' not found"` — reflection_audit detail.
 - `` "`id` or `cluster_names=1` is required" `` — memory_names GET.
-- `"exactly one of id (memory name) or cluster_key (cluster name) is required"` — memory_names POST.
-- `"name must be at most 120 characters"` — memory_names POST.
+- `` "exactly one of `id` (Memory Name) or `cluster_key` (Cluster Name) is required per request" `` — memory_names POST.
+- `` "`name` must be at most 120 characters" `` — memory_names POST.
 - `"memory id not found: <id>"` — memory_names POST.
 - `"Unknown route: <METHOD> <path>"` — unmatched path/method.
 
