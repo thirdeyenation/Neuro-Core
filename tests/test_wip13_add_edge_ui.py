@@ -377,9 +377,10 @@ def test_panel_created_triple_echo_visible():
 
 
 def test_panel_add_edge_success_requeries_graph():
-    """C4: after a successful add the panel re-queries via search()."""
+    """C4: after a successful add the panel re-queries the active result
+    source (WI-P56-KI042: via the shared refreshAfterMutation helper)."""
     text = _panel_text()
-    assert "await this.search()" in text
+    assert "await this.refreshAfterMutation();" in text
 
 
 def test_panel_add_edge_cancel_closes_form():

@@ -357,10 +357,11 @@ def test_panel_delete_errors_surface_in_visible_error_state(memory_subdir):
 
 
 def test_panel_delete_success_requeries_graph(memory_subdir):
-    """C4: after a successful delete the panel re-queries via search() so the
+    """C4: after a successful delete the panel re-queries the active result
+    source (WI-P56-KI042: via the shared refreshAfterMutation helper) so the
     edge disappears from the rendered graph."""
     content = PANEL_CONTENT.read_text()
-    assert "await this.search()" in content
+    assert "await this.refreshAfterMutation();" in content
 
 
 def _delete_handler_delete(api, memory_subdir, from_id, to_id, rel_type):

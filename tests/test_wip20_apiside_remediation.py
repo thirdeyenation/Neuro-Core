@@ -139,10 +139,11 @@ def test_bf_deleteedge_no_q_overwrite():
 def test_bf_deleteedge_reruns_current_view_and_refocuses():
     """BF: after a successful delete, deleteEdge re-runs the current search
     (or the advanced-filter view when the graph was loaded filter-first) and
-    then re-focuses/re-selects the inspected node via refocusInspectNode()."""
+    then re-focuses/re-selects the inspected node via refocusInspectNode().
+    WI-P56-KI042: the re-run goes through the shared refreshAfterMutation
+    helper, which dispatches on the active result source."""
     body = _body_between("async deleteEdge(", "async openAddForm() {")
-    assert "if (this.q.trim()) { await this.search(); }" in body
-    assert "await this.applyAdvancedFilters();" in body
+    assert "await this.refreshAfterMutation();" in body
     assert "this.refocusInspectNode()" in body
 
 

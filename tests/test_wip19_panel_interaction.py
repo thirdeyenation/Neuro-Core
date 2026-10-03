@@ -84,10 +84,11 @@ def test_bc_addedge_no_longer_overwrites_user_query():
 def test_bc_addedge_reruns_current_view_and_refocuses():
     """After a successful create, addEdge re-runs the current search (or the
     advanced-filter view when the graph was loaded filter-first) and then
-    re-focuses/re-selects the inspected node via refocusInspectNode()."""
+    re-focuses/re-selects the inspected node via refocusInspectNode().
+    WI-P56-KI042: the re-run goes through the shared refreshAfterMutation
+    helper, which dispatches on the active result source."""
     body = _body_between("async addEdge() {", "get relatedNodes() {")
-    assert "if (this.q.trim()) { await this.search(); }" in body
-    assert "await this.applyAdvancedFilters();" in body
+    assert "await this.refreshAfterMutation();" in body
     assert "this.refocusInspectNode()" in body
 
 

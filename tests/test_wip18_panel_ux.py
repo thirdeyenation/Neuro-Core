@@ -313,8 +313,11 @@ def test_wip30_refresh_handler_and_wording_retained():
     src = PANEL_CONTENT.read_text(encoding="utf-8")
     # Refresh button handler unchanged.
     assert '<button @click="refresh()" class="nc-header__btn" title="Refresh">' in src
-    # refresh() still resets the cached CSRF token before re-searching.
-    assert "refresh() { this._csrfToken = null; if (this.q.trim()) this.search(); }," in src
+    # refresh() still resets the cached CSRF token before re-querying.
+    # WI-P56-KI042: refresh is now source-aware (re-runs the active filter
+    # view when one is displayed) while retaining the search branch.
+    assert "refresh() { this._csrfToken = null;" in src
+    assert "if (this._resultSource === 'filters') { this.applyAdvancedFilters(); } else if (this.q.trim()) { this.search(); }" in src
     # WI-P29 stale-token fallback guidance wording still present.
     assert "click the Refresh button (top-right of the panel header, left of the Settings gear)" in src
     assert "withCsrfRetry" in src

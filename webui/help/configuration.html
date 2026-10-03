@@ -137,7 +137,9 @@ activity, move the database file to the new location, then update this key.</div
 
 <h2 id="panel-refresh">Panel Refresh button</h2>
 <p>The Refresh button (top-right of the Neuro Core graph panel header, left of the
-Settings gear) resets the panel's cached CSRF token and re-runs the current search.
+Settings gear) resets the panel's cached CSRF token and re-runs the panel's
+active result source: the current text search, or the active Advanced-Filters
+result view when one is displayed (WI-P56-KI042).
 The next authenticated call then fetches a fresh token automatically.</p>
 <p>Refresh is also the manual fallback named in the panel's stale-CSRF error guidance:
 if an authenticated panel call fails with HTTP 403, the panel automatically retries once
