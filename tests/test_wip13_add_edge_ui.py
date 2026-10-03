@@ -322,7 +322,11 @@ def test_panel_add_edge_uses_json_body_post_never_query_params():
     builds query params."""
     text = _panel_text()
     start = text.index("async addEdge() {")
-    end = text.index("get relatedNodes()", start)
+    # WI-P53-KI030: bound the slice to addEdge's own body — the WI-P52-KI031
+    # comment block immediately follows it; later additive methods (including
+    # the memory_edit openEdit GET, which legitimately uses URLSearchParams
+    # like deleteEdge) are outside this pin's intent.
+    end = text.index("/* WI-P52-KI031", start)
     add_edge_src = text[start:end]
     assert "fetch('/api/plugins/neuro_core/relationships', { method: 'POST'" in add_edge_src
     assert "JSON.stringify(body)" in add_edge_src

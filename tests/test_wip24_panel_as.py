@@ -280,6 +280,7 @@ def test_c7_no_api_contract_change():
         "/api/plugins/neuro_core/projects",
         "/api/plugins/neuro_core/advanced_filters",  # pre-existing at HEAD
         "/api/plugins/neuro_core/memory_names",  # WI-P52-KI031: authorized additive endpoint
+        "/api/plugins/neuro_core/memory_edit",  # WI-P53-KI030: authorized additive endpoint (inspector contents/scores editing)
     }, f"unexpected API endpoint usage: {endpoints}"
 
 

@@ -246,7 +246,9 @@ class TestPanelSourcePins:
         # WI-P52-KI031: six original sites + three additive memory_names sites
         # (loadClusterNames, saveMemoryName, saveClusterName), all through the
         # same shared withCsrfRetry path.
-        assert text.count("withCsrfRetry(async () => fetch") == 9
+        # WI-P53-KI030: + two additive memory_edit sites (openEdit prefill GET,
+        # saveEdits POST), same shared withCsrfRetry path.
+        assert text.count("withCsrfRetry(async () => fetch") == 11
 
     def test_refresh_button_resets_token_before_research(self):
         text = PANEL.read_text(encoding="utf-8")

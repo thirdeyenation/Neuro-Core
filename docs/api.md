@@ -17,6 +17,7 @@ server and reachable under the path prefix:
 | `api/reflection_audit.py` | `ReflectionAuditApi` | GET | `GET /reflection_audit`, `GET /reflection_audit?id=<memory_id>` |
 | `api/memory_subdirs.py` | `MemorySubdirsApi` | GET | `GET /memory_subdirs` |
 | `api/memory_names.py` | `MemoryNamesApi` | GET, POST | `GET /memory_names?id=<memory_id>`, `GET /memory_names?cluster_names=1`, `POST /memory_names` |
+| `api/memory_edit.py` | `MemoryEditApi` | GET, POST | `GET /memory_edit?id=<memory_id>`, `POST /memory_edit` |
 
 Framework routing maps one handler file to exactly one routable URL
 prefix (the framework splits paths on `"/", 2`), so a single `.py`
@@ -400,6 +401,55 @@ auth/CSRF gate as all Neuro Core handlers).
 
 ---
 
+## `api/memory_edit.py`
+
+Safe-mode editing of one memory's Contents and scores
+(WI-P53-KI030-INSPECTOR-EDIT / KI-030, contents/scores component only).
+No new store, no metadata-shape change (Phase-2-portable per
+D-NC1-122):
+
+- **Content** — written through the STANDARD metadata path
+  (`Memory.get_by_subdir` + `Memory.update_documents`); only
+  `page_content` is mutated. The framework Memory ID is immutable and
+  never written.
+- **Scores** — written through `ScoreStore.set()` into the EXISTING
+  `scores.json` sidecar ONLY (KI-009/WI-P12 single-write discipline:
+  the sidecar is the score authority; FAISS metadata score keys are a
+  potentially stale mirror and are never written by this handler).
+
+Validation is edit-time rejection, NOT clamping: out-of-range or
+non-numeric score values are rejected before any write (the underlying
+`MemoryScores` would otherwise silently clamp).
+
+### `GET /api/plugins/neuro_core/memory_edit?id=<memory_id>&memory_subdir=<subdir>`
+
+Returns the authoritative editable state — current document content
+plus the sidecar-backed score record (`null` when no sidecar entry
+exists, i.e. a legacy record; the UI then falls back to displayed
+metadata values):
+
+```json
+{"success": true, "memory_subdir": "projects/neuro_core", "memory_id": "mem_abc123", "content": "...", "scores": {"importance": 0.7, "confidence": 0.6, "stability": 0.5}, "scores_source": "sidecar"}
+```
+
+### `POST /api/plugins/neuro_core/memory_edit`
+
+JSON body: `{"memory_subdir": "...", "id": "<memory_id>",
+"content": "<new content>", "scores": {"importance": 0.9}}` — at
+least one of `content` or `scores` is required; `scores` accepts any
+of `importance` / `confidence` / `stability` (unknown keys are
+rejected). Content and scores can be edited in one request. Successful
+POSTs echo what changed:
+
+```json
+{"success": true, "memory_subdir": "projects/neuro_core", "memory_id": "mem_abc123", "content_changed": true, "scores_changed": true, "scores": {"importance": 0.9, "confidence": 0.6, "stability": 0.5}}
+```
+
+Authenticated (same framework auth/CSRF gate as all Neuro Core
+handlers).
+
+---
+
 ## Error responses
 
 All error responses are `{"success": false, "error": "<message>"}`
@@ -416,6 +466,12 @@ the handler runs). Common handler-level messages:
 - `` "exactly one of `id` (Memory Name) or `cluster_key` (Cluster Name) is required per request" `` — memory_names POST.
 - `` "`name` must be at most 120 characters" `` — memory_names POST.
 - `"memory id not found: <id>"` — memory_names POST.
+- `` "`memory_subdir` is required" `` / `` "`id` is required" `` — memory_edit GET and POST.
+- `"memory id not found: <id>"` — memory_edit GET and POST.
+- `` "`content` must be a string" `` / `` "`content` must not be empty" `` — memory_edit POST.
+- `` "nothing to update: provide `content` and/or `scores`" `` — memory_edit POST.
+- `` "`scores` must be an object with optional keys `importance`, `confidence`, `stability`" `` — memory_edit POST (non-object, empty, or unknown keys).
+- `` "`<field>` must be a number between 0.0 and 1.0" `` — memory_edit POST (field is `importance`, `confidence`, or `stability`; non-numeric, boolean, or out-of-range values).
 - `"Unknown route: <METHOD> <path>"` — unmatched path/method.
 
 ## Serialization notes

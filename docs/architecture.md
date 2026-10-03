@@ -576,7 +576,23 @@ instance, and rendering.
   relationship list. The score rows are metadata-borne: importance
   and confidence are read from node metadata, a `validation_status`
   chip is shown when present, and stability is explicitly rendered
-  as "unavailable" (it is not carried in node metadata). Tapping an
+  as "unavailable" (it is not carried in node metadata). Since
+  WI-P53-KI030 (KI-030, contents/scores component), the node
+  inspector also carries a safe-mode edit affordance for the
+  memory's Contents and scores (Importance/Confidence/Stability):
+  the display is read-only until an explicit Edit click opens the
+  edit form; Save requires a second confirming click; Cancel
+  discards all pending edits without any write. Edits post to
+  `POST /api/plugins/neuro_core/memory_edit` (see `docs/api.md`):
+  content goes through the standard metadata path, scores go to the
+  `scores.json` sidecar only (single-write discipline), and
+  out-of-range/non-numeric score values are rejected by the server
+  rather than clamped. Validation/dispute-status editing (KI-034)
+  and memory_type editing (KI-029) are intentionally not part of
+  this surface; the framework Memory ID is immutable and not
+  editable. Implemented and pinned at panel-source and handler-test
+  level; live browser confirmation is pending the queued assurance
+  pass (D-NC1-125). Tapping an
   edge opens a display-only edge inspector overlay showing
   `rel_type`, weight, confidence, and endpoints (read-only; the node
   inspector contract is unchanged and a background tap clears the
