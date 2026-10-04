@@ -148,7 +148,10 @@ def test_reboot_failsafe_in_graph_panel_without_retry_semantics_change():
     assert "async withCsrfRetry(doCall)" in panel
     # WI-P52-KI031: six original + three additive memory_names sites, same shared wrapper
     # WI-P53-KI030: + two additive memory_edit sites (openEdit prefill GET, saveEdits POST)
-    assert panel.count("withCsrfRetry(async () => fetch") == 11
+    # WI-P58-KI041 (guard-pin maintenance, disclosed): + one additive memory_edit GET
+    # site (loadInspectScores Details-plate score load, read-only display path),
+    # same shared wrapper.
+    assert panel.count("withCsrfRetry(async () => fetch") == 12
     # no second retry wrapper was introduced
     assert panel.count("async withCsrfRetry") == 1
 

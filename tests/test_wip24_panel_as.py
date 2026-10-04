@@ -12,8 +12,11 @@ Pins the panel-side fixes applied to webui/right-canvas-panels/graph-panel.html:
   (rel_type, weight, confidence, endpoints) from already-serialized fields;
   node inspector unchanged.
 * C4 (V-6) — inspector importance/confidence rows are metadata-borne
-  (node.metadata) with a validation_status chip; stability explicitly rendered
-  as unavailable; no ScoreStore reads and no API scores block.
+  (node.metadata) with a validation_status chip. WI-P58-KI041: score rows are
+  now sidecar-first (authoritative scores.json read via the GET /memory_edit
+  API, ScoreStore.get_optional semantics) with metadata fallback; stability is
+  sidecar-only and explicitly 'not stored' when absent; no ScoreStore reads in
+  the panel and no fabricated values.
 * C5 (V-10) — memory_type badge over the exact 8-type enumeration with a
   missing-metadata fallback; x-icon rule holds (no new ligature spans).
 * C6 (V-11) — layout select exposes exactly random and preset in addition to
@@ -166,10 +169,16 @@ def test_c4_node_builder_carries_metadata_and_memory_type():
 
 
 def test_c4_confidence_row_metadata_borne():
+    # WI-P58-KI041: rows are sidecar-first (scVal/scScore prefer the
+    # authoritative sidecar read and fall back to node.metadata); the
+    # metaVal-borne fallback path must remain present in the helpers.
     src = _source()
     assert "Confidence" in src and re.search(
-        r"metaVal\(inspectNode,\s*'confidence'\)", src
-    ), "confidence row must be metadata-borne via metaVal(inspectNode, 'confidence')"
+        r"scVal\(inspectNode,\s*'confidence'\)", src
+    ), "confidence row must be sidecar-first via scVal(inspectNode, 'confidence')"
+    assert re.search(
+        r"metaVal\(n,\s*k\)", src
+    ), "metadata fallback helper metaVal must remain available"
 
 
 def test_c4_validation_status_chip():
@@ -178,9 +187,12 @@ def test_c4_validation_status_chip():
 
 
 def test_c4_stability_rendered_unavailable():
+    # WI-P58-KI041: stability is sidecar-only — the row shows the sidecar value
+    # when present, else an explicit 'not stored' label (never fabricated, and
+    # never a metadata fallback, since no honest metadata source exists).
     src = _source()
-    m = re.search(r"Stability[\s\S]{0,400}?(unavailable|not available|N/A)", src, re.I)
-    assert m, "stability must be rendered as explicitly unavailable"
+    m = re.search(r"Stability[\s\S]{0,600}?not stored", src, re.I)
+    assert m, "stability must render an explicit 'not stored' label when absent"
     assert "ScoreStore" not in src, "no ScoreStore reads in the panel"
 
 

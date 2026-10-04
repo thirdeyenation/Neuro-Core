@@ -248,7 +248,10 @@ class TestPanelSourcePins:
         # same shared withCsrfRetry path.
         # WI-P53-KI030: + two additive memory_edit sites (openEdit prefill GET,
         # saveEdits POST), same shared withCsrfRetry path.
-        assert text.count("withCsrfRetry(async () => fetch") == 11
+        # WI-P58-KI041 (guard-pin maintenance, disclosed): + one additive
+        # memory_edit GET site (loadInspectScores Details-plate score load,
+        # read-only display path), same shared withCsrfRetry path.
+        assert text.count("withCsrfRetry(async () => fetch") == 12
 
     def test_refresh_button_resets_token_before_research(self):
         text = PANEL.read_text(encoding="utf-8")

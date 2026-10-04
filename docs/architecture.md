@@ -573,10 +573,16 @@ instance, and rendering.
 - Node inspector: tapping a node opens a details card with content,
   a `memory_type` badge (with a "type unknown" fallback when the
   metadata does not carry a type), score badges, and its
-  relationship list. The score rows are metadata-borne: importance
-  and confidence are read from node metadata, a `validation_status`
-  chip is shown when present, and stability is explicitly rendered
-  as "unavailable" (it is not carried in node metadata). Since
+  relationship list. The score rows are sidecar-backed: since
+  WI-P58-KI041 (KI-041), the plate loads the authoritative score record
+  via `GET /api/plugins/neuro_core/memory_edit` on node selection or
+  refocus — importance and confidence prefer the sidecar value and
+  fall back to node metadata (graceful "n/a" when neither carries a
+  value), and stability shows the sidecar-backed value when present or
+  is explicitly rendered as "not stored" (the sidecar is the score
+  authority per WI-P12-SCORE-AUTHORITY; the display path stays
+  read-only w.r.t. FAISS metadata and never fabricates a value). A
+  `validation_status` chip is shown when present. Since
   WI-P53-KI030 (KI-030, contents/scores component), the node
   inspector also carries a safe-mode edit affordance for the
   memory's Contents and scores (Importance/Confidence/Stability):

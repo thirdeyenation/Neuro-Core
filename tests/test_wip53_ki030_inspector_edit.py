@@ -447,13 +447,17 @@ def test_panel_no_validation_or_memory_type_editing() -> None:
 
 
 def test_panel_preserves_wip24_read_only_pins() -> None:
-    """The read-only display surface is untouched: content paragraph,
-    metadata-borne score rows, and the Stability 'unavailable' fallback."""
+    """The read-only display surface is preserved: content paragraph and
+    score rows still render. WI-P58-KI041: score rows are now sidecar-first
+    (scVal/scScore with metaVal fallback) and Stability renders an explicit
+    'not stored' label when the sidecar carries no value — display remains
+    read-only w.r.t. FAISS metadata (KI-009)."""
     src = _panel_src()
     assert '<p class="nc-details__content" x-text="inspectNode.content' in src
-    assert re.search(r"metaVal\(inspectNode,\s*'confidence'\)", src)
-    m = re.search(r"Stability[\s\S]{0,400}?(unavailable|not available|N/A)", src, re.I)
-    assert m, "stability must still render as explicitly unavailable"
+    assert re.search(r"scVal\(inspectNode,\s*'confidence'\)", src)
+    assert re.search(r"scVal\(inspectNode,\s*'importance'\)", src)
+    m = re.search(r"Stability[\s\S]{0,600}?not stored", src, re.I)
+    assert m, "stability must still render an explicit 'not stored' label"
 
 
 def test_panel_no_new_ligature_spans() -> None:
