@@ -403,10 +403,11 @@ auth/CSRF gate as all Neuro Core handlers).
 
 ## `api/memory_edit.py`
 
-Safe-mode editing of one memory's Contents and scores
-(WI-P53-KI030-INSPECTOR-EDIT / KI-030, contents/scores component only).
-No new store, no metadata-shape change (Phase-2-portable per
-D-NC1-122):
+Safe-mode editing of one memory's Contents, scores, and type set
+(WI-P53-KI030-INSPECTOR-EDIT / KI-030; type editing added by
+WI-P59-KI029 / ADR-NC1-004). No new store (Phase-2-portable per
+D-NC1-122; the additive `memory_types` collection is carried inside the
+existing FAISS document metadata):
 
 - **Content** — written through the STANDARD metadata path
   (`Memory.get_by_subdir` + `Memory.update_documents`); only
@@ -416,6 +417,18 @@ D-NC1-122):
   `scores.json` sidecar ONLY (KI-009/WI-P12 single-write discipline:
   the sidecar is the score authority; FAISS metadata score keys are a
   potentially stale mirror and are never written by this handler).
+- **Type set** (WI-P59-KI029) — full-set-replace via the `types`
+  payload, validated entirely server-side at ONE point by the single
+  normalization authority `helpers.metadata.normalize_memory_types`
+  (strict mode): `primary` must be one of the 8 implemented `MemoryType`
+  enum values; `additional` entries must match
+  `^[a-z0-9][a-z0-9_-]{0,39}$`, at most 7, no enum collisions, no
+  duplicates. Loud edit-time rejection with NO partial write; the scalar
+  `memory_type` and the additive `memory_types` collection are written together through the same standard metadata path (invariant: the
+  scalar primary is a member of the collection); Memory ID immutable; no
+  sidecar write. GETs expose the normalized set read-derived WITHOUT
+  mutation; reads flag a scalar/collection mismatch as `inconsistent`
+  (tolerated, never repaired on read — the next types edit repairs it).
 
 Validation is edit-time rejection, NOT clamping: out-of-range or
 non-numeric score values are rejected before any write (the underlying
@@ -429,20 +442,22 @@ exists, i.e. a legacy record; the UI then falls back to displayed
 metadata values):
 
 ```json
-{"success": true, "memory_subdir": "projects/neuro_core", "memory_id": "mem_abc123", "content": "...", "scores": {"importance": 0.7, "confidence": 0.6, "stability": 0.5}, "scores_source": "sidecar"}
+{"success": true, "memory_subdir": "projects/neuro_core", "memory_id": "mem_abc123", "content": "...", "scores": {"importance": 0.7, "confidence": 0.6, "stability": 0.5}, "scores_source": "sidecar", "types": {"memory_type": "fact", "memory_types": ["fact", "hypothesis"], "additional": ["hypothesis"], "inconsistent": false}}
 ```
 
 ### `POST /api/plugins/neuro_core/memory_edit`
 
 JSON body: `{"memory_subdir": "...", "id": "<memory_id>",
-"content": "<new content>", "scores": {"importance": 0.9}}` — at
-least one of `content` or `scores` is required; `scores` accepts any
-of `importance` / `confidence` / `stability` (unknown keys are
-rejected). Content and scores can be edited in one request. Successful
-POSTs echo what changed:
+"content": "<new content>", "scores": {"importance": 0.9}, "types":
+{"primary": "fact", "additional": ["hypothesis"]}}` — at least one of
+`content`, `scores`, or `types` is required; `scores` accepts any of
+`importance` / `confidence` / `stability` (unknown keys are rejected);
+`types` is the FULL-SET-REPLACE of the type set (see above). Content,
+scores, and types can be edited in one request. Successful POSTs echo
+what changed:
 
 ```json
-{"success": true, "memory_subdir": "projects/neuro_core", "memory_id": "mem_abc123", "content_changed": true, "scores_changed": true, "scores": {"importance": 0.9, "confidence": 0.6, "stability": 0.5}}
+{"success": true, "memory_subdir": "projects/neuro_core", "memory_id": "mem_abc123", "content_changed": true, "scores_changed": true, "types_changed": false, "scores": {"importance": 0.9, "confidence": 0.6, "stability": 0.5}, "types": null}
 ```
 
 Authenticated (same framework auth/CSRF gate as all Neuro Core
@@ -469,7 +484,11 @@ the handler runs). Common handler-level messages:
 - `` "`memory_subdir` is required" `` / `` "`id` is required" `` — memory_edit GET and POST.
 - `"memory id not found: <id>"` — memory_edit GET and POST.
 - `` "`content` must be a string" `` / `` "`content` must not be empty" `` — memory_edit POST.
-- `` "nothing to update: provide `content` and/or `scores`" `` — memory_edit POST.
+- `` "nothing to update: provide `content`, `scores`, and/or `types`" `` — memory_edit POST.
+- `` "`types` must be an object with `primary` and optional `additional`" `` / `` "`types.primary` must be one of the 8 valid memory types: ..." `` — memory_edit POST (types payload invalid, primary not an enum value).
+- `` "`types.additional` entries must be 1-40 chars, lowercase, no whitespace: ^[a-z0-9][a-z0-9_-]{0,39}$ (got: <token>)" `` — memory_edit POST (custom token violates the grammar). Additional tokens are trimmed and lowercased before grammar validation (approved pre-normalization, per the approved design wording), so uppercase input such as `BadType` is accepted and stored as `badtype`; the error therefore fires only for genuinely invalid characters, length, or whitespace after that normalization.
+- `` "`types.additional` entry duplicates the primary type" `` / `` "`types.additional` contains a duplicate" `` / `` "`types.additional` entry collides with an enum type" `` — memory_edit POST.
+- `` "at most 7 additional types are allowed (1 primary + 7 additional)" `` — memory_edit POST.
 - `` "`scores` must be an object with optional keys `importance`, `confidence`, `stability`" `` — memory_edit POST (non-object, empty, or unknown keys).
 - `` "`<field>` must be a number between 0.0 and 1.0" `` — memory_edit POST (field is `importance`, `confidence`, or `stability`; non-numeric, boolean, or out-of-range values).
 - `"Unknown route: <METHOD> <path>"` — unmatched path/method.

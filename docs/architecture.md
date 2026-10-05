@@ -593,10 +593,15 @@ instance, and rendering.
   content goes through the standard metadata path, scores go to the
   `scores.json` sidecar only (single-write discipline), and
   out-of-range/non-numeric score values are rejected by the server
-  rather than clamped. Validation/dispute-status editing (KI-034)
-  and memory_type editing (KI-029) are intentionally not part of
-  this surface; the framework Memory ID is immutable and not
-  editable. Implemented and pinned at panel-source and handler-test
+  rather than clamped. As of WI-P59-KI029 (ADR-NC1-004), the surface
+  also accepts a full-set-replace `types` payload: the scalar primary
+  stays enum-locked to the 8 implemented `MemoryType` values and the
+  additive `memory_types` collection carries the full set including
+  custom user-defined tokens (validated server-side by
+  `helpers.metadata.normalize_memory_types`; loud rejection, no
+  partial write; no sidecar write). Validation/dispute-status
+  editing (KI-034) remains intentionally not part of this surface;
+  the framework Memory ID is immutable and not editable. Implemented and pinned at panel-source and handler-test
   level; live browser confirmation is pending the queued assurance
   pass (D-NC1-125). Tapping an
   edge opens a display-only edge inspector overlay showing

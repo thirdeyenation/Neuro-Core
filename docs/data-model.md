@@ -26,11 +26,31 @@ helpers (`run_importance_decay`, `run_contradiction_detection`,
 
 - **Type**: `str`
 - **Default**: `"note"` (from `apply_defaults()` when missing)
-- **Set by**: `execute.py` migration (legacy), `helpers.metadata.apply_defaults()`
-- **Description**: The category of this memory. One of `MemoryType`
-  enum values: `fact`, `concept`, `task`, `event`, `decision`,
-  `preference`, `skill`, `episode`, `note`. Stored as the enum's string
-  value, not the `Enum` instance.
+- **Set by**: `execute.py` migration (legacy), `helpers.metadata.apply_defaults()`,
+  `api/memory_edit.py` (WI-P59-KI029 full-set-replace types edit)
+- **Description**: The primary category of this memory. One of the 8
+  implemented `MemoryType` enum values: `fact`, `concept`, `task`,
+  `event`, `decision`, `skill`, `preference`, `note` (verified against
+  `helpers/metadata.py`). Stored as the enum's string value, not the
+  `Enum` instance. The enum is fixed — user-defined types never enter
+  the scalar primary.
+
+### `memory_types`
+
+- **Type**: `list[str]` (additive collection; absent on legacy records)
+- **Default**: none (scalar-only records are read-derived as
+  `[memory_type]` by `helpers.metadata.normalize_memory_types()`)
+- **Set by**: `api/memory_edit.py` (WI-P59-KI029 types edit) — the only
+  writer
+- **Description**: The full authoritative type set including the
+  primary (invariant: `memory_type` is a member). Reads never mutate
+  it. Custom (user-defined) tokens live only here — lowercase,
+  1-40 chars, `^[a-z0-9][a-z0-9_-]{0,39}$`, max 1 primary + 7
+  additional, no enum collisions or duplicates. When the scalar was
+  rewritten outside the collection (e.g. by the `memory_score` tool),
+  reads flag the set `inconsistent` without mutation; the next
+  memory_edit types edit repairs it via full-set-replace.
+  (WI-P59-KI029, ADR-NC1-004.)
 
 ### `importance`
 

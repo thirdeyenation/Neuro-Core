@@ -42,6 +42,7 @@ from helpers.api import ApiHandler, Request
 from plugins._memory.helpers.memory import Memory
 
 from usr.plugins.neuro_core.helpers.scores import ScoreStore
+from usr.plugins.neuro_core.helpers.metadata import normalize_memory_types
 
 
 # The three editable score fields, in display order.
@@ -163,6 +164,11 @@ class MemoryEditApi(ApiHandler):
                 if record is not None
                 else None
             )
+            # WI-P59-KI029: normalized type set via the C1 single authority
+            # (helpers/metadata.py). Read-derivation ONLY — no FAISS mutation
+            # occurs here (KI-009 display-path discipline).
+            meta = getattr(doc, "metadata", {}) or {}
+            types_payload = normalize_memory_types(meta).to_payload()
             return {
                 "success": True,
                 "memory_subdir": subdir,
@@ -170,6 +176,7 @@ class MemoryEditApi(ApiHandler):
                 "content": getattr(doc, "page_content", "") or "",
                 "scores": scores,
                 "scores_source": "sidecar" if record is not None else "none",
+                "types": types_payload,
             }
         except Exception as e:  # pragma: no cover - defensive
             return {"success": False, "error": str(e)}
@@ -189,11 +196,12 @@ class MemoryEditApi(ApiHandler):
 
         content = input.get("content") if "content" in input else None
         raw_scores = input.get("scores") if "scores" in input else None
+        raw_types = input.get("types") if "types" in input else None
 
-        if content is None and raw_scores is None:
+        if content is None and raw_scores is None and raw_types is None:
             return {
                 "success": False,
-                "error": "nothing to update: provide `content` and/or `scores`",
+                "error": "nothing to update: provide `content`, `scores`, and/or `types`",
             }
 
         if content is not None:
@@ -210,9 +218,21 @@ class MemoryEditApi(ApiHandler):
         else:
             scores = None
 
+        if raw_types is not None:
+            # WI-P59-KI029 (C4): FULL-SET-REPLACE of the authoritative type
+            # set, validated entirely server-side at this ONE point via the
+            # C1 authority (strict mode). Loud rejection with no partial
+            # write; the Memory ID is never written or altered.
+            try:
+                types = normalize_memory_types(raw_types, strict=True)
+            except ValueError as e:
+                return {"success": False, "error": str(e)}
+        else:
+            types = None
+
         try:
             return await self._apply_edit(
-                subdir, memory_id, content, scores
+                subdir, memory_id, content, scores, types
             )
         except Exception as e:  # pragma: no cover - defensive
             return {"success": False, "error": str(e)}
@@ -223,6 +243,7 @@ class MemoryEditApi(ApiHandler):
         memory_id: str,
         content: str | None,
         scores: dict | None,
+        types=None,
     ) -> dict:
         """Apply the validated edit through the EXISTING persistence paths.
 
@@ -240,13 +261,30 @@ class MemoryEditApi(ApiHandler):
             }
 
         content_changed = False
+        types_changed = False
+        doc = docs[0]
         if content is not None:
-            doc = docs[0]
             # The framework Memory ID (metadata['id']) is untouched; only
             # page_content is mutated before update_documents.
             doc.page_content = content
-            await memory.update_documents([doc])
             content_changed = True
+
+        if types is not None:
+            # WI-P59-KI029 (C4/C5): write the full-set-replace type set via
+            # the SAME standard metadata path as content. The scalar primary
+            # stays enum-locked; the additive collection carries the full
+            # normalized set (invariant: primary is a member). Memory ID is
+            # untouched; NO sidecar write (KI-009).
+            meta = getattr(doc, "metadata", None)
+            if meta is None:
+                meta = {}
+                doc.metadata = meta
+            meta["memory_type"] = types.primary
+            meta["memory_types"] = list(types.types)
+            types_changed = True
+
+        if content_changed or types_changed:
+            await memory.update_documents([doc])
 
         scores_changed = False
         updated_scores = None
@@ -265,5 +303,7 @@ class MemoryEditApi(ApiHandler):
             "memory_id": memory_id,
             "content_changed": content_changed,
             "scores_changed": scores_changed,
+            "types_changed": types_changed,
             "scores": updated_scores,
+            "types": types.to_payload() if types is not None else None,
         }

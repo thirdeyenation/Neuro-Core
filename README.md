@@ -38,7 +38,7 @@ See `docs/tools.md` for per-tool behavior and arguments.
 - `reflection_audit` — reflection-memory listing and audit
 - `memory_subdirs` — memory subdir discovery
 - `memory_names` — user-assigned Memory Name aliases and custom Cluster names
-- `memory_edit` — safe-mode editing of one memory's Contents and scores (Importance/Confidence/Stability; edit-time validation, no clamping; scores written to the scores.json sidecar only)
+- `memory_edit` — safe-mode editing of one memory's Contents, scores, and memory type-set (Importance/Confidence/Stability; edit-time validation, no clamping; scores written to the scores.json sidecar only). Type-set editing is a full-set-replace: the scalar `memory_type` stays the primary, locked to the 8 implemented MemoryType values, while an additive `memory_types` collection carries the full set under the invariant primary ∈ collection, plus user-defined custom tokens (lowercase, 1-40 chars, `^[a-z0-9][a-z0-9_-]{0,39}$`; max 1 primary + 7 additional). Editing happens in the inspector's safe-mode two-step save; validation/dispute-status editing remains out of scope (KI-034).
 
 See `docs/api.md` for routes, parameters, and response schemas.
 

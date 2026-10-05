@@ -324,8 +324,10 @@ def test_panel_display_path_no_scorestore_and_no_post() -> None:
 
 
 def test_panel_no_edit_surface_expansion() -> None:
-    """Exclusions: no memory_type editing (WI-P59), no validation/dispute
-    status editing (WI-P60). The editable-field set is unchanged."""
+    """Exclusions: no validation/dispute status editing (WI-P60).
+    The editable-field set (editForm) is unchanged — WI-P59-KI029 added
+    memory_type editing via the separate typeDraft state, which does not
+    extend the editForm x-model key set."""
     src = _panel_src()
     keys = set(re.findall(r'x-model="editForm\.(\w+)"', src))
     assert keys == {"content", "importance", "confidence", "stability"}

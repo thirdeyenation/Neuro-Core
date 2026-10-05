@@ -21,8 +21,10 @@ Pinned groups:
       button, edit form hidden until Edit (x-show=editOpen), Save requires
       an explicit Confirm step, Cancel discards, no ScoreStore reference
       in the panel, no new material-symbols ligature spans, no
-      validation/dispute-status or memory_type editing surface (KI-034 /
-      KI-029 deferred), Memory ID not editable.
+      validation/dispute-status editing surface (KI-034 still deferred);
+      memory_type editing is implemented as of WI-P59-KI029 (separate
+      typeDraft state — the editForm content/score key set below is
+      unchanged), Memory ID not editable.
 '''
 
 from __future__ import annotations
@@ -133,6 +135,14 @@ async def test_get_returns_content_and_sidecar_scores(
         "content": "content of mem-1",
         "scores": None,
         "scores_source": "none",
+        # WI-P59-KI029: the normalized types block is now part of the GET
+        # contract (read-derived, no mutation for this scalar-only record).
+        "types": {
+            "memory_type": None,
+            "memory_types": [],
+            "additional": [],
+            "inconsistent": False,
+        },
     }
 
     # After a sidecar write, GET returns the authoritative sidecar values.
@@ -342,7 +352,8 @@ async def test_post_content_validation_and_nothing_to_update(
     )
     assert out3 == {
         "success": False,
-        "error": "nothing to update: provide `content` and/or `scores`",
+        # WI-P59-KI029: the types component joined the update contract.
+        "error": "nothing to update: provide `content`, `scores`, and/or `types`",
     }
 
 
@@ -432,11 +443,14 @@ def test_panel_no_scorestore_reference() -> None:
 
 
 def test_panel_no_validation_or_memory_type_editing() -> None:
-    """KI-034 (validation/dispute) and KI-029 (memory_type) are deferred;
-    the edit form must not expose them. Memory ID is immutable."""
+    """KI-034 (validation/dispute) is still deferred; the editForm form
+    must not expose it. Memory ID is immutable. WI-P59-KI029: memory_type
+    editing is now implemented via the separate typeDraft state (this pin
+    asserts the editForm x-model key set, which is unchanged)."""
     src = _panel_src()
     # The edit form exposes EXACTLY these four editable fields — no
-    # validation/dispute-status (KI-034), no memory_type (KI-029), no id.
+    # validation/dispute-status (KI-034), no id. (KI-029 memory_type
+    # editing is implemented via typeDraft — see test_wip59_ki029.)
     keys = set(re.findall(r'x-model="editForm\.(\w+)"', src))
     assert keys == {"content", "importance", "confidence", "stability"}
     # Memory ID row remains display-only (no x-model bound to it).
