@@ -233,12 +233,24 @@ real job.
   3. For each candidate pair, applies the lexical heuristic
      (`_NEGATION_TOKENS` and `_OPPOSITE_PAIRS` in
      `helpers/lifecycle.py`) to decide opposition.
-  4. **Critical caveat (Workstream B obs #4)**: The function
-     updates the in-memory metadata dict and **does not** persist
-     the new `validation_status` to FAISS. The caller
-     (`_30_contradiction_detection.py`) is responsible for writing
-     the change back. This will be verified in Workstream C
-     integration test #10.
+  4. Returns the additive `disputes` list (each entry carries
+     `memory_id` — the disputed, older memory — `disputed_id`,
+     `detected_at` and `basis`) **without mutating any metadata
+     dict**; persistence is the caller's responsibility. The `_30`
+     job-loop extension persists `validation_status = "disputed"`
+     into FAISS document metadata via the host `update_documents`
+     mechanism (`_persist_disputes` in
+     `_30_contradiction_detection.py`), enforcing WI-P60 transition
+     governance: only `unvalidated`/`unreviewed` -> `disputed` and
+     `validated` -> `disputed` are written; `deprecated`/`superseded`
+     terminal states are skipped; `disputed` -> `disputed` is a
+     no-op; unknown values are skipped with a warning. Write
+     payloads are staged deep copies — the originals are never
+     mutated before a successful write — so a failed write leaves
+     the on-disk status unchanged and is retried on the next sweep
+     pass. Per-detection structural log lines from the helper are
+     the reconstructable dispute audit trail until the boundary-6
+     amendment decides a durable audit home.
 
 ### `_functions` extension — Cascade delete
 

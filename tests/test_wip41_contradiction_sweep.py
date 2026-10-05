@@ -211,8 +211,10 @@ def test_real_heuristic_runs_through_scheduled_sweep(
     The older memory ('completed successfully', no negation) is opposed
     by the newer memory ('failed', negation token) under the
     exactly-one-side-negated heuristic, so the sweep must report
-    checked=2 disputed=1 and persist nothing (no ``disputes`` key is
-    exposed by the function's return contract)."""
+    checked=2 disputed=1 and persist the dispute for the older memory
+    (WI-P60: the function's return contract additively exposes a
+    ``disputes`` list, which the sweep forwards to the best-effort
+    FAISS persistence boundary)."""
     from helpers.print_style import PrintStyle
 
     messages: list[str] = []
@@ -262,10 +264,20 @@ def test_real_heuristic_runs_through_scheduled_sweep(
     assert summary, f"expected final sweep summary, got: {messages}"
     assert "checked=2" in summary[-1]
     assert "disputed=1" in summary[-1]
-    # The function's return contract exposes only checked/disputed counts
-    # (verified signature/docs) — so the best-effort persistence call is
-    # a no-op with an empty list. Documented honestly in the report.
-    persist.assert_called_once_with("test_subdir", [])
+    # WI-P60: the return contract additively exposes a ``disputes`` list;
+    # the sweep forwards it to the best-effort persistence boundary. The
+    # older memory (m1) is the disputed target; detected_at/basis are
+    # dynamic, so they are asserted by key presence.
+    assert persist.call_count == 1
+    call_args = persist.call_args.args
+    assert call_args[0] == "test_subdir"
+    disputes = call_args[1]
+    assert len(disputes) == 1
+    entry = disputes[0]
+    assert entry["memory_id"] == "m1"
+    assert entry["disputed_id"] == "m2"
+    assert entry["detected_at"]
+    assert entry["basis"]
 
 
 def test_real_heuristic_no_dispute_when_memories_agree(

@@ -534,7 +534,11 @@ class TestEmptySubdirNoError:
             memory=None,
             facts=[],
         )
-        assert result == {"checked": 0, "disputed": 0}
+        assert result == {
+            "checked": 0,
+            "disputed": 0,
+            "disputes": [],  # WI-P60: additive disputes-bearing payload
+        }
 
     def test_none_facts_and_none_memory_returns_zero_zero(self) -> None:
         """``facts=None`` and ``memory=None`` → graceful no-op."""
@@ -544,7 +548,11 @@ class TestEmptySubdirNoError:
             memory=None,
             facts=None,
         )
-        assert result == {"checked": 0, "disputed": 0}
+        assert result == {
+            "checked": 0,
+            "disputed": 0,
+            "disputes": [],  # WI-P60: additive disputes-bearing payload
+        }
 
     def test_empty_facts_does_not_call_memory_hook(self) -> None:
         """An empty subdir must not even invoke the memory hook."""
@@ -622,8 +630,13 @@ class TestReturnValue:
         result = lifecycle.run_contradiction_detection(
             "default", {}, memory=None, facts=[]
         )
-        # Canonical shape — not just the values, the exact dict.
-        assert result == {"checked": 0, "disputed": 0}
+        # Canonical shape — not just the values, the exact dict. The
+        # disputes key is additive per WI-P60 (KI-034 approved design).
+        assert result == {
+            "checked": 0,
+            "disputed": 0,
+            "disputes": [],
+        }
 
     def test_return_value_respects_batch_size_cap(self) -> None:
         """``contradiction_batch_size`` caps the number of facts processed."""

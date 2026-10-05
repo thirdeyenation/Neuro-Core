@@ -85,9 +85,12 @@ helpers (`run_importance_decay`, `run_contradiction_detection`,
 
 - **Type**: `str`
 - **Default**: `"unvalidated"` (from `apply_defaults()`)
-- **Set by**: `apply_defaults()`, `memory_score` tool,
-  `run_contradiction_detection()` (marks the older of a contradicting
-  pair as `"disputed"`)
+- **Set by**: `apply_defaults()`, `memory_score` tool, the
+  scheduled `_30` contradiction sweep — which persists `disputed`
+  into FAISS metadata via `_persist_disputes`
+  (`extensions/python/job_loop/_30_contradiction_detection.py`)
+  under WI-P60 transition governance (`run_contradiction_detection()`
+  returns the disputes payload only; it does not mark anything)
 - **Description**: One of `ValidationStatus` enum values:
   `unvalidated`, `validated`, `disputed`, `deprecated`. `deprecated`
   memories are excluded from recall results by

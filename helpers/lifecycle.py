@@ -294,7 +294,7 @@ def run_contradiction_detection(
     config: Dict[str, Any],
     memory: Any,
     facts: Optional[Iterable[Tuple[str, str, dict]]] = None,
-) -> Dict[str, int]:
+) -> Dict[str, Any]:
     """Find fact-type memories that semantically oppose each other.
 
     For each pair ``(A, B)`` of fact documents whose cosine similarity is
@@ -320,7 +320,15 @@ def run_contradiction_detection(
             metadata via ``score_store`` (best effort).
 
     Returns:
-        ``{"checked": int, "disputed": int}``.
+        ``{"checked": int, "disputed": int, "disputes": list}``. The
+        ``disputes`` key is additive (WI-P60, KI-034): each entry is a
+        dict with ``memory_id`` (the disputed, older memory),
+        ``disputed_id`` (the newer opposing memory), ``detected_at``
+        (ISO-8601 UTC timestamp of the detection) and ``basis`` (the
+        opposing content pair, for audit). Existing consumers reading
+        only ``checked``/``disputed`` are unaffected. Persistence of the
+        disputed status is the caller's responsibility (the ``_30``
+        job_loop extension persists via ``_persist_disputes``).
     """
     batch_size = int(
         (config or {}).get(
@@ -348,11 +356,15 @@ def run_contradiction_detection(
             "neuro_core contradiction: no facts and no memory; nothing to do (%s)",
             memory_subdir,
         )
-        return {"checked": 0, "disputed": 0}
+        return {"checked": 0, "disputed": 0, "disputes": []}
 
     # Group fact IDs that we plan to mark disputed, with the older one
     # of the pair winning the dispute (lower timestamp wins).
     disputed_ids: Dict[str, str] = {}  # id -> older_id (for audit)
+    # WI-P60 (KI-034): durable disputes payload for the caller. The
+    # function itself persists nothing (pure with respect to the FAISS
+    # index); the _30 job_loop extension persists via _persist_disputes.
+    disputes: List[Dict[str, str]] = []
     checked = 0
 
     for i, (aid, acontent, ameta) in enumerate(fact_list):
@@ -396,26 +408,38 @@ def run_contradiction_detection(
             bts = _safe_get(bmeta, "timestamp", "") or ""
             older_id = aid if ats <= bts else bid
             newer_id = bid if ats <= bts else aid
-            # Update metadata mirror on memory (best effort).
-            try:
-                if memory is not None and hasattr(memory, "update_documents"):
-                    older_meta = ameta if older_id == aid else bmeta
-                    older_meta = dict(older_meta or {})
-                    older_meta["validation_status"] = "disputed"
-                    # We don't have the original Document here, but the
-                    # caller can persist; we still record the decision
-                    # in the sidecar score store via the returned IDs.
-            except Exception as exc:  # pragma: no cover - defensive
-                _logger.warning(
-                    "neuro_core contradiction: update_documents failed: %s", exc
-                )
+            # WI-P60 (KI-034): record the dispute for the caller's
+            # persistence step and log it structurally (Q5) so the audit
+            # trail is reconstructable from logs until the boundary-6
+            # amendment decides the durable audit home.
+            detected_at = datetime.now(timezone.utc).isoformat()
+            disputes.append(
+                {
+                    "memory_id": older_id,
+                    "disputed_id": newer_id,
+                    "detected_at": detected_at,
+                    "basis": f"{acontent!r} opposes {bcontent!r}",
+                }
+            )
+            _logger.info(
+                "neuro_core contradiction: dispute detected "
+                "memory_id=%s disputed_id=%s detected_at=%s basis=%s",
+                older_id,
+                newer_id,
+                detected_at,
+                f"{acontent!r} opposes {bcontent!r}",
+            )
             disputed_ids[older_id] = newer_id
 
     _logger.info(
         "neuro_core contradiction: subdir=%s checked=%d disputed=%d",
         memory_subdir, checked, len(disputed_ids),
     )
-    return {"checked": checked, "disputed": len(disputed_ids)}
+    return {
+        "checked": checked,
+        "disputed": len(disputed_ids),
+        "disputes": disputes,
+    }
 
 
 # ---------------------------------------------------------------------------

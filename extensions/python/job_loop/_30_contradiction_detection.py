@@ -2,10 +2,18 @@
 
 Sweeps ``fact`` memories in every subdir and compares them pairwise
 with the lexical heuristic in ``helpers/lifecycle.py``
-(``run_contradiction_detection``), returning the counters
-``{"checked": int, "disputed": int}`` — no memory is modified and no
-dispute is persisted in v0.1.0 (see KI-034). The only dispute audit
-trail is the per-subdir log line and the final summary log line.
+(``run_contradiction_detection``), which returns the counters
+``{"checked": int, "disputed": int}`` plus an additive ``disputes``
+list (WI-P60, KI-034): one entry per detection with ``memory_id``
+(the disputed, older memory), ``disputed_id`` (the newer opposing
+memory), ``detected_at`` and ``basis``. The job persists each disputed
+status to FAISS document metadata (``validation_status = "disputed"``)
+via the best-effort ``_persist_disputes`` write-back, enforcing the
+transition governance ruled in WI-P60 (only unvalidated/validated ->
+disputed is written; terminal states are skipped; disputed -> disputed
+is a no-op). Until the boundary-6 amendment decides a durable audit
+home, the per-detection structural log lines emitted by the lifecycle
+helper are the reconstructable dispute audit trail.
 
 The extension is throttled to ``contradiction_interval_hours``
 (default ``168`` = one week) and never raises — errors are caught,
@@ -38,6 +46,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import copy
 import logging
 import time
 from typing import Any, Dict, List
@@ -56,6 +65,22 @@ _logger = logging.getLogger("neuro_core.job_loop.contradiction_detection")
 # ``KeyError: '_30_contradiction_detection'`` on every scheduler tick
 # because of that assumption.
 _STATE: dict[str, float] = {"last_run": 0.0}
+
+# WI-P60 (KI-034) — Q1 ruling: explicit domain->FAISS vocabulary mapping at
+# the persistence boundary. helpers/metadata.py ValidationStatus
+# (unvalidated | validated | disputed | deprecated) is canonical here;
+# the memory_lifecycle.py domain vocabulary (unreviewed | validated |
+# disputed | superseded) maps onto it: unreviewed is a domain-only alias
+# of unvalidated, superseded maps to deprecated. No value outside this
+# mapping is ever invented; unknown values are skipped defensively.
+_STATUS_VOCAB_MAP: dict[str, str] = {
+    "unreviewed": "unvalidated",
+    "unvalidated": "unvalidated",
+    "validated": "validated",
+    "disputed": "disputed",
+    "superseded": "deprecated",
+    "deprecated": "deprecated",
+}
 
 
 # Boot-grace guard (WI-2026-09-04-PHASE0-PATCH-ARCH, D-NC1-015 remediation).
@@ -181,6 +206,74 @@ def _get_memory_sync(MemoryCls, subdir: str):
         return mem
     except Exception:  # pragma: no cover - defensive
         return None
+
+
+def _all_docs_from_db(db: Any) -> List[Any]:
+    """Return the Documents held by a MyFaiss-like db, defensively.
+
+    WI-P60 revision 2 (VAL integration-FAIL fix, defect 1): the real
+    host contract — ``plugins/_memory/helpers/memory.py``
+    ``MyFaiss.get_all_docs`` — returns ``self.docstore._dict``, a DICT
+    of ``docstore_id -> Document``. Iterating it directly yields string
+    keys with no ``.metadata``, so zero documents are ever matched.
+    This helper iterates ``.values()`` for the dict contract and still
+    accepts a list-shaped return defensively (older/alternative
+    contracts), so both shapes work.
+    """
+    try:
+        raw = db.get_all_docs()
+    except Exception:  # pragma: no cover - defensive
+        return []
+    if isinstance(raw, dict):
+        return [d for d in raw.values() if d is not None]
+    return [d for d in (raw or []) if d is not None]
+
+
+def _normalize_memory_handle(mem: Any, subdir: str) -> Any:
+    """Normalize a resolved memory handle to a Memory-wrapper shape.
+
+    WI-P60 revision 2 (VAL integration-FAIL fix, defect 2): the
+    production warm cache holds RAW ``MyFaiss`` objects in
+    ``Memory.index`` (``plugins/_memory/helpers/memory.py`` —
+    ``index: dict[str, MyFaiss]``), which have NO ``.db`` attribute and
+    no ``update_documents``; the warm path (production norm) previously
+    failed with a swallowed AttributeError and silently no-op'd.
+
+    A resolved ``Memory`` wrapper (has ``.db`` and an async
+    ``update_documents``) is returned unchanged. A raw MyFaiss-like
+    object (has ``get_all_docs``/``docstore``) is wrapped in the real
+    ``Memory`` class — its ``__init__`` is a trivial
+    ``(db, memory_subdir)`` assignment (verified by source read), so
+    wrapping is side-effect-free and the real host
+    ``update_documents`` mechanism (adelete + aadd_documents +
+    ``_save_db``) is used for both cache states.
+
+    Returns ``None`` when the handle cannot be normalized (caller must
+    treat ``None`` as "skip this subdir").
+    """
+    if mem is None:
+        return None
+    if hasattr(mem, "db") and callable(getattr(mem, "update_documents", None)):
+        return mem
+    if callable(getattr(mem, "get_all_docs", None)) or hasattr(mem, "docstore"):
+        try:
+            from plugins._memory.helpers.memory import Memory as _Memory  # type: ignore
+        except Exception:  # pragma: no cover - defensive
+            _logger.warning(
+                "contradiction_detection: cannot wrap raw memory handle for "
+                "subdir %r: host Memory class unavailable",
+                subdir,
+            )
+            return None
+        try:
+            return _Memory(db=mem, memory_subdir=subdir)
+        except Exception as exc:  # pragma: no cover - defensive
+            _logger.warning(
+                "contradiction_detection: cannot wrap raw memory handle for "
+                "subdir %r: %s", subdir, exc,
+            )
+            return None
+    return None
 
 
 class ContradictionDetectionJob(Extension):
@@ -373,10 +466,22 @@ class ContradictionDetectionJob(Extension):
             mem = _get_memory_sync(Memory, subdir)
         except Exception:
             mem = None
+        # WI-P60 rev 2 (VAL integration-FAIL fix, defect 2 on the read
+        # side): the production warm cache holds RAW MyFaiss objects in
+        # Memory.index (no .db attribute); normalize the handle so the
+        # sweep enumerates facts in both warm-cache and cold-cache
+        # states instead of silently yielding nothing.
+        mem = _normalize_memory_handle(mem, subdir)
         if mem is None:
             return iter(())
         try:
-            docs = list(mem.db.get_all_docs() or [])  # type: ignore[attr-defined]
+            # WI-P60 rev 2 (VAL integration-FAIL fix, defect 1): the real
+            # host contract — MyFaiss.get_all_docs — returns a DICT
+            # (docstore_id -> Document); list-iterating it yields string
+            # keys with no .metadata, so zero facts were ever enumerated
+            # on the real path. Iterate via the defensive helper
+            # (handles both dict and list contracts).
+            docs = _all_docs_from_db(mem.db)  # type: ignore[arg-type]
         except Exception:  # pragma: no cover - defensive
             return iter(())
         for d in docs:
@@ -394,7 +499,31 @@ class ContradictionDetectionJob(Extension):
     def _persist_disputes(subdir: str, disputes: List[Dict[str, str]]) -> None:
         """Best-effort write-back of ``validation_status = "disputed"``.
 
-        Failures are swallowed — the next pass will retry.
+        WI-P60 (KI-034): consumes the lifecycle's ``disputes`` list —
+        entries carry ``memory_id`` (the disputed, older memory),
+        ``disputed_id``, ``detected_at`` and ``basis``.
+
+        Transition governance (WI-P60 Q4 ruling, enforced here at the
+        persistence boundary):
+
+        - only ``unvalidated``/``unreviewed`` -> ``disputed`` and
+          ``validated`` -> ``disputed`` are written;
+        - documents already in a terminal state (``deprecated`` FAISS /
+          ``superseded`` domain) are skipped — no transition out of a
+          terminal state is ever written;
+        - ``disputed`` -> ``disputed`` is a no-op;
+        - any other/unknown current value is skipped defensively (no
+          vocabulary value is invented).
+
+        Failure semantics (WI-P60 rev 3, VAL defect fix — previously the
+        docstring promised a retry the implementation could not honor):
+        the write payload is built from deep copies, so the in-memory
+        document metadata — and therefore the state the next pass sees —
+        is never mutated before a successful write. A failing
+        ``update_documents`` is logged and swallowed (the scheduler
+        never crashes); because the on-disk status still shows the
+        original value, the next sweep pass classifies the transition as
+        still needed and retries the persist.
         """
         if not disputes:
             return
@@ -405,12 +534,29 @@ class ContradictionDetectionJob(Extension):
         try:
             mem = _get_memory_sync(Memory, subdir)
         except Exception:
-            return
+            mem = None
+        # WI-P60 rev 2 (VAL integration-FAIL fix, defect 2): the
+        # production warm cache holds RAW MyFaiss objects in
+        # Memory.index (no .db, no update_documents); normalize the
+        # handle so the real host update_documents mechanism is used in
+        # both warm-cache (production norm) and cold-cache states.
+        mem = _normalize_memory_handle(mem, subdir)
         if mem is None:
             return
-        id_to_status = {str(d["id"]): d.get("status", "disputed") for d in disputes}
+        # Disputed memory ids from the lifecycle payload (keyed by
+        # ``memory_id``; ``id`` accepted for backward compatibility).
+        disputed_targets = {
+            str(d.get("memory_id") or d.get("id"))
+            for d in disputes
+            if d.get("memory_id") or d.get("id")
+        }
+        if not disputed_targets:
+            return
         try:
-            docs = list(mem.db.get_all_docs() or [])  # type: ignore[attr-defined]
+            # WI-P60 rev 2 (VAL integration-FAIL fix, defect 1): iterate
+            # via the defensive helper — the real host contract returns a
+            # DICT (docstore_id -> Document), not a list.
+            docs = _all_docs_from_db(mem.db)  # type: ignore[arg-type]
         except Exception:  # pragma: no cover - defensive
             return
         modified = []
@@ -419,27 +565,92 @@ class ContradictionDetectionJob(Extension):
             if not isinstance(md, dict):
                 continue
             did = md.get("id")
-            if not did:
+            if not did or str(did) not in disputed_targets:
                 continue
-            new_status = id_to_status.get(str(did))
-            if not new_status or md.get("validation_status") == new_status:
+            # Q4: map the current status through the explicit Q1
+            # vocabulary mapping and apply the transition rules.
+            current = _STATUS_VOCAB_MAP.get(
+                str(md.get("validation_status", "unvalidated")).lower(), ""
+            )
+            if current == "deprecated":
+                # Terminal state (FAISS ``deprecated`` / domain
+                # ``superseded``): never transitioned by the sweep.
                 continue
-            md["validation_status"] = new_status
-            modified.append(d)
+            if current == "disputed":
+                # disputed -> disputed is a no-op.
+                continue
+            if current not in ("unvalidated", "validated"):
+                # Unknown/unmapped value: skip defensively — never
+                # invent a vocabulary value.
+                _logger.warning(
+                    "contradiction_detection: skipping dispute persist for %r "
+                    "in subdir %r: unmapped validation_status %r",
+                    did, subdir, md.get("validation_status"),
+                )
+                continue
+            modified.append((d, current))
         if not modified:
             return
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():  # pragma: no cover - defensive
-                # Fire-and-forget coroutine; we cannot await in this context.
-                loop.create_task(mem.update_documents(modified))  # type: ignore[attr-defined]
-            else:
-                loop.run_until_complete(mem.update_documents(modified))  # type: ignore[attr-defined]
-        except Exception as exc:  # pragma: no cover - defensive
+        # WI-P60 rev 3 (VAL defect fix — mutation-before-write): the
+        # write payload is built from DEEP COPIES. The real host
+        # ``Memory.update_documents`` re-adds the exact Document objects
+        # it is given (adelete + aadd_documents), so mutating the
+        # originals before the write would leave the in-memory state as
+        # ``disputed`` even when the write fails — the next pass would
+        # then see disputed->disputed and no-op, silently losing the
+        # dispute. With staged copies the originals (and the state the
+        # next pass reads) keep their pre-write status until the write
+        # actually succeeds, so a failed write is retried on the next
+        # pass.
+        payload = []
+        for d, _prev in modified:
+            staged = copy.deepcopy(d)
+            staged.metadata["validation_status"] = "disputed"
+            payload.append(staged)
+
+        def _log_persisted() -> None:
+            for d, prev in modified:
+                _logger.info(
+                    "contradiction_detection: dispute persisted "
+                    "memory_id=%s subdir=%s validation_status=disputed "
+                    "previous_status=%s",
+                    d.metadata.get("id"), subdir, prev,
+                )
+
+        def _log_persist_failed(exc: BaseException) -> None:
             _logger.warning(
-                "contradiction_detection: persist failed for subdir %r: %s",
+                "contradiction_detection: persist failed for subdir %r: %s "
+                "(on-disk status unchanged; the next pass will retry)",
                 subdir, exc,
             )
+
+        try:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # No running event loop (typical job-loop context under
+                # Python 3.13): run the coroutine to completion. The
+                # "dispute persisted" log line is emitted only after the
+                # write is confirmed successful.
+                asyncio.run(mem.update_documents(payload))
+                _log_persisted()
+            else:
+                # Fire-and-forget coroutine; we cannot await in this
+                # context. The done-callback logs success/failure after
+                # the task completes and consumes the exception so the
+                # loop never reports an unretrieved task exception.
+                task = loop.create_task(mem.update_documents(payload))  # type: ignore[attr-defined]
+
+                def _on_write_done(t: "asyncio.Task") -> None:
+                    exc = t.exception()
+                    if exc is not None:
+                        _log_persist_failed(exc)
+                    else:
+                        _log_persisted()
+
+                task.add_done_callback(_on_write_done)
+        except Exception as exc:  # pragma: no cover - defensive
+            _log_persist_failed(exc)
 
 
 def _resolve_agent():  # pragma: no cover - runtime helper
