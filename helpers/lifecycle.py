@@ -22,11 +22,25 @@ Conventions
   ``MemoryObject``-level reads always consult the sidecar first).
 - Lazy imports are used for ``networkx`` so the plugin still loads when
   the optional graph-analytics dependency is missing.
+
+WI-P63 (KI-048) semantics:
+- ``run_contradiction_detection`` processes ALL facts supplied by the
+  caller per pass (no first-N ``contradiction_batch_size`` truncation
+  on the fallback path; the cap bounds the memory-search candidate
+  path only).
+- An optional ``embeddings`` mapping (keyed by memory_id) activates
+  threshold gating with a per-pair fail-safe; ``embeddings=None``
+  preserves the legacy ungated channel verbatim.
+- Fact-type eligibility is enforced by the CALLER (the ``_30`` job
+  filters via ``helpers.metadata.normalize_memory_types`` in lenient
+  mode); this function performs no type filtering itself. Untyped
+  records are therefore ineligible on the scheduled path by design.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 import re
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
@@ -289,25 +303,61 @@ def _semantically_oppose(a: str, b: str) -> bool:
     return a_neg != b_neg  # exactly one side is negated
 
 
+def _cosine_similarity(a: List[float], b: List[float]) -> float:
+    """Cosine similarity of two vectors, fail-safe by contract.
+
+    WI-P63 (KI-048): used by the embeddings threshold-gating channel.
+    Any degenerate input (empty vector, dimension mismatch, zero norm,
+    non-numeric entry) yields ``0.0`` — which can never pass a positive
+    similarity threshold, so a broken vector can never widen detection.
+    """
+    try:
+        if not a or not b or len(a) != len(b):
+            return 0.0
+        dot = 0.0
+        na = 0.0
+        nb = 0.0
+        for x, y in zip(a, b):
+            fx = float(x)
+            fy = float(y)
+            dot += fx * fy
+            na += fx * fx
+            nb += fy * fy
+        if na <= 0.0 or nb <= 0.0:
+            return 0.0
+        return dot / (math.sqrt(na) * math.sqrt(nb))
+    except Exception:  # pragma: no cover - defensive
+        return 0.0
+
+
 def run_contradiction_detection(
     memory_subdir: str,
     config: Dict[str, Any],
     memory: Any,
     facts: Optional[Iterable[Tuple[str, str, dict]]] = None,
+    embeddings: Optional[Dict[str, List[float]]] = None,
 ) -> Dict[str, Any]:
     """Find fact-type memories that semantically oppose each other.
 
-    For each pair ``(A, B)`` of fact documents whose cosine similarity is
+    For each pair ``(A, B)`` of fact documents, the *content* is checked
+    with a simple heuristic for opposition. When an ``embeddings``
+    mapping is supplied, only pairs whose cosine similarity is at or
     above ``config["contradiction_similarity_threshold"]`` (default
-    ``0.85``), the *content* is checked with a simple heuristic for
-    opposition. The older document (lower ``timestamp``) is then
+    ``0.85``) are compared, with a per-pair fail-safe: a missing vector
+    means no comparison and no dispute. With ``embeddings=None`` the
+    legacy ungated channel is preserved verbatim (WI-P63 Q4). The older
+document (lower ``timestamp``) is then
     marked ``validation_status = "disputed"``.
 
     Args:
         memory_subdir: The subdir this pass is operating on.
         config: Resolved Neuro Core config. Reads
-            ``"contradiction_batch_size"`` (default ``100``) and
-            ``"contradiction_similarity_threshold"`` (default ``0.85``).
+            ``"contradiction_similarity_threshold"`` (default ``0.85``)
+            and — on the memory-search path only —
+            ``"contradiction_batch_size"`` (default ``100``) as the
+            similarity-search limit. WI-P63 (KI-048) condition 1: the
+            batch cap no longer truncates the fallback/facts path; ALL
+            facts supplied by the caller are processed.
         memory: A ``Memory``-like instance with
             ``search_similarity_threshold(query, limit, threshold=...)``
             and an async ``update_documents`` method. May be ``None``
@@ -317,7 +367,19 @@ def run_contradiction_detection(
             triples. Used in tests so the function does not need a
             real FAISS index. If ``None`` and ``memory`` is provided,
             the function falls back to iterating ``memory_subdir``
-            metadata via ``score_store`` (best effort).
+            metadata via ``score_store`` (best effort). Note (WI-P63
+            condition 2): this function performs NO fact-type filtering
+            itself — eligibility is enforced by the caller (the ``_30``
+            job filters via ``normalize_memory_types`` in lenient mode,
+            where untyped records normalize to an empty set and are
+            ineligible by design).
+        embeddings: Optional mapping keyed by ``memory_id`` whose values
+            are embedding vectors. WI-P63 (KI-048) Q3/condition 3: when
+            a mapping is supplied (possibly empty), the similarity
+            threshold gates every candidate pair — a missing vector is
+            a per-pair fail-safe (no comparison, no dispute). ``None``
+            (the default) preserves the legacy ungated channel
+            verbatim for backward compatibility (Q4).
 
     Returns:
         ``{"checked": int, "disputed": int, "disputes": list}``. The
@@ -343,13 +405,14 @@ def run_contradiction_detection(
         )
     )
 
-    # Normalize the input to a list (cap by batch_size).
+    # Normalize the input to a list. WI-P63 (KI-048) condition 1: the
+    # first-N ``contradiction_batch_size`` truncation on the fallback
+    # path is REMOVED — ALL facts supplied by the caller are processed
+    # per pass. ``contradiction_batch_size`` retains meaning on the
+    # memory-search path only (as the similarity-search limit).
     fact_list: List[Tuple[str, str, dict]] = []
     if facts is not None:
-        for triple in facts:
-            if len(fact_list) >= batch_size:
-                break
-            fact_list.append(triple)
+        fact_list = list(facts)
     else:
         # No facts provided and no Memory: nothing to do.
         _logger.info(
@@ -402,6 +465,19 @@ def run_contradiction_detection(
                 continue
             if aid in disputed_ids:
                 break
+            if embeddings is not None:
+                # WI-P63 (KI-048) Q3/condition 3: when an embeddings
+                # mapping is supplied, the similarity threshold gates
+                # every candidate pair. Fail-safe per pair: a missing
+                # vector means NO comparison and NO dispute.
+                # ``embeddings=None`` preserves the legacy ungated
+                # channel verbatim.
+                avec = embeddings.get(aid)
+                bvec = embeddings.get(bid)
+                if avec is None or bvec is None:
+                    continue
+                if _cosine_similarity(avec, bvec) < sim_threshold:
+                    continue
             if not _semantically_oppose(acontent, bcontent):
                 continue
             ats = _safe_get(ameta, "timestamp", "") or ""

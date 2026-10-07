@@ -40,6 +40,38 @@ Stability contract (v2):
       of plugin-local code are not permitted in job_loop extensions
       because the framework's loader may invoke ``execute()`` before
       the plugin package is fully initialised.
+
+WI-P63 (KI-048) remediation semantics:
+    - **Fact eligibility (Q2/condition 2):** the facts list is built
+      ONLY from documents whose normalized memory-type set (via
+      ``helpers.metadata.normalize_memory_types`` in lenient read
+      mode, ``strict=False``, never mutating metadata) contains
+      ``"fact"``. Untyped records (no ``memory_type`` and no
+      ``memory_types``) are INELIGIBLE — this is intended behavior,
+      not an oversight: the sweep must never dispute a memory whose
+      type was never declared a fact.
+    - **Process-all cap semantics (Q1/condition 1):** ALL eligible
+      facts per subdir are processed per pass;
+      ``contradiction_batch_size`` no longer truncates the fallback
+      path (it retains meaning on the memory-search path only, as
+      the similarity-search limit).
+    - **Embeddings seam (Q3/Q4, conditions 3-5):** the job computes
+      embeddings through the single seam
+      ``ContradictionDetectionJob._compute_embeddings(docs)`` and
+      ALWAYS passes the resulting mapping to
+      ``run_contradiction_detection`` — EMPTY on any mechanism
+      failure (import, config resolution, model load, embed call,
+      timeout), never ``None``. An empty mapping degrades to zero
+      gated detections (the lifecycle fail-safe skips every pair
+      whose vector is missing); ``embeddings=None`` would instead
+      re-open the legacy ungated channel, which the production path
+      must never do.
+    - **Timeout degradation:** ``execute()`` caps the run at 30 s via
+      ``asyncio.wait_for``. An oversized run (large eligible corpus,
+      slow embedding model) is cancelled at the tick boundary — no
+      detections are produced that tick and no partial dispute state
+      is written; the throttle state is already recorded, so the
+      sweep is retried on the next interval tick.
 """
 
 from __future__ import annotations
@@ -389,11 +421,34 @@ class ContradictionDetectionJob(Extension):
                 # ``docs=``. With ``memory=None`` the function runs the
                 # O(n^2) lexical heuristic entirely on these triples
                 # (no LLM, no FAISS access).
-                facts = [
-                    (str(d["id"]), d.get("page_content", ""), dict(d.get("metadata") or {}))
-                    for d in docs
-                ]
-                result = run_contradiction_detection(subdir, config, None, facts=facts)
+                #
+                # WI-P63 (KI-048) Q2/condition 2 — fact-eligibility
+                # filter, applied HERE at facts construction (not in
+                # _iter_docs): a document is eligible only when "fact"
+                # is present in the normalized type set derived by
+                # helpers/metadata.py::normalize_memory_types in lenient
+                # read mode (strict=False; the read path never mutates
+                # metadata). Untyped records are ineligible by design.
+                from usr.plugins.neuro_core.helpers.metadata import (
+                    normalize_memory_types,
+                )
+                facts = []
+                for d in docs:
+                    md = dict(d.get("metadata") or {})
+                    normalized = normalize_memory_types(md, strict=False)
+                    if "fact" not in normalized.types:
+                        continue
+                    facts.append((str(d["id"]), d.get("page_content", ""), md))
+                # WI-P63 (KI-048) Q3/Q4 — PRODUCTION BINDING: the job
+                # ALWAYS passes an embeddings mapping to the lifecycle
+                # function — EMPTY on any mechanism failure — never
+                # ``None`` (``None`` would re-open the legacy ungated
+                # channel). All failure handling lives at exactly one
+                # point: the ``_compute_embeddings`` seam below.
+                embeddings = self._compute_embeddings(docs)
+                result = run_contradiction_detection(
+                    subdir, config, None, facts=facts, embeddings=embeddings
+                )
                 totals["checked"] += int(result.get("checked", 0))
                 totals["disputed"] += int(result.get("disputed", 0))
                 # Best-effort: persist disputed statuses to FAISS metadata.
@@ -410,6 +465,67 @@ class ContradictionDetectionJob(Extension):
         )
 
     # ------------------------------------------------------------------ helpers
+
+    @staticmethod
+    def _compute_embeddings(docs: List[dict]) -> Dict[str, List[float]]:
+        """Compute embeddings for the sweep's documents — THE seam.
+
+        WI-P63 (KI-048) condition 4: this method is the SINGLE point
+        where the job computes embeddings, and its failure contract is
+        the EMPTY MAPPING covering ANY mechanism failure: the
+        ``plugins._model_config`` import, the ``models`` import, config
+        resolution, model construction/loading, the embed call itself,
+        and any timeout or unexpected error. Callers must treat the
+        returned mapping as the production binding's value: it is
+        passed to ``run_contradiction_detection`` verbatim (an empty
+        mapping degrades to zero gated detections via the lifecycle
+        per-pair fail-safe; it is NEVER replaced with ``None``).
+
+        This is a genuine factoring of the job's embedding-computation
+        step, not a parallel code path: ``_run`` contains no embedding
+        logic of its own. Tests monkeypatch ONLY this seam.
+
+        The embedding model is resolved through the same verified
+        mechanism the memory plugin uses
+        (``plugins/_memory/helpers/memory.py``):
+        ``get_embedding_model_config_object()`` →
+        ``models.get_embedding_model(mc.provider, mc.name,
+        model_config=mc, **mc.build_kwargs())``; the wrapper's
+        batch-shaped ``embed(inputs)`` API is used (framework contract:
+        embedding wrappers expose batch-shaped ``embed``).
+        """
+        if not docs:
+            return {}
+        try:
+            from plugins._model_config.helpers.model_config import (  # type: ignore
+                get_embedding_model_config_object,
+            )
+            import models as _models  # type: ignore
+
+            mc = get_embedding_model_config_object()
+            model = _models.get_embedding_model(
+                mc.provider, mc.name, model_config=mc, **mc.build_kwargs()
+            )
+            ids = [str(d["id"]) for d in docs]
+            contents = [str(d.get("page_content", "")) for d in docs]
+            vectors = model.embed(contents)
+            mapping: Dict[str, List[float]] = {}
+            for mid, vec in zip(ids, vectors):
+                if vec is None:
+                    continue
+                mapping[mid] = list(vec)
+            return mapping
+        except Exception as exc:
+            # Fail-safe per WI-P63 condition 4: ANY mechanism failure —
+            # import, config resolution, model load, embed call,
+            # timeout — yields the EMPTY mapping, never None and never
+            # a raised exception (the scheduler must stay healthy).
+            _logger.warning(
+                "contradiction_detection: embedding computation failed; "
+                "degrading to empty embeddings mapping (no gated "
+                "detections this pass): %s", exc,
+            )
+            return {}
 
     @staticmethod
     def _read_config() -> dict:

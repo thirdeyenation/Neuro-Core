@@ -224,16 +224,34 @@ real job.
   `true`); `contradiction_llm_enabled` (default `false` in v0.1.0).
 - **Implementation**: Calls `run_contradiction_detection(memory,
   config)` from `helpers/lifecycle.py`. The function:
-  1. Selects up to `contradiction_batch_size` (default `100`)
-     `fact`-type memories with
-     `validation_status != "deprecated"`.
+  1. Builds the eligible facts: only documents whose normalized
+     memory type includes `fact` (lenient normalization via
+     `helpers.metadata.normalize_memory_types`) are eligible;
+     untyped records are **ineligible** by design — they are never
+     compared and never disputed. The scheduled sweep processes
+     **all** eligible facts per subdir per pass.
   2. For each fact, runs `Memory.search_similarity_threshold(...)`
      with `contradiction_similarity_threshold` (default `0.85`) to
-     find candidates.
-  3. For each candidate pair, applies the lexical heuristic
+     find candidates when a memory-backed store is supplied.
+     `contradiction_batch_size` (default `100`) caps this
+     memory-search candidate path only — it does **not** truncate
+     the scheduled facts path (WI-P63 / KI-048, D-NC1-137).
+  3. Applies the threshold-gating embeddings channel (WI-P63 /
+     KI-048): the `_30` job computes an embeddings mapping at the
+     call site via the single `_compute_embeddings` seam and always
+     passes it — never `None`. When a mapping is supplied, every
+     candidate pair is gated by `contradiction_similarity_threshold`:
+     pairs below the threshold are not compared and not disputed,
+     even if the lexical heuristic would flag them. A missing vector
+     on either side of a pair is a per-pair fail-safe: no comparison,
+     no dispute. An empty mapping degrades to zero detections. The
+     legacy direct-call channel without a mapping (`embeddings=None`)
+     runs the O(n^2) lexical pairwise fallback ungated, preserving
+     prior behavior verbatim.
+  4. For each compared candidate pair, applies the lexical heuristic
      (`_NEGATION_TOKENS` and `_OPPOSITE_PAIRS` in
      `helpers/lifecycle.py`) to decide opposition.
-  4. Returns the additive `disputes` list (each entry carries
+  5. Returns the additive `disputes` list (each entry carries
      `memory_id` — the disputed, older memory — `disputed_id`,
      `detected_at` and `basis`) **without mutating any metadata
      dict**; persistence is the caller's responsibility. The `_30`
@@ -251,6 +269,19 @@ real job.
      pass. Per-detection structural log lines from the helper are
      the reconstructable dispute audit trail until the boundary-6
      amendment decides a durable audit home.
+- **Timeout degradation**: the sweep runs under the job-loop
+  scheduler's 30-second `asyncio.wait_for` budget. An oversized run
+  that exceeds it is cancelled for that tick (producing no detections
+  on that tick) and is retried on the next scheduled interval; the
+  scheduler itself stays healthy.
+- **Validation boundary (WI-P63 / KI-048)**: the semantics above are
+  validated at integration level against the plugin test suite. A
+  live scheduled sweep with detection enabled and restart behavior
+  are **not tested**; the `contradiction_detection_enabled` flip-back
+  is a formally sequenced condition (D-NC1-138) owned by the
+  orchestrator and has not executed. The `true` default above is the
+  schema default, not a statement about the running container's
+  current configuration.
 
 ### `_functions` extension — Cascade delete
 

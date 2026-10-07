@@ -405,18 +405,33 @@ def test_sweep_persists_dispute_end_to_end(monkeypatch, job_module) -> None:
         {"id": "m1",
          "metadata": {"id": "m1",
                       "timestamp": "2026-01-01T00:00:00+00:00",
-                      "validation_status": "unvalidated"},
+                      "validation_status": "unvalidated",
+                      # WI-P63 (KI-048) condition 6: explicit fact typing —
+                      # the sweep's eligibility predicate (condition 2)
+                      # requires a normalized 'fact' type; D-NC1-137/138.
+                      "memory_type": "fact"},
          "page_content": "The sync completed successfully."},
         {"id": "m2",
          "metadata": {"id": "m2",
                       "timestamp": "2026-06-01T00:00:00+00:00",
-                      "validation_status": "unvalidated"},
+                      "validation_status": "unvalidated",
+                      # WI-P63 (KI-048) condition 6: explicit fact typing.
+                      "memory_type": "fact"},
          "page_content": "The sync failed."},
     ]
     handle = _patch_memory_env(monkeypatch, job_module, [
         _FakeDoc("m1", "unvalidated"), _FakeDoc("m2", "unvalidated")
     ])
     monkeypatch.setattr(job_module, "_boot_grace_active", lambda: False)
+    # WI-P63 (KI-048) condition 6: monkeypatch ONLY the embedding seam
+    # (the suite runtime cannot import the embedding mechanism); the
+    # returned vectors gate the lexically opposing pair IN (cosine 1.0
+    # >= threshold) so the real heuristic still produces the dispute
+    # this test pins. D-NC1-137/138.
+    monkeypatch.setattr(
+        job_module.ContradictionDetectionJob, "_compute_embeddings",
+        staticmethod(lambda docs: {"m1": [1.0, 0.0], "m2": [1.0, 0.0]}),
+    )
     monkeypatch.setattr(
         job_module.ContradictionDetectionJob, "_read_config",
         staticmethod(lambda: {

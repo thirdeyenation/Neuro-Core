@@ -32,7 +32,7 @@ apply to future operations after saving.
 | `importance_decay_rate` | float | `0.02` | Per-run multiplier subtracted from importance: `importance *= (1 - importance_decay_rate)`. |
 | `contradiction_detection_enabled` | bool | `true` | Master switch for the contradiction detection job loop extension (`_30_contradiction_detection.py`). |
 | `contradiction_llm_enabled` | bool | `false` | Intended to enable LLM-assisted pairwise NLI in the contradiction detector. **Off by default in v0.1.0; the LLM-assisted path is not yet implemented or verified in v0.1.0** — see the key-details note below. |
-| `contradiction_batch_size` | int | `100` | Maximum number of fact memories considered per pass of the contradiction sweep. |
+| `contradiction_batch_size` | int | `100` | Candidate-pull limit for the memory-search path of the contradiction sweep. Does **not** truncate the scheduled facts path — all eligible facts are processed per pass (see key details). |
 | `contradiction_interval_hours` | int | `168` | Minimum hours between contradiction sweeps (1 week). |
 | `graph_neighbors_max` | int | `10` | Upper bound on the number of neighbors retrieved per seed during BFS graph expansion. |
 | `graph_max_hops` | int | `2` | Maximum BFS depth from each seed node. |
@@ -103,21 +103,43 @@ Settings Basic controls.
 
 #### `contradiction_batch_size`
 
-Hard cap on the number of fact memories inspected per pass. The
-scheduled `_30` sweep passes at most this many fact memories to
-`run_contradiction_detection()`, and the result list of any
-similarity search is also capped at `contradiction_batch_size`.
+Candidate-pull limit for the **memory-search path** of the contradiction
+sweep: when the detector runs against a memory-backed store, the result
+list of any similarity search is capped at `contradiction_batch_size`.
+
+**Resolved semantics (WI-P63 / KI-048, D-NC1-137):** this cap no longer
+truncates the scheduled facts path. The `_30` sweep processes **all**
+eligible fact memories per pass; `contradiction_batch_size` retains
+meaning on the memory-search path only.
 
 #### `contradiction_similarity_threshold`
 
 Minimum cosine similarity for a pair of fact memories to be considered
 for opposition (read by `run_contradiction_detection()`).
-**Memory-hook path only in v0.1.0:** candidate selection via
-`Memory.search_similarity_threshold(...)` and this threshold apply when
-the detector runs against a memory-backed store. The scheduled facts
-path (`memory=None`) uses the O(n^2) lexical pairwise fallback on the
-supplied facts and does not consult
-`contradiction_similarity_threshold`.
+
+**Gating channel (WI-P63 / KI-048, D-NC1-137):** when the scheduled
+sweep supplies an embeddings mapping, every candidate pair is gated by
+this threshold — pairs below it are not compared and not disputed, even
+if the lexical heuristic would flag them. A missing vector for either
+member of a pair is a per-pair fail-safe: no comparison, no dispute.
+When no embeddings mapping is supplied (the legacy direct-call channel),
+the O(n^2) lexical pairwise fallback runs ungated, preserving prior
+behavior verbatim.
+
+**Fact eligibility:** the scheduled sweep only considers memories whose
+normalized memory type includes `fact` (lenient normalization). Untyped
+records are **ineligible** for contradiction detection by design — they
+are never compared and never disputed.
+
+**Timeout degradation:** the sweep runs under the job-loop scheduler's
+30-second wait budget. An oversized run that exceeds it is cancelled for
+that tick (producing no detections on that tick) and is retried on the
+next scheduled interval; the scheduler itself stays healthy.
+
+**Runtime limitation for tests:** the plugin test-suite runtime does not
+include the `litellm` embedding stack, so job-side embedding tests must
+mock the `_compute_embeddings` seam or assert the empty-mapping
+degradation path (zero detections, no errors).
 
 #### `contradiction_llm_enabled`
 
