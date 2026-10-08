@@ -90,11 +90,42 @@ helpers (`run_importance_decay`, `run_contradiction_detection`,
   into FAISS metadata via `_persist_disputes`
   (`extensions/python/job_loop/_30_contradiction_detection.py`)
   under WI-P60 transition governance (`run_contradiction_detection()`
-  returns the disputes payload only; it does not mark anything)
+  returns the disputes payload only; it does not mark anything) — and,
+  since WI-P61-KI030, the user via the `memory_edit` handler's
+  `validation_status` payload (see the user transition matrix below)
 - **Description**: One of `ValidationStatus` enum values:
   `unvalidated`, `validated`, `disputed`, `deprecated`. `deprecated`
   memories are excluded from recall results by
   `Memory.search_similarity_threshold()`.
+
+  **User transition matrix (WI-P61-KI030)** — enforced server-side at
+  the single validation point in `api/memory_edit.py`:
+
+  | From | Allowed user targets |
+  |---|---|
+  | `unvalidated` | `disputed`, `validated` |
+  | `validated` | `disputed`, `unvalidated` |
+  | `disputed` | `unvalidated`, `validated` |
+  | `deprecated` | *(none — terminal)* |
+
+  Same-state and non-matrix transitions are rejected loudly with no
+  partial write; an unknown stored value is surfaced via GET with an
+  `unknown` flag and rejected on edit — never silently mapped or
+  invented. The user write goes through the same governed FAISS
+  metadata path as the type set (WI-P60 rev3 deep-copy staging), never
+  the sidecar. Each successful user transition writes one
+  activity-ledger event (`validation_status_user_edit`), distinguishing
+  user edits from sweep persists; rejected transitions write no entry.
+
+  **Re-dispute semantics (no suppression mechanism):** clearing a
+  dispute is NOT permanent. A user-cleared `disputed -> unvalidated`
+  memory may be re-disputed by the next contradiction-sweep pass if the
+  contradiction persists.
+
+  **Attestation semantics:** selecting `validated` is a user
+  attestation that the memory was reviewed. `validation_status` records
+  the governance action taken (user or sweep), not an automated content
+  verification of the memory.
 
 ### `read_only`
 

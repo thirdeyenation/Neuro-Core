@@ -417,6 +417,26 @@ existing FAISS document metadata):
   `scores.json` sidecar ONLY (KI-009/WI-P12 single-write discipline:
   the sidecar is the score authority; FAISS metadata score keys are a
   potentially stale mirror and are never written by this handler).
+- **Validation status** (WI-P61-KI030) — via the `validation_status`
+  payload: a single target-state string from the `ValidationStatus`
+  vocabulary (`unvalidated`, `validated`, `disputed`, `deprecated`),
+  enforced server-side at ONE point by the `USER_ALLOWED_TRANSITIONS`
+  matrix (`unvalidated -> {disputed, validated}`; `validated ->
+  {disputed, unvalidated}`; `disputed -> {unvalidated, validated}`;
+  `deprecated` is terminal — every transition from it is rejected).
+  Same-state and non-matrix transitions are rejected loudly with NO
+  partial write; an unknown STORED value is rejected on edit (never
+  silently mapped or invented). The status is written through the SAME
+  governed FAISS metadata path as the type set (WI-P60 rev3 deep-copy
+  staging; never the sidecar — KI-009). Each successful user transition
+  writes one activity-ledger event with kind
+  `validation_status_user_edit` (distinguishing user edits from sweep
+  persists); rejected transitions write no entry. There is NO
+  suppression mechanism: a user-cleared `disputed` memory may be
+  re-disputed by the next sweep pass if the contradiction persists.
+  Selecting `validated` is a USER ATTESTATION that the memory was
+  reviewed — `validation_status` records the governance action taken
+  (user or sweep), not an automated content verification.
 - **Type set** (WI-P59-KI029) — full-set-replace via the `types`
   payload, validated entirely server-side at ONE point by the single
   normalization authority `helpers.metadata.normalize_memory_types`
@@ -442,22 +462,33 @@ exists, i.e. a legacy record; the UI then falls back to displayed
 metadata values):
 
 ```json
-{"success": true, "memory_subdir": "projects/neuro_core", "memory_id": "mem_abc123", "content": "...", "scores": {"importance": 0.7, "confidence": 0.6, "stability": 0.5}, "scores_source": "sidecar", "types": {"memory_type": "fact", "memory_types": ["fact", "hypothesis"], "additional": ["hypothesis"], "inconsistent": false}}
+{"success": true, "memory_subdir": "projects/neuro_core", "memory_id": "mem_abc123", "content": "...", "scores": {"importance": 0.7, "confidence": 0.6, "stability": 0.5}, "scores_source": "sidecar", "types": {"memory_type": "fact", "memory_types": ["fact", "hypothesis"], "additional": ["hypothesis"], "inconsistent": false}, "validation_status": {"current": "unvalidated", "unknown": false, "allowed_targets": ["disputed", "validated"]}}
 ```
+
+The `validation_status` block carries the current stored status (an
+absent stored key reads as the documented default `unvalidated`), an
+`unknown` flag set when the stored value is outside the vocabulary
+(surfaced AS-IS, never mapped or defaulted), and the server-computed
+`allowed_targets` for the current state (empty for `deprecated` and
+for unknown values).
 
 ### `POST /api/plugins/neuro_core/memory_edit`
 
 JSON body: `{"memory_subdir": "...", "id": "<memory_id>",
 "content": "<new content>", "scores": {"importance": 0.9}, "types":
-{"primary": "fact", "additional": ["hypothesis"]}}` — at least one of
-`content`, `scores`, or `types` is required; `scores` accepts any of
+{"primary": "fact", "additional": ["hypothesis"]}, "validation_status":
+"validated"}`` — at least one of `content`, `scores`, `types`, or
+`validation_status` is required; `scores` accepts any of
 `importance` / `confidence` / `stability` (unknown keys are rejected);
-`types` is the FULL-SET-REPLACE of the type set (see above). Content,
-scores, and types can be edited in one request. Successful POSTs echo
+`types` is the FULL-SET-REPLACE of the type set (see above);
+`validation_status` is a single target-state string governed by the
+transition matrix (see above). Content, scores, types, and
+validation_status can be edited in one request (one governed FAISS
+metadata write covers content/types/status). Successful POSTs echo
 what changed:
 
 ```json
-{"success": true, "memory_subdir": "projects/neuro_core", "memory_id": "mem_abc123", "content_changed": true, "scores_changed": true, "types_changed": false, "scores": {"importance": 0.9, "confidence": 0.6, "stability": 0.5}, "types": null}
+{"success": true, "memory_subdir": "projects/neuro_core", "memory_id": "mem_abc123", "content_changed": true, "scores_changed": true, "types_changed": false, "validation_status_changed": true, "validation_status": "validated", "ledger_recorded": true, "scores": {"importance": 0.9, "confidence": 0.6, "stability": 0.5}, "types": null}
 ```
 
 Authenticated (same framework auth/CSRF gate as all Neuro Core
@@ -484,12 +515,14 @@ the handler runs). Common handler-level messages:
 - `` "`memory_subdir` is required" `` / `` "`id` is required" `` — memory_edit GET and POST.
 - `"memory id not found: <id>"` — memory_edit GET and POST.
 - `` "`content` must be a string" `` / `` "`content` must not be empty" `` — memory_edit POST.
-- `` "nothing to update: provide `content`, `scores`, and/or `types`" `` — memory_edit POST.
+- `` "nothing to update: provide `content`, `scores`, `types`, and/or `validation_status`" `` — memory_edit POST.
 - `` "`types` must be an object with `primary` and optional `additional`" `` / `` "`types.primary` must be one of the 8 valid memory types: ..." `` — memory_edit POST (types payload invalid, primary not an enum value).
 - `` "`types.additional` entries must be 1-40 chars, lowercase, no whitespace: ^[a-z0-9][a-z0-9_-]{0,39}$ (got: <token>)" `` — memory_edit POST (custom token violates the grammar). Additional tokens are trimmed and lowercased before grammar validation (approved pre-normalization, per the approved design wording), so uppercase input such as `BadType` is accepted and stored as `badtype`; the error therefore fires only for genuinely invalid characters, length, or whitespace after that normalization.
 - `` "`types.additional` entry duplicates the primary type" `` / `` "`types.additional` contains a duplicate" `` / `` "`types.additional` entry collides with an enum type" `` — memory_edit POST.
 - `` "at most 7 additional types are allowed (1 primary + 7 additional)" `` — memory_edit POST.
 - `` "`scores` must be an object with optional keys `importance`, `confidence`, `stability`" `` — memory_edit POST (non-object, empty, or unknown keys).
+- `` "`validation_status` must be a string" `` / `` "`validation_status` must be one of: unvalidated, validated, disputed, deprecated" `` — memory_edit POST (non-string payload, or a value outside the `ValidationStatus` vocabulary).
+- `` "`validation_status` transition not permitted: <current> -> <target>" `` — memory_edit POST (same-state, non-matrix, deprecated-terminal, or unknown-current transitions; enforced at the single server-side validation point before any write).
 - `` "`<field>` must be a number between 0.0 and 1.0" `` — memory_edit POST (field is `importance`, `confidence`, or `stability`; non-numeric, boolean, or out-of-range values).
 - `"Unknown route: <METHOD> <path>"` — unmatched path/method.
 

@@ -292,12 +292,16 @@ async def test_post_types_full_set_replace_round_trip(
     assert out["types_changed"] is True
     assert out["types"]["memory_types"] == ["fact", "hypothesis"]
     # Invariant written: primary ∈ collection, scalar synced to primary.
-    assert doc.metadata["memory_type"] == "fact"
-    assert doc.metadata["memory_types"] == ["fact", "hypothesis"]
+    # WI-P61 C5 (WI-P60 rev3 staging): the STAGED deep copy passed to
+    # update_documents carries the write; the fetched doc is not mutated.
+    staged = fake.updated_docs[0]
+    assert staged.metadata["memory_type"] == "fact"
+    assert staged.metadata["memory_types"] == ["fact", "hypothesis"]
     assert fake.update_calls == 1
     # Memory ID immutable.
-    assert doc.metadata["id"] == "mem-1"
-    assert doc.page_content == "content of mem-1"  # content untouched
+    assert staged.metadata["id"] == "mem-1"
+    assert staged.page_content == "content of mem-1"  # content untouched
+    assert doc.metadata == {"id": "mem-1", "memory_type": "note"}
     # KI-009: no sidecar write by a types-only edit.
     assert scores_mod.ScoreStore("default").get_optional("mem-1") is None
 
@@ -325,11 +329,13 @@ async def test_post_types_repair_invariant_from_inconsistent(
         _req("POST"),
     )
     assert out["success"] is True
-    assert doc.metadata["memory_type"] == "note"
-    assert doc.metadata["memory_types"] == ["note", "hypothesis"]
+    # WI-P61 C5: staged-copy write; fetched doc not mutated.
+    staged = fake.updated_docs[0]
+    assert staged.metadata["memory_type"] == "note"
+    assert staged.metadata["memory_types"] == ["note", "hypothesis"]
     assert fake.update_calls == 1
-    # Re-read: invariant holds now.
-    norm = md_mod.normalize_memory_types(doc.metadata)
+    # Re-read: invariant holds on the persisted (staged) state.
+    norm = md_mod.normalize_memory_types(staged.metadata)
     assert norm.inconsistent is False
 
 
@@ -430,7 +436,9 @@ async def test_c2_end_to_end_scalar_rewrite_then_read_then_repair(
         _req("POST"),
     )
     assert out2["success"] is True
-    norm = md_mod.normalize_memory_types(doc.metadata)
+    # WI-P61 C5 (WI-P60 rev3 staging): the repair lives on the STAGED deep
+    # copy passed to update_documents; the fetched doc is not mutated.
+    norm = md_mod.normalize_memory_types(fake.updated_docs[0].metadata)
     assert norm.inconsistent is False
     assert fake.update_calls == 1
 

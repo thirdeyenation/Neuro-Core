@@ -143,6 +143,13 @@ async def test_get_returns_content_and_sidecar_scores(
             "additional": [],
             "inconsistent": False,
         },
+        # WI-P61-KI030: the validation_status block is part of the GET
+        # contract (absent stored key reads as the documented default).
+        "validation_status": {
+            "current": "unvalidated",
+            "unknown": False,
+            "allowed_targets": ["disputed", "validated"],
+        },
     }
 
     # After a sidecar write, GET returns the authoritative sidecar values.
@@ -198,8 +205,13 @@ async def test_post_content_edit_standard_path_id_immutable(
     assert out["content_changed"] is True
     assert out["scores_changed"] is False
     assert fake.update_calls == 1
-    assert doc.page_content == "New text"
+    # WI-P61 C5 (WI-P60 rev3 staging): the STAGED deep copy passed to
+    # update_documents carries the edit; the fetched doc is not mutated.
+    staged = fake.updated_docs[0]
+    assert staged.page_content == "New text"
+    assert doc.page_content == "content of mem-1"
     # Memory ID immutable: metadata untouched by a content edit.
+    assert staged.metadata == {"id": "mem-1"}
     assert doc.metadata == {"id": "mem-1"}
     # No sidecar file was created by a content-only edit.
     assert not list(tmp_path.glob("scores_default_content.json")) or (
@@ -256,7 +268,9 @@ async def test_post_combined_content_and_scores(
     assert out["success"] is True
     assert out["content_changed"] and out["scores_changed"]
     assert fake.update_calls == 1
-    assert doc.page_content == "Both"
+    # WI-P61 C5: staged-copy write; fetched doc not mutated.
+    assert fake.updated_docs[0].page_content == "Both"
+    assert doc.page_content == "content of mem-1"
     rec = scores_mod.ScoreStore("default").get_optional("mem-1")
     assert rec is not None and rec.stability == 0.3
 
@@ -352,8 +366,8 @@ async def test_post_content_validation_and_nothing_to_update(
     )
     assert out3 == {
         "success": False,
-        # WI-P59-KI029: the types component joined the update contract.
-        "error": "nothing to update: provide `content`, `scores`, and/or `types`",
+        # WI-P61-KI030: the validation_status component joined the contract.
+        "error": "nothing to update: provide `content`, `scores`, `types`, and/or `validation_status`",
     }
 
 
@@ -443,14 +457,14 @@ def test_panel_no_scorestore_reference() -> None:
 
 
 def test_panel_no_validation_or_memory_type_editing() -> None:
-    """KI-034 (validation/dispute) is still deferred; the editForm form
-    must not expose it. Memory ID is immutable. WI-P59-KI029: memory_type
-    editing is now implemented via the separate typeDraft state (this pin
-    asserts the editForm x-model key set, which is unchanged)."""
+    """WI-P61-KI030: validation/dispute-status editing is now implemented
+    via the separate statusDraft state (see test_wip61_ki030); the editForm
+    x-model key set is unchanged. Memory ID is immutable. WI-P59-KI029:
+    memory_type editing is implemented via the separate typeDraft state."""
     src = _panel_src()
-    # The edit form exposes EXACTLY these four editable fields — no
-    # validation/dispute-status (KI-034), no id. (KI-029 memory_type
-    # editing is implemented via typeDraft — see test_wip59_ki029.)
+    # The edit form exposes EXACTLY these four editable fields — no id.
+    # (KI-029 memory_type editing is via typeDraft; WI-P61-KI030
+    # validation-status editing is via statusDraft — separate states.)
     keys = set(re.findall(r'x-model="editForm\.(\w+)"', src))
     assert keys == {"content", "importance", "confidence", "stability"}
     # Memory ID row remains display-only (no x-model bound to it).
