@@ -34,8 +34,28 @@ from usr.plugins.neuro_core.helpers.graph_store import (
 from usr.plugins.neuro_core.helpers.metadata import (
     MemoryType,
     ValidationStatus,
+    resolved_memory_type_fields,
 )
 from usr.plugins.neuro_core.helpers.scores import ScoreStore
+
+
+def _with_resolved_types(meta: dict) -> dict:
+    """KI-049 (WI-P65): metadata copy with resolved memory-type fields.
+
+    Merges the C1-resolved ``memory_type``/``memory_types`` fields
+    additively into a COPY of the node metadata so legacy records whose
+    type lives only in the nested ``metadata`` dict surface the actually
+    stored type in the Graph UI. The source document is never mutated
+    (C1 read-path no-mutation discipline).
+    """
+    if not isinstance(meta, dict):
+        return meta
+    resolved = resolved_memory_type_fields(meta)
+    if not resolved:
+        return meta
+    out = dict(meta)
+    out.update(resolved)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +234,13 @@ class AdvancedFiltersApi(ApiHandler):
                 filtered_nodes.append({
                     "id": doc_id,
                     "content": getattr(doc, "page_content", "") or meta.get("content", ""),
-                    "metadata": meta,
+                    # KI-049 (WI-P65): merge the resolved memory-type fields
+                    # additively into a COPY of the metadata so legacy records
+                    # whose type lives only in the nested metadata dict still
+                    # surface the actually stored type in the Graph UI. The
+                    # document itself is never mutated (C1 read-path
+                    # no-mutation discipline).
+                    "metadata": _with_resolved_types(meta),
                 })
 
             # Apply limit

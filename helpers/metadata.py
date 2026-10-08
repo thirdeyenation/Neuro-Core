@@ -400,6 +400,23 @@ def normalize_memory_types(metadata: dict, strict: bool = False):
     # ---- lenient read path (no mutation, ever) ----------------------------
     scalar = metadata.get("memory_type")
     collection = metadata.get("memory_types")
+    # KI-049 (WI-P65) nested-legacy fallback, read-only: records created
+    # through legacy kwarg-nesting carry the type fields inside the nested
+    # ``metadata`` dict instead of at the top level. When a top-level field
+    # is absent, fall back to the nested value so read paths surface the
+    # actually stored type. Nothing is mutated here (C1 discipline); the
+    # on-disk nested form is left untouched.
+    if scalar is None or collection is None:
+        nested = metadata.get("metadata")
+        if isinstance(nested, dict):
+            if scalar is None:
+                nested_scalar = nested.get("memory_type")
+                if isinstance(nested_scalar, str):
+                    scalar = nested_scalar
+            if collection is None:
+                nested_collection = nested.get("memory_types")
+                if nested_collection is not None:
+                    collection = nested_collection
     if collection is None:
         if scalar is None:
             return NormalizedMemoryTypes([], None, [], False)
@@ -424,3 +441,31 @@ def normalize_memory_types(metadata: dict, strict: bool = False):
     else:
         types = list(collection)
     return NormalizedMemoryTypes(types, primary, additional, inconsistent)
+
+
+def resolved_memory_type_fields(metadata: dict) -> dict:
+    """KI-049 (WI-P65): additive top-level type fields for API producers.
+
+    API node payloads (``api/context_graph.py``, ``api/advanced_filters.py``)
+    expose the document metadata dict directly, so a legacy record whose type
+    lives only in the nested ``metadata`` dict reaches the UI without any
+    top-level ``memory_type``/``memory_types`` field and renders as
+    'type unknown' even though a type is stored.
+
+    This helper runs the C1 lenient normalizer (which now resolves the
+    nested-legacy fallback) and returns ONLY the fields that are absent at
+    the top level, so existing top-level values are never overridden and the
+    result is purely additive. Returns an empty dict for type-unknown records
+    and for records that already carry top-level fields. Callers must merge
+    the result into a COPY of the metadata dict — the underlying document is
+    never mutated (C1 read-path no-mutation discipline).
+    """
+    if not isinstance(metadata, dict):
+        return {}
+    norm = normalize_memory_types(metadata)
+    out: dict = {}
+    if metadata.get("memory_type") is None and norm.primary is not None:
+        out["memory_type"] = norm.primary
+    if metadata.get("memory_types") is None and norm.types:
+        out["memory_types"] = list(norm.types)
+    return out

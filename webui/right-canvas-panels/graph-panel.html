@@ -461,13 +461,21 @@ async saveEdits() { if (!this.inspectNode || this.editSaving) return; if (!this.
               </div>
             </div></template>
           </div>
-          <!-- WI-P24 C5: memory_type badge (8-type list bounded by panel filters); graceful fallback -->
-          <div><span class="nc-details__badge" x-show="inspectNode.memory_type" x-text="inspectNode.memory_type" title="Primary type (scalar memory_type; change it via the Edit form)"></span><span class="nc-details__badge" x-show="inspectNode.memory_type" style="opacity: 0.7;" x-text="'primary'"></span><span class="nc-details__badge" x-show="!inspectNode.memory_type" style="opacity: 0.5;" x-text="'type unknown'"></span></div>
-              <div style="display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.25rem;" x-show="typeChipsFor(inspectNode).length > 0"> <!-- WI-P59-KI029: additional types beyond the scalar primary; custom (non-enum) chips render with the distinct --custom style -->
-                <template x-for="chip in typeChipsFor(inspectNode)" :key="chip.t">
-                  <span class="nc-details__chip" :class="chip.custom ? 'nc-details__chip--custom' : ''" x-text="chip.t" :title="chip.custom ? 'Custom (user-defined) type — not one of the 8 implemented enum values' : 'Implemented enum type'"></span>
-                </template>
-              </div>
+          <!-- KI-050 (WI-P65): Memory Type section restructured per HITL spec — section title in the Memory Name label style, then a label-first 'primary' row with the primary type beside it, then a label-first 'custom' row with the additional-type chips to the right, wrapping onto following lines as needed. Purely presentational: the same data bindings, fallback ('type unknown'), and chip semantics (WI-P24 C5 badge, WI-P59-KI029 chips) are preserved. -->
+          <div style="margin-top: 0.2rem;">
+            <span class="nc-details__score-label">Memory Type</span>
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; margin-top: 0.15rem;">
+              <span class="nc-details__score-label" style="opacity: 0.7;">primary</span>
+              <span class="nc-details__badge" x-show="inspectNode.memory_type" x-text="inspectNode.memory_type" title="Primary type (scalar memory_type; change it via the Edit form)"></span>
+              <span class="nc-details__badge" x-show="!inspectNode.memory_type" style="opacity: 0.5;" x-text="'type unknown'"></span>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; margin-top: 0.15rem;" x-show="typeChipsFor(inspectNode).length > 0"> <!-- WI-P59-KI029: additional types beyond the scalar primary; custom (non-enum) chips render with the distinct --custom style -->
+              <span class="nc-details__score-label" style="opacity: 0.7;">custom</span>
+              <template x-for="chip in typeChipsFor(inspectNode)" :key="chip.t">
+                <span class="nc-details__chip" :class="chip.custom ? 'nc-details__chip--custom' : ''" x-text="chip.t" :title="chip.custom ? 'Custom (user-defined) type — not one of the 8 implemented enum values' : 'Implemented enum type'"></span>
+              </template>
+            </div>
+          </div>
           <div class="nc-details__score-label" style="margin-top: 0.3rem;">Content</div>
           <p class="nc-details__content" x-text="inspectNode.content || '(no content)'"></p>
           <!-- WI-P53-KI030: safe-mode editing entry point. Read-only above; editing opens ONLY via this explicit Edit click (form below). -->
