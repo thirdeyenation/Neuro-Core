@@ -73,7 +73,9 @@ class AdvancedFiltersApi(ApiHandler):
     - date_range: {start: ISO8601, end: ISO8601}
     - importance_min, confidence_min, stability_min: float thresholds
     - episode_id: string filter
-    - query: semantic search query (optional)
+    - query: accepted and echoed in ``filters_applied``; no semantic
+      filtering is currently applied to the query value (search text is
+      served by the dedicated ``/context_graph`` search path)
     """
 
     @classmethod
