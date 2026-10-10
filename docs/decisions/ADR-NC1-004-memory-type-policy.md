@@ -1,6 +1,6 @@
 # ADR-NC1-004 — Durable Memory-Type Metadata Policy (scalar enum primary + additive memory_types collection)
 
-- **Status:** PROPOSED — **HITL ratification pending** (required before WI-P59-KI029-MEMTYPE-EDIT closure per ARC condition C6). This ADR is the C6 checkpoint artifact of **WI-P59-KI029-MEMTYPE-EDIT**. It records the durable metadata policy implemented in that work item; ratification is a HITL action and this document must not be treated as accepted until HITL decides.
+- **Status:** RATIFIED (ACCEPTED) — ratified by HITL per **D-NC1-134** (2026-10-05); product-plane stamp applied 2026-10-10 per D-NC1-150 (re-confirmed D-NC1-149). This ADR is the C6 checkpoint artifact of **WI-P59-KI029-MEMTYPE-EDIT**. It records the durable metadata policy implemented in that work item; the ratification condition ("must not be treated as accepted until HITL decides") was SATISFIED by D-NC1-134. Canonical copy: control plane (WI-P59-KI029-MEMTYPE-EDIT work-item directory); this product-plane file is the released mirror.
 - **Supersedes:** nothing. It creates new durable metadata policy; it does not amend ADR-NC1-002 (dual-store boundaries and sidecar authority — no boundary is touched: no sidecar is read or written by the type-edit path) and does not amend ADR-NC1-003 (recall-shaping — retrieval semantics are explicitly out of scope here).
 - **Work item:** WI-P59-KI029-MEMTYPE-EDIT (user-editable memory_type in the graph-UI inspector)
 - **Classification:** S2 (durable metadata-policy decision; new policy no existing ADR authorized — classification adjusted S1 → S2 by ARC)
@@ -85,11 +85,11 @@ The graph-UI inspector edits types in **safe mode per the WI-P53 pattern**: a tw
 
 ## Honest limitations
 
-1. **Ratification status:** this policy is implemented but **not ratified**; HITL ratification is required before WI-P59 closure. If HITL amends or rejects a clause, remediation follows the normal gated path.
+1. **Ratification status:** RATIFIED (ACCEPTED) by HITL per D-NC1-134 (2026-10-05); product-plane stamp applied 2026-10-10 per D-NC1-150. If HITL amends or rejects a clause in future, remediation follows the normal gated path.
 2. **Concurrency is last-writer-wins, not optimistic:** the pre-mutation re-read narrows the window but does not detect divergence; two simultaneous editors can still race (Q5 posture as approved).
 3. **Scalar rewrites outside the collection** (currently the `memory_score` tool's `_FAISS_FIELDS` write) produce `inconsistent` sets until the next types edit; the plugin tolerates this by design rather than constraining the tool.
 4. **No performance, concurrency-safety, or security claims** are made or supported by this policy.
-5. **HITL live-UX verification** of the inspector flow has not been performed in the implementing sub-delegation; a framework restart is required before any live re-verification (standing NC1 discipline).
+5. **HITL live-UX verification** of the inspector flow has not been performed in the implementing sub-delegation; a framework restart is required before any live re-verification (standing NC1 discipline). *Update 2026-10-10: subsequent HITL live verification was performed across WI-P59/P61/P65/P70 (per D-NC1-149), including restart-survival checks; see RV-001 host-validation evidence for the candidate-specific restart pass.*
 
 ---
 
