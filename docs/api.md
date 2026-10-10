@@ -33,14 +33,12 @@ the Phase D battery captured only the required-arg error shape — the
 success shape was never captured there, before or after the WI-P8
 fix. The list-all success path is instead live-verified at the
 in-process level against a real `GraphStore` with the real
-`ApiHandler` base class (WI-P8 validation evidence:
-`live_list_all_output.json` in
-`.a0proj/notepad_temp/val/20260910T1810-P8GRAPH-VAL/`); it has NOT
+`ApiHandler` base class (WI-P8 validation evidence,
+`live_list_all_output.json`); it has NOT
 been exercised through the live WebUI CSRF serving flow. The POST
 `/relationships` write path remains grounded in code only (not
-executed against live data). Phase D raw evidence:
-`.a0proj/team/work-items/WI-P4-HOST-BATTERY/validation-report.yaml`
-rev 2 and its `notepad_temp/val/20260909T1615-P4BATTERY-VAL/j4-*`
+executed against live data). Phase D raw evidence: the
+WI-P4-HOST-BATTERY validation report (rev 2) and its Journey-4
 artifacts.
 
 ## Auth
@@ -342,7 +340,7 @@ Discovers two path patterns and returns their union:
   "success": true,
   "subdirs": [
     {"name": "main", "path": "/a0/usr/memory/main/", "type": "standard"},
-    {"name": "nc1", "path": "/a0/usr/projects/nc1/.a0proj/memory/", "type": "project"}
+    {"name": "my_project", "path": "/a0/usr/projects/my_project/.a0proj/memory/", "type": "project"}
   ],
   "count": 2
 }
