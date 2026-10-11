@@ -846,9 +846,10 @@ class TestExecuteMigrationMemoryParam:
                 self.get_by_subdir_calls: list = []
 
             @staticmethod
-            async def get_by_subdir(subdir, log_item=None):
-                # Note: log_item is accepted to match the real Memory.get_by_subdir
-                # signature. The test does not assert on it.
+            async def get_by_subdir(subdir, log_item=None, **kwargs):
+                # Note: log_item and preload_knowledge are accepted to match
+                # the real Memory.get_by_subdir signature (WI-P74 passes
+                # preload_knowledge=False). The test does not assert on them.
                 pass
 
                 class _MemObj:

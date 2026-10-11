@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
 
 # --- Path bootstrap (must run before any plugin-local imports) -----------
 # ``execute.py`` lives at ``/a0/usr/plugins/neuro_core/execute.py``.
@@ -107,7 +108,14 @@ async def _migrate_subdir(
     """
     # ``memory_cls.get_by_subdir`` returns a ``Memory`` wrapper around the
     # already-loaded (or freshly-initialized) FAISS index for this subdir.
-    mem = await memory_cls.get_by_subdir(memory_subdir, log_item=None)
+    # ``preload_knowledge=False``: the migration only scans/updates doc
+    # metadata — knowledge preload (full agent init + embedding-model cold
+    # load + knowledge re-embedding) is irrelevant here and, inside the
+    # framework's fixed 120s execute.py subprocess window, is wasted work
+    # that can push a fresh-container first run into a timeout (KI-052).
+    mem = await memory_cls.get_by_subdir(
+        memory_subdir, log_item=None, preload_knowledge=False
+    )
 
     # ``MyFaiss.get_all_docs()`` returns the raw docstore dict keyed by
     # memory id. Values are ``Document`` instances.
@@ -157,6 +165,7 @@ async def _run_migration(
     total_updated = 0
     processed = 0
     for subdir in subdirs:
+        subdir_start = time.perf_counter()
         try:
             scanned, updated = await _migrate_subdir(subdir, memory_cls)
         except Exception as exc:  # pragma: no cover - defensive
@@ -168,9 +177,10 @@ async def _run_migration(
         processed += 1
         total_scanned += scanned
         total_updated += updated
+        subdir_elapsed = time.perf_counter() - subdir_start
         print(
             f"[neuro_core]   subdir '{subdir}': scanned={scanned} "
-            f"updated={updated}"
+            f"updated={updated} elapsed={subdir_elapsed:.2f}s"
         )
     return processed, total_scanned, total_updated
 
@@ -182,6 +192,7 @@ def main() -> int:
         Process exit code (0 on success, 1 on fatal error).
     """
     print("[neuro_core] execute.main() invoked — running migration...")
+    main_start = time.perf_counter()
     get_existing_memory_subdirs, Memory = _import_memory()
     if get_existing_memory_subdirs is None or Memory is None:
         print(
@@ -194,9 +205,11 @@ def main() -> int:
     subdirs, scanned, updated = asyncio.run(
         _run_migration(get_existing_memory_subdirs, Memory)
     )
+    total_elapsed = time.perf_counter() - main_start
     print(
         f"[neuro_core] migration complete: subdirs_processed={subdirs} "
-        f"docs_scanned={scanned} docs_updated={updated}"
+        f"docs_scanned={scanned} docs_updated={updated} "
+        f"total_elapsed={total_elapsed:.2f}s"
     )
     return 0
 

@@ -116,8 +116,8 @@ def stub_memory_registry():
 
     class _StubMemory:
         @staticmethod
-        async def get_by_subdir(memory_subdir, log_item=None):
-            get_by_subdir_calls.append(memory_subdir)
+        async def get_by_subdir(memory_subdir, log_item=None, **kwargs):
+            get_by_subdir_calls.append((memory_subdir, dict(kwargs)))
             return _StubMem(memory_subdir)
 
     yield _StubMemory, registry, update_calls, get_by_subdir_calls
@@ -287,7 +287,10 @@ class TestMigrationEmptySubdir:
 
         # get_by_subdir was still called (the migration enters the subdir),
         # but update_documents never was.
-        assert get_by_subdir_calls == ["empty", "never_seen"]
+        assert [call[0] for call in get_by_subdir_calls] == [
+            "empty",
+            "never_seen",
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -343,7 +346,11 @@ class TestRunMigrationMultiSubdir:
         assert total_updated == 2
 
         # Per-subdir get_by_subdir calls.
-        assert sorted(get_by_subdir_calls) == ["a", "b", "c"]
+        assert sorted(call[0] for call in get_by_subdir_calls) == [
+            "a",
+            "b",
+            "c",
+        ]
 
         # Per-subdir update_documents calls: only 'a' and 'b' (c is empty).
         assert set(update_calls.keys()) == {"a", "b"}
@@ -543,3 +550,153 @@ class TestConfigRelativeDbPath:
             "bundled default database_path must be config-relative, "
             "not a hardcoded absolute path"
         )
+
+
+# ---------------------------------------------------------------------------
+# 7. WI-P74 (KI-052): preload_knowledge=False + timing visibility
+# ---------------------------------------------------------------------------
+
+
+class TestMigrationSkipsKnowledgePreload:
+    """WI-P74 (KI-052): the migration must call ``Memory.get_by_subdir``
+    with ``preload_knowledge=False``.
+
+    The migration only scans/updates document metadata; knowledge preload
+    (full agent init + embedding-model cold load + knowledge re-embedding)
+    is irrelevant to it and, inside the framework's fixed 120s execute.py
+    subprocess window, is wasted work that can push a fresh-container
+    first run into a timeout.
+    """
+
+    def test_migrate_subdir_passes_preload_knowledge_false(
+        self, stub_memory_registry
+    ):
+        """``_migrate_subdir`` invokes ``get_by_subdir`` with
+        ``preload_knowledge=False`` (recorded via the stub's kwargs).
+        """
+        _StubMemory, registry, _, get_by_subdir_calls = stub_memory_registry
+        registry["main"] = {
+            "doc1": _StubDoc("doc1", metadata={"area": "main"}),
+        }
+
+        scanned, updated = asyncio.run(
+            execute._migrate_subdir("main", _StubMemory)
+        )
+
+        assert scanned == 1
+        assert updated == 1
+        # The stub records (subdir, kwargs) tuples.
+        assert len(get_by_subdir_calls) == 1
+        subdir, kwargs = get_by_subdir_calls[0]
+        assert subdir == "main"
+        assert kwargs.get("preload_knowledge") is False
+
+    def test_migration_results_unchanged_with_preload_disabled(
+        self, stub_memory_registry
+    ):
+        """Migration results are identical with ``preload_knowledge=False``:
+        defaults are seeded, existing values preserved, non-destructive.
+        """
+        _StubMemory, registry, update_calls, _ = stub_memory_registry
+        registry["main"] = {
+            "fresh": _StubDoc("fresh", metadata={"area": "main"}),
+            "partial": _StubDoc(
+                "partial",
+                metadata={"memory_type": "fact", "importance": 0.99},
+            ),
+            "migrated": _StubDoc(
+                "migrated",
+                metadata={
+                    "memory_type": "note",
+                    "importance": 0.5,
+                    "confidence": 0.7,
+                    "stability": 0.5,
+                    "validation_status": "unvalidated",
+                },
+            ),
+        }
+
+        scanned, updated = asyncio.run(
+            execute._migrate_subdir("main", _StubMemory)
+        )
+
+        # All three docs scanned; the two incomplete ones updated; the
+        # fully-migrated one untouched.
+        assert scanned == 3
+        assert updated == 2
+
+        fresh = registry["main"]["fresh"].metadata
+        assert fresh["memory_type"] == "note"
+        assert fresh["importance"] == pytest.approx(0.5)
+        assert fresh["confidence"] == pytest.approx(0.7)
+        assert fresh["stability"] == pytest.approx(0.5)
+        assert fresh["validation_status"] == "unvalidated"
+        assert fresh["area"] == "main"  # pre-existing field preserved
+
+        partial = registry["main"]["partial"].metadata
+        assert partial["memory_type"] == "fact"  # existing value preserved
+        assert partial["importance"] == pytest.approx(0.99)
+        assert partial["confidence"] == pytest.approx(0.7)  # seeded
+
+        migrated = registry["main"]["migrated"].metadata
+        assert migrated["memory_type"] == "note"  # untouched
+
+        # Exactly one persistence call, containing only the modified docs.
+        assert len(update_calls["main"]) == 1
+        assert [d.id for d in update_calls["main"][0]] == [
+            "fresh",
+            "partial",
+        ]
+
+    def test_run_migration_prints_per_subdir_timing(
+        self, stub_memory_registry, capsys
+    ):
+        """Per-subdir result lines carry an ``elapsed=`` timing field so
+        partial progress is visible within any future timeout window.
+        """
+        _StubMemory, registry, _, _ = stub_memory_registry
+        registry["main"] = {
+            "doc1": _StubDoc("doc1", metadata={}),
+        }
+
+        def _get_existing():
+            return ["main"]
+
+        processed, total_scanned, total_updated = asyncio.run(
+            execute._run_migration(_get_existing, _StubMemory)
+        )
+
+        assert processed == 1
+        assert total_scanned == 1
+        assert total_updated == 1
+
+        captured = capsys.readouterr()
+        assert "subdir 'main': scanned=1 updated=1 elapsed=" in captured.out
+
+    def test_main_prints_total_elapsed_in_summary(
+        self, stub_memory_registry, capsys, monkeypatch
+    ):
+        """The final summary line carries a ``total_elapsed=`` field."""
+        _StubMemory, registry, _, _ = stub_memory_registry
+        registry["main"] = {
+            "d1": _StubDoc("d1", metadata={}),
+        }
+
+        def _get_existing():
+            return ["main"]
+
+        monkeypatch.setattr(
+            execute,
+            "_import_memory",
+            lambda: (_get_existing, _StubMemory),
+        )
+
+        exit_code = execute.main()
+
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        assert "migration complete:" in captured.out
+        assert "subdirs_processed=1" in captured.out
+        assert "docs_scanned=1" in captured.out
+        assert "docs_updated=1" in captured.out
+        assert "total_elapsed=" in captured.out
