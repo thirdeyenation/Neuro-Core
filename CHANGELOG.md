@@ -4,6 +4,48 @@
 *UPDATE STATUS:* reconciled 2026-09-09 (Phase E documentation
 reconciliation, WI-P5-DOCS-RECON)
 
+## [1.1.0] — 2026-10-10
+
+### Publication Release
+
+Neuro Core 1.1.0 is the first public release of the context graph and
+memory enhancement plugin for Agent Zero.
+
+**What Neuro Core does:** it extends Agent Zero's built-in memory
+plugin with typed memory categories, a typed relationship graph,
+importance/confidence/stability scoring, periodic maintenance jobs
+(importance decay, episode grouping, contradiction detection), and
+structured ContextGraph retrieval that explains why each result ranked
+where it did. It also ships a graph panel for the Agent Zero WebUI, a
+settings window, and an HTTP API for graph queries, filtering, audits,
+and safe-mode memory editing.
+
+**Requirements:** Agent Zero v2.13 (validated against commit
+`e3051fb`), Python 3.12+, and the framework's built-in `_memory`
+plugin. The plugin installs `networkx` automatically the first time it
+is enabled. No other dependencies beyond the Agent Zero framework
+runtime.
+
+**Known limitations in this release:**
+
+- Plugin enablement has been verified at the manifest/discovery level
+  (the plugin is discovered and its settings toggle appears); a full
+  live enable-cycle confirmation in a running host is still pending.
+- The plugin's live HTTP endpoints have not been exercised in
+  end-to-end validation for this release; they are covered by the
+  plugin's test suite at the implementation level.
+- The live FAISS similarity query path has not been run against a live
+  host index in this release's validation; index loadability is
+  verified.
+- The relationships edge-deletion flow and the panel's add-edge UI are
+  implemented and test-covered but not yet confirmed end-to-end in a
+  live host/browser session.
+- The plugin's pre-release documentation guard is textual only; it is
+  not a runtime data-leak prevention mechanism.
+
+See the README for installation, data-and-privacy disclosures, and
+uninstall guidance.
+
 ## [1.0.0] — 2026-06-25
 
 ### The First Stable Release

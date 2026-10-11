@@ -7,7 +7,7 @@ maintenance jobs, and structured ContextGraph retrieval with
 explainable scoring factors. It is a Python-only, in-process plugin —
 no external service or database daemon is required.
 
-- Plugin identity: `neuro_core` (version 0.1.0)
+- Plugin identity: `neuro_core` (version 1.1.0)
 - Install location: `/a0/usr/plugins/neuro_core/`
 - Status: optional plugin — it must be explicitly enabled
   (`always_enabled: false` in `plugin.yaml`) and is configured per
@@ -32,13 +32,28 @@ See `docs/tools.md` for per-tool behavior and arguments.
 `/api/plugins/neuro_core/`:
 
 - `context_graph` — hybrid retrieval returning a serialized ContextGraph
-- `relationships` — list/create/delete graph edges (edge deletion implemented and validated at implementation level; panel add-edge UI implemented and validated at integration level; live end-to-end host/browser confirmation pending)
+- `relationships` — list, create, and delete graph edges. Edge deletion
+  is implemented and covered by the test suite; the panel's add-edge UI
+  is implemented and covered by integration tests. As of this release,
+  these flows have not yet been confirmed end-to-end in a live
+  host/browser session.
 - `advanced_filters` — filtered graph queries
 - `episode_audit` — episode listing and per-episode audit
 - `reflection_audit` — reflection-memory listing and audit
 - `memory_subdirs` — memory subdir discovery
 - `memory_names` — user-assigned Memory Name aliases and custom Cluster names
-- `memory_edit` — safe-mode editing of one memory's Contents, scores, and memory type-set (Importance/Confidence/Stability; edit-time validation, no clamping; scores written to the scores.json sidecar only). Type-set editing is a full-set-replace: the scalar `memory_type` stays the primary, locked to the 8 implemented MemoryType values, while an additive `memory_types` collection carries the full set under the invariant primary ∈ collection, plus user-defined custom tokens (lowercase, 1-40 chars, `^[a-z0-9][a-z0-9_-]{0,39}$`; max 1 primary + 7 additional). Editing happens in the inspector's safe-mode two-step save. Validation/dispute-status editing (WI-P61-KI030) is also in scope: the `validation_status` payload accepts a single target state governed by the server-side `USER_ALLOWED_TRANSITIONS` matrix (`unvalidated -> {disputed, validated}`; `validated -> {disputed, unvalidated}`; `disputed -> {unvalidated, validated}`; `deprecated` is terminal), written through the same governed FAISS metadata path as the type set (never the sidecar). Selecting `validated` is a user attestation that the memory was reviewed — `validation_status` records the governance action taken (user or sweep), not an automated content verification. There is NO suppression mechanism: clearing a dispute is not permanent — the contradiction sweep may re-dispute the memory on its next pass if the contradiction persists. Each successful user transition writes one activity-ledger event (`validation_status_user_edit`); rejected transitions write nothing.
+- `memory_edit` — safe-mode editing of one memory's contents, scores,
+  and memory types. Edits are validated before saving; scores are stored
+  in the plugin's scores sidecar. Memory types support one primary type
+  plus a set of additional types, including user-defined custom type
+  names. Validation status (unvalidated / validated / disputed) can also
+  be edited, with server-side rules governing which transitions are
+  allowed; marking a memory "validated" records that a person reviewed
+  it — it is not an automated content check. There is no permanent
+  suppression mechanism: if a contradiction between memories persists,
+  the periodic contradiction sweep may flag the memory as disputed
+  again. Every accepted status change is recorded in the plugin's
+  activity ledger.
 
 See `docs/api.md` for routes, parameters, and response schemas.
 
@@ -58,12 +73,114 @@ configuration help surface (`webui/help/configuration.html`) linked from it.
 extensions and graph cascade-delete cleanup. See
 `docs/architecture.md` for the full wiring.
 
+## Requirements
+
+- Agent Zero **v2.13** (commit `e3051fb`) — the version this release was
+  validated against.
+- Python **3.12+** (3.12 is the tested baseline; the packaging metadata
+  declares a lower floor, but 3.12+ is what is tested).
+- The framework's built-in **`_memory` plugin** — Neuro Core extends it
+  and must have it available.
+- `networkx>=3.0` — installed automatically by the plugin's `hooks.py`
+  the first time the plugin is enabled (a one-time `pip install` side
+  effect at enable time).
+- No other dependencies beyond the Agent Zero framework runtime itself
+  (framework-provided libraries such as `langchain_core` come with
+  Agent Zero; there is no separate requirements file to install).
+
 ## Installation
 
-1. Place this directory at `/a0/usr/plugins/neuro_core/`.
-2. Enable the plugin in Agent Zero's plugin settings.
-3. Configuration lives in `default_config.yaml` and can be overridden
-   per project and per agent; see `docs/configuration.md`.
+1. **Prerequisites** — a running Agent Zero instance (Docker or local)
+   with the built-in `_memory` plugin available, and Python 3.12+.
+2. **Place the plugin** — put this directory at
+   `/a0/usr/plugins/neuro_core/`.
+3. **Enable the plugin** — open Agent Zero's settings and switch the
+   Neuro Core plugin on in the plugin settings UI. Enabling runs the
+   plugin's install hook, which installs `networkx` (one-time, printed
+   in the logs). Note: plugin enablement has been verified at the
+   manifest/discovery level (the plugin is discovered, its manifest and
+   settings surface load, and the toggle is present in the settings
+   UI); a full live enable-cycle confirmation in a running host is
+   still pending.
+4. **Verify the installation** — after enabling, confirm that:
+   - the Neuro Core entry appears in the sidebar quick actions, and
+   - the graph panel opens from the right canvas, and
+   - the plugin's settings window opens from the plugin settings UI.
+   If any of these fail, check the Agent Zero logs for
+   `[neuro_core]` messages.
+5. **Configure** — configuration lives in `default_config.yaml` and can
+   be overridden per project and per agent; see `docs/configuration.md`.
+
+## Data and privacy
+
+Neuro Core stores data in three places:
+
+- **`neuro_core.db`** — the plugin's SQLite domain database. By default
+  it lives in the plugin directory; the `database_path` configuration
+  key controls the location (relative paths resolve plugin-relative,
+  absolute paths are honored verbatim).
+- **Sidecar files** — `scores.json` (importance/confidence/stability
+  and access counts) and `relationships.json` (the typed relationship
+  graph), stored alongside the plugin's data.
+- **The host memory store** — memory contents and their metadata live
+  in Agent Zero's own FAISS-based memory store, exactly like ordinary
+  Agent Zero memories. Neuro Core reads and enriches that store; it
+  does not duplicate memory content into a second database.
+
+**Egress disclosure:** memory content is sent to whatever **embedding
+provider** your Agent Zero configuration uses (memory storage and
+retrieval rely on embeddings). Neuro Core adds no additional network
+egress of its own, but using it means your memory content is processed
+by that embedding provider, exactly as with plain Agent Zero memory.
+
+**Deleting your data:**
+
+- To delete everything Neuro Core persists, stop Agent Zero and remove
+  the plugin's data files: the SQLite database at the configured
+  `database_path` (by default `neuro_core.db` in the plugin directory)
+  and the `scores.json` / `relationships.json` sidecars next to it.
+- Memories themselves (including Neuro Core's metadata on them) live in
+  the host memory store; delete them through Agent Zero's own memory
+  management, or remove the host memory directory, depending on how
+  much you want to erase.
+
+## Uninstalling / removing the plugin
+
+- The plugin's `uninstall()` hook is intentionally a **no-op**: it does
+  not remove pip packages (other plugins may share them) and does not
+  delete your data.
+- **Removing the plugin directory** (`/a0/usr/plugins/neuro_core/`)
+  is the uninstall. Agent Zero's plugin manager removes the plugin
+  files when you uninstall it through the UI; deleting the directory
+  manually achieves the same result.
+- **What remains on disk after removal:**
+  - the SQLite database (`neuro_core.db` at the configured
+    `database_path`) — contains the plugin's domain data;
+  - the `scores.json` and `relationships.json` sidecars;
+  - the `networkx` pip package installed at enable time (harmless to
+    leave; remove with `pip uninstall networkx` if you want a fully
+    clean environment).
+- **Safe-removal guidance:** back up or explicitly delete the database
+  and sidecar files listed above if you do not want residual data left
+  behind. Do not delete files inside the Agent Zero framework itself.
+
+## Known limitations
+
+- Plugin enablement has been verified at the manifest/discovery level
+  (the plugin is discovered and its settings toggle appears); a full
+  live enable-cycle confirmation in a running host is still pending.
+- The plugin's live HTTP endpoints have not been exercised in
+  end-to-end validation for this release; they are covered by the
+  plugin's test suite at the implementation level.
+- The live FAISS similarity query path has not been run against a live
+  host index in this release's validation; index loadability is
+  verified.
+- The plugin's pre-release documentation guard is textual only — it
+  checks committed documents for internal identifiers and paths; it is
+  not a runtime data-leak prevention mechanism.
+- The relationships edge-deletion flow and the panel's add-edge UI are
+  implemented and test-covered but not yet confirmed end-to-end in a
+  live host/browser session (see the `relationships` API entry above).
 
 ## Documentation
 
@@ -72,7 +189,16 @@ extensions and graph cascade-delete cleanup. See
 - `docs/architecture.md` — architecture and data flow
 - `docs/configuration.md` — configuration keys
 - `docs/data-model.md` — storage and data model
+- `docs/decisions/README.md` — architecture decision records (index)
+- `packaging/export-manifest.md` — what a public distribution artifact
+  contains and how to produce one
 - `CHANGELOG.md` — change history
+
+## Support
+
+Issues and feature requests: [github.com/thirdeyenation/Neuro-Core/issues](https://github.com/thirdeyenation/Neuro-Core/issues).
+Please include your Agent Zero version, the Neuro Core version, steps
+to reproduce, and expected vs. actual behavior.
 
 ## Tests
 

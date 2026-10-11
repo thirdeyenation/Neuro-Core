@@ -1,5 +1,5 @@
 title: Neuro Core
-description: Temporal knowledge graph memory enhancement for Agent Zero. Adds typed memory categories, graph relationships, importance/confidence/stability scoring, and structured ContextGraph retrieval with BFS traversal.
+description: Explainable, scoped memory service backed by Neuro Core. Adds typed memory categories, graph relationships, importance/confidence/stability scoring, lifecycle jobs, and structured ContextGraph retrieval with explainable scoring factors.
 github: https://github.com/thirdeyenation/Neuro-Core
 tags:
   - memory
