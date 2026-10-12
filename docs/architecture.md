@@ -131,8 +131,22 @@ script:
 
 1. Iterates over all subdirs returned by
    `get_existing_memory_subdirs()`.
-2. For each subdir, opens a `Memory` instance, fetches
-   `db.get_all_docs()`, and for every document:
+2. For each subdir, runs a **model-less, read-only detection
+   phase** first: the store directory is resolved via the
+   framework's `abs_db_dir()`, and the persisted `index.pkl`
+   docstore is read directly — no `Memory` instance, no embedding
+   model, and no index is constructed. The existing
+   `_needs_migration` predicate is applied over the five Neuro
+   Core fields (`memory_type`, `importance`, `confidence`,
+   `stability`, `validation_status`); if every document already
+   carries all fields — or the store is absent or empty — the
+   subdir is skipped entirely.
+3. For subdirs where at least one document is missing a field —
+   and as the **fail-closed fallback** for any detection
+   read/structure failure (for example a corrupt pickle or an
+   unexpected docstore structure) — the migration opens a
+   `Memory` instance, fetches `db.get_all_docs()`, and for every
+   document:
    - If the document is missing one or more of the fields in
      `_NEURO_CORE_FIELDS = ("memory_type", "importance",
      "confidence", "stability", "validation_status")`, calls
@@ -141,7 +155,7 @@ script:
    - If the document has a `consolidated_from` list, converts each
      entry into a `derived_from` edge in `GraphStore` with
      `source="migration"`.
-3. Calls `mem.update_documents(modified)` to persist the changes.
+4. Calls `mem.update_documents(modified)` to persist the changes.
 
 The migration is idempotent: running it twice has no effect the
 second time. It is non-destructive: it never overwrites an existing

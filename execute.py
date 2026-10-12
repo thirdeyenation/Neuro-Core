@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import pickle
 import sys
 import time
 
@@ -87,6 +88,115 @@ def _needs_migration(metadata: dict) -> bool:
     if not isinstance(metadata, dict):
         return True
     return any(field_name not in metadata for field_name in _NEURO_CORE_FIELDS)
+
+
+# --- Model-less early-exit detection (KI-054, WI-P75) ---------------------
+#
+# TRUST-BOUNDARY NOTE (ARC condition C3): the pickle load below mirrors the
+# existing MyFaiss.load_local(allow_dangerous_deserialization=True) trust
+# boundary on the same framework-owned store. Store paths are resolved ONLY
+# via the framework's own ``abs_db_dir(memory_subdir)`` — no independently
+# constructed paths. This is a detection-only, READ-ONLY read sanctioned by
+# D-NC1-153, scoped to execute.py migration detection; all migration writes
+# continue to flow exclusively through the decorated Memory facade.
+
+
+def _modelless_subdir_needs_migration(
+    memory_subdir: str,
+    abs_db_dir_fn=None,
+) -> tuple[bool | None, int]:
+    """Read-only, model-less check whether a subdir still needs migration.
+
+    Reads the persisted docstore directly from ``index.pkl`` (a plain
+    ``pickle.dump((docstore, index_to_docstore_id))`` tuple written by
+    ``FAISS.save_local``) without constructing the embedding model or any
+    ``Memory``/``MyFaiss`` object.
+
+    Returns:
+        ``(status, docs_scanned)`` where ``status`` is:
+        - ``False`` — every doc already carries all Neuro Core fields (or the
+          store is absent/empty): the caller may skip the subdir model-less.
+        - ``True`` — at least one doc is missing a field: the full migration
+          path must run.
+        - ``None`` — the model-less read could not be completed for ANY reason
+          (missing/corrupt pickle, unpickling error, unexpected structure,
+          version drift): the caller must fall back to the current full path.
+
+    This function never writes anything to the store directory (ARC condition
+    C2): the file is opened with a read-only binary handle and no marker,
+    hash, temp, or re-saved files are produced.
+    """
+    if abs_db_dir_fn is None:
+        # Confined to the framework's own path resolver (ARC condition C3).
+        try:
+            from plugins._memory.helpers.memory import abs_db_dir as abs_db_dir_fn
+        except Exception as exc:
+            print(
+                f"[neuro_core] WARNING: model-less path resolution failed "
+                f"({exc}) — falling back to the full migration path."
+            )
+            return None, 0
+
+    db_dir = abs_db_dir_fn(memory_subdir)
+
+    # Absent or empty store: nothing to migrate — skip model-less.
+    if not os.path.isdir(db_dir):
+        return False, 0
+    pkl_path = os.path.join(db_dir, "index.pkl")
+    if not os.path.isfile(pkl_path):
+        return False, 0
+
+    try:
+        # READ-ONLY handle (ARC condition C2): "rb" only; nothing in this
+        # function writes to the store directory.
+        with open(pkl_path, "rb") as f:
+            payload = pickle.load(f)  # noqa: S301 — same trust boundary as MyFaiss.load_local(allow_dangerous_deserialization=True)
+    except Exception as exc:
+        print(
+            f"[neuro_core] WARNING: model-less read of '{memory_subdir}' "
+            f"failed (corrupt/unreadable index.pkl): {exc} — falling back "
+            f"to the full migration path."
+        )
+        return None, 0
+
+    # Structure check (ARC condition C5): fail closed on ANY unexpected
+    # docstore structure — non-tuple payload, wrong arity, unknown docstore
+    # class, or a missing/non-dict ``.store`` attribute.
+    if not isinstance(payload, tuple) or len(payload) != 2:
+        print(
+            f"[neuro_core] WARNING: model-less read of '{memory_subdir}' "
+            f"found unexpected index.pkl structure (arity "
+            f"{len(payload) if isinstance(payload, tuple) else 'n/a'}) — "
+            f"falling back to the full migration path."
+        )
+        return None, 0
+    docstore = payload[0]
+    docstore_cls_name = type(docstore).__name__
+    if docstore_cls_name not in ("LocalFileStore", "InMemoryDocstore"):
+        print(
+            f"[neuro_core] WARNING: model-less read of '{memory_subdir}' "
+            f"found unexpected docstore type '{docstore_cls_name}' — "
+            f"falling back to the full migration path."
+        )
+        return None, 0
+    store = getattr(docstore, "store", None)
+    if not isinstance(store, dict):
+        print(
+            f"[neuro_core] WARNING: model-less read of '{memory_subdir}' "
+            f"found a docstore without a dict '.store' attribute — "
+            f"falling back to the full migration path."
+        )
+        return None, 0
+
+    docs_scanned = 0
+    for doc_id, doc in store.items():
+        docs_scanned += 1
+        meta = getattr(doc, "metadata", None) or {}
+        if _needs_migration(meta):
+            return True, docs_scanned
+    return False, docs_scanned
+
+# ---------------------------------------------------------------------------
 
 
 async def _migrate_subdir(
@@ -166,6 +276,27 @@ async def _run_migration(
     processed = 0
     for subdir in subdirs:
         subdir_start = time.perf_counter()
+        # Model-less early-exit (KI-054, WI-P75): before constructing any
+        # Memory/embedding-model machinery, try a read-only direct scan of
+        # the persisted docstore. Only a definitive "nothing to migrate"
+        # (False) skips the subdir; "needs migration" (True) and "cannot
+        # determine" (None — any read/structure failure, already warned)
+        # both fall back to the exact current full path below.
+        try:
+            skip_status, _ml_scanned = _modelless_subdir_needs_migration(subdir)
+        except Exception as exc:  # pragma: no cover - defensive
+            print(
+                f"[neuro_core] WARNING: model-less detection failed for "
+                f"subdir '{subdir}': {exc} — falling back to the full "
+                f"migration path."
+            )
+            skip_status = None
+        if skip_status is False:
+            print(
+                f"[neuro_core]   subdir '{subdir}': skipped "
+                f"(nothing to migrate) [model-less]"
+            )
+            continue
         try:
             scanned, updated = await _migrate_subdir(subdir, memory_cls)
         except Exception as exc:  # pragma: no cover - defensive

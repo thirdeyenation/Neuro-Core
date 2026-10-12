@@ -700,3 +700,359 @@ class TestMigrationSkipsKnowledgePreload:
         assert "docs_scanned=1" in captured.out
         assert "docs_updated=1" in captured.out
         assert "total_elapsed=" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# Model-less early-exit detection (KI-054, WI-P75-KI054-MODELLESS-EXIT)
+# ---------------------------------------------------------------------------
+
+# Capture the real detection function BEFORE any fixture patches it, so
+# model-less tests can restore genuine detection behavior.
+_REAL_DETECTION = execute._modelless_subdir_needs_migration
+
+
+class InMemoryDocstore:
+    """Module-level picklable docstore stand-in.
+
+    The class name matches the framework docstore allowlist
+    (``LocalFileStore`` / ``InMemoryDocstore``) so pickled fixtures exercise
+    the real structure checks in ``_modelless_subdir_needs_migration``.
+    """
+
+    def __init__(self, store: dict | None = None):
+        self.store = store if store is not None else {}
+
+
+InMemoryDocstoreNoStore = type("InMemoryDocstore", (), {"__module__": __name__})
+"""Picklable class whose instances lack a ``.store`` attribute (drift C5)."""
+
+
+class _PDoc:
+    """Module-level picklable Document stand-in (``.metadata`` dict)."""
+
+    def __init__(self, metadata: dict | None = None, content: str = "x"):
+        self.metadata = metadata or {}
+        self.page_content = content
+
+
+def _migrated_meta() -> dict:
+    return {
+        "memory_type": "note",
+        "importance": 0.5,
+        "confidence": 0.7,
+        "stability": 0.5,
+        "validation_status": "unvalidated",
+    }
+
+
+def _write_store(db_dir, docs: dict[str, _PDoc], index_bytes: bytes = b"FAISS"):
+    """Create a disposable fixture store: index.pkl + index.faiss."""
+    os.makedirs(db_dir, exist_ok=True)
+    with open(os.path.join(db_dir, "index.pkl"), "wb") as f:
+        pickle.dump((InMemoryDocstore(dict(docs)), {"k1": "d1"}), f)
+    with open(os.path.join(db_dir, "index.faiss"), "wb") as f:
+        f.write(index_bytes)
+
+
+def _store_fingerprint(db_dir) -> dict:
+    """Byte-identity fingerprint of every file in a store directory (C2)."""
+    snap = {}
+    for name in sorted(os.listdir(db_dir)):
+        p = os.path.join(db_dir, name)
+        if os.path.isfile(p):
+            with open(p, "rb") as f:
+                data = f.read()
+            snap[name] = (len(data), hashlib.sha256(data).hexdigest(), os.stat(p).st_mtime_ns)
+    return snap
+
+
+@pytest.fixture(autouse=True)
+def _default_detection_to_full_path(monkeypatch):
+    """Keep every test on the full migration path by default.
+
+    Pre-existing tests stub the Memory layer and must remain isolated from
+    the real filesystem (a live store exists at /a0/usr/memory). Model-less
+    test classes below re-enable genuine detection explicitly.
+    """
+    monkeypatch.setattr(
+        execute,
+        "_modelless_subdir_needs_migration",
+        lambda subdir, abs_db_dir_fn=None: (True, 0),
+    )
+
+
+import hashlib  # noqa: E402  (used by the model-less test section)
+import os  # noqa: E402
+import pickle  # noqa: E402
+
+
+class TestModellessDetectionUnit:
+    """Direct unit tests for ``_modelless_subdir_needs_migration``.
+
+    All stores are disposable ``tmp_path`` fixtures; paths are injected via
+    ``abs_db_dir_fn`` — the real framework ``abs_db_dir`` is never invoked
+    and no live store data is touched.
+    """
+
+    def test_absent_store_dir_skips_model_less(self, tmp_path):
+        status, scanned = _REAL_DETECTION(
+            "nope", abs_db_dir_fn=lambda s: str(tmp_path / "absent")
+        )
+        assert status is False
+        assert scanned == 0
+
+    def test_store_without_index_pkl_skips_model_less(self, tmp_path):
+        d = tmp_path / "empty"
+        d.mkdir()
+        status, scanned = _REAL_DETECTION("s", abs_db_dir_fn=lambda s: str(d))
+        assert status is False
+        assert scanned == 0
+
+    def test_fully_migrated_store_reports_no_migration_needed(self, tmp_path):
+        d = tmp_path / "migrated"
+        _write_store(d, {"d1": _PDoc(_migrated_meta())})
+        status, scanned = _REAL_DETECTION("s", abs_db_dir_fn=lambda s: str(d))
+        assert status is False
+        assert scanned == 1
+
+    def test_doc_missing_field_reports_migration_needed(self, tmp_path):
+        d = tmp_path / "needs"
+        _write_store(d, {"d1": _PDoc(_migrated_meta()), "d2": _PDoc({})})
+        status, scanned = _REAL_DETECTION("s", abs_db_dir_fn=lambda s: str(d))
+        assert status is True
+        assert scanned == 2
+
+    def test_corrupt_pkl_falls_back(self, tmp_path, capsys):
+        d = tmp_path / "corrupt"
+        d.mkdir()
+        with open(d / "index.pkl", "wb") as f:
+            f.write(b"this is not a pickle")
+        status, _ = _REAL_DETECTION("s", abs_db_dir_fn=lambda s: str(d))
+        assert status is None
+        assert "falling back" in capsys.readouterr().out
+
+    def test_structure_drift_non_tuple_payload_falls_back(self, tmp_path, capsys):
+        d = tmp_path / "drift1"
+        d.mkdir()
+        with open(d / "index.pkl", "wb") as f:
+            pickle.dump(["not", "a", "tuple"], f)
+        assert _REAL_DETECTION("s", abs_db_dir_fn=lambda s: str(d))[0] is None
+        assert "unexpected index.pkl structure" in capsys.readouterr().out
+
+    def test_structure_drift_wrong_arity_falls_back(self, tmp_path, capsys):
+        d = tmp_path / "drift2"
+        d.mkdir()
+        with open(d / "index.pkl", "wb") as f:
+            pickle.dump((InMemoryDocstore(), {}, "extra"), f)
+        assert _REAL_DETECTION("s", abs_db_dir_fn=lambda s: str(d))[0] is None
+        assert "unexpected index.pkl structure" in capsys.readouterr().out
+
+    def test_structure_drift_unknown_docstore_type_falls_back(self, tmp_path, capsys):
+        d = tmp_path / "drift3"
+        d.mkdir()
+        with open(d / "index.pkl", "wb") as f:
+            pickle.dump((object(), {}), f)
+        assert _REAL_DETECTION("s", abs_db_dir_fn=lambda s: str(d))[0] is None
+        assert "unexpected docstore type" in capsys.readouterr().out
+
+    def test_structure_drift_missing_store_attr_falls_back(self, tmp_path, capsys):
+        d = tmp_path / "drift4"
+        d.mkdir()
+        # Instance of the allowlisted class with .store deleted: the
+        # unpickled object has no ``.store`` attribute, exercising exactly
+        # the missing-store-attr fallback branch (C5).
+        broken_docstore = InMemoryDocstore()
+        del broken_docstore.store
+        with open(d / "index.pkl", "wb") as f:
+            pickle.dump((broken_docstore, {}), f)
+        assert _REAL_DETECTION("s", abs_db_dir_fn=lambda s: str(d))[0] is None
+        assert "without a dict '.store'" in capsys.readouterr().out
+
+    def test_detection_is_read_only_store_byte_identity(self, tmp_path):
+        """ARC condition C2: detection writes NOTHING to the store dir."""
+        d = tmp_path / "readonly"
+        _write_store(d, {"d1": _PDoc(_migrated_meta())})
+        before = _store_fingerprint(d)
+        _REAL_DETECTION("s", abs_db_dir_fn=lambda s: str(d))
+        assert _store_fingerprint(d) == before
+
+
+class TestModellessSkipPath:
+    """End-to-end skip behavior through ``main()`` with genuine detection."""
+
+    def test_migrated_store_skips_model_less_with_byte_identity(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        """Design scenario 3 + C2 + C6: an already-migrated store is skipped
+        model-less; the store is byte-identical afterwards; no Memory
+        machinery is constructed (the stub raises if ``get_by_subdir`` —
+        the only route to ``Memory.initialize`` and the embedding model —
+        is ever reached).
+        """
+        d = tmp_path / "migrated"
+        _write_store(d, {"d1": _PDoc(_migrated_meta())})
+        before = _store_fingerprint(d)
+
+        def _confined_detection(subdir, abs_db_dir_fn=None):
+            return _REAL_DETECTION(subdir, abs_db_dir_fn=lambda s: str(d))
+
+        monkeypatch.setattr(
+            execute, "_modelless_subdir_needs_migration", _confined_detection
+        )
+
+        class _MustNotConstruct:
+            @staticmethod
+            async def get_by_subdir(*a, **k):
+                raise AssertionError(
+                    "model machinery must not be constructed on the skip path"
+                )
+
+        monkeypatch.setattr(
+            execute, "_import_memory", lambda: (lambda: ["s"], _MustNotConstruct)
+        )
+
+        exit_code = execute.main()
+
+        assert exit_code == 0
+        out = capsys.readouterr().out
+        assert "skipped (nothing to migrate) [model-less]" in out
+        assert _store_fingerprint(d) == before  # C2 byte-identity
+
+    def test_fresh_container_empty_store_never_loads_model(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        """Design scenario 1 + C6: absent stores skip model-less; the run
+        completes without ever reaching the Memory layer (binding no-model
+        assertion via the raising stub).
+        """
+        def _confined_detection(subdir, abs_db_dir_fn=None):
+            # Absent dirs under tmp_path: genuine detection, confined fixture.
+            return _REAL_DETECTION(
+                subdir, abs_db_dir_fn=lambda s: str(tmp_path / subdir.replace("/", "_") / "store")
+            )
+
+        monkeypatch.setattr(
+            execute, "_modelless_subdir_needs_migration", _confined_detection
+        )
+
+        class _MustNotConstruct:
+            @staticmethod
+            async def get_by_subdir(*a, **k):
+                raise AssertionError(
+                    "model machinery must not be constructed on the skip path"
+                )
+
+        monkeypatch.setattr(
+            execute,
+            "_import_memory",
+            lambda: (lambda: ["default", "main"], _MustNotConstruct),
+        )
+
+        exit_code = execute.main()
+
+        assert exit_code == 0
+        out = capsys.readouterr().out
+        assert out.count("skipped (nothing to migrate) [model-less]") == 2
+        assert "migration complete:" in out
+
+
+class TestModellessFallback:
+    """Fail-closed fallback: any model-less failure degrades to the exact
+    current full path, never corrupts the store (design scenario 5, C5)."""
+
+    def test_corrupt_pkl_warns_and_uses_full_path(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        d = tmp_path / "corrupt"
+        d.mkdir()
+        with open(d / "index.pkl", "wb") as f:
+            f.write(b"garbage not a pickle")
+        before = _store_fingerprint(d)
+
+        def _confined_detection(subdir, abs_db_dir_fn=None):
+            return _REAL_DETECTION(subdir, abs_db_dir_fn=lambda s: str(d))
+
+        monkeypatch.setattr(
+            execute, "_modelless_subdir_needs_migration", _confined_detection
+        )
+
+        _StubMemory, registry, update_calls, get_calls = _make_registry()
+        registry["s"] = {"d1": _StubDoc("d1", metadata={})}
+        monkeypatch.setattr(
+            execute, "_import_memory", lambda: (lambda: ["s"], _StubMemory)
+        )
+
+        exit_code = execute.main()
+
+        assert exit_code == 0
+        out = capsys.readouterr().out
+        assert "falling back to the full migration path" in out
+        assert "subdir 's': scanned=1 updated=1" in out  # full path ran
+        assert _store_fingerprint(d) == before  # store uncorrupted
+
+    def test_mixed_run_skips_one_and_migrates_other(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        """Design scenario 6: one skippable subdir + one migration-needing
+        subdir in a single invocation."""
+        skip_dir = tmp_path / "skipme"
+        _write_store(skip_dir, {"d1": _PDoc(_migrated_meta())})
+
+        def _fake_abs_db_dir(subdir: str) -> str:
+            return str(skip_dir)  # only consulted for the skip subdir
+
+        def _detection(subdir, abs_db_dir_fn=None):
+            if subdir == "skipme":
+                return _REAL_DETECTION(subdir, abs_db_dir_fn=_fake_abs_db_dir)
+            return (True, 0)  # other subdir: full path
+
+        monkeypatch.setattr(
+            execute, "_modelless_subdir_needs_migration", _detection
+        )
+
+        _StubMemory, registry, update_calls, get_calls = _make_registry()
+        registry["work"] = {"d1": _StubDoc("d1", metadata={})}
+        monkeypatch.setattr(
+            execute,
+            "_import_memory",
+            lambda: (lambda: ["skipme", "work"], _StubMemory),
+        )
+
+        exit_code = execute.main()
+
+        assert exit_code == 0
+        out = capsys.readouterr().out
+        assert "subdir 'skipme': skipped (nothing to migrate) [model-less]" in out
+        assert "subdir 'work': scanned=1 updated=1" in out
+        assert "subdirs_processed=1" in out  # only 'work' was processed
+
+
+def _make_registry():
+    """Local registry helper mirroring the ``stub_memory_registry`` fixture
+    (usable inside classes that need custom subdir lists)."""
+    registry: dict = {}
+    update_calls: dict = {}
+    get_by_subdir_calls: list = []
+
+    class _StubFaiss:
+        def __init__(self, subdir):
+            self._subdir = subdir
+
+        def get_all_docs(self):
+            return dict(registry.get(self._subdir, {}))
+
+    class _StubMem:
+        def __init__(self, subdir):
+            self._subdir = subdir
+            self.db = _StubFaiss(subdir)
+
+        async def update_documents(self, docs):
+            update_calls.setdefault(self._subdir, []).append(list(docs))
+
+    class _StubMemory:
+        @staticmethod
+        async def get_by_subdir(memory_subdir, log_item=None, **kwargs):
+            get_by_subdir_calls.append((memory_subdir, dict(kwargs)))
+            return _StubMem(memory_subdir)
+
+    return _StubMemory, registry, update_calls, get_by_subdir_calls

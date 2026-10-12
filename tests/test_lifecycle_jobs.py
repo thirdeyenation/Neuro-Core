@@ -833,7 +833,7 @@ class TestExecuteMigrationMemoryParam:
             "directly — this triggers 'name Memory is not defined' at runtime"
         )
 
-    def test_run_migration_completes_without_name_error(self) -> None:
+    def test_run_migration_completes_without_name_error(self, monkeypatch) -> None:
         """End-to-end: ``_run_migration(stub, stub)`` must complete without
         raising ``NameError`` when the function is the only scope that
         knows about the ``Memory`` class."""
@@ -866,6 +866,15 @@ class TestExecuteMigrationMemoryParam:
 
         def _stub_get_subdirs() -> list[str]:
             return ["default", "projects/neuro_core"]
+
+        # Pin model-less detection to the full migration path: this test
+        # exercises the _run_migration NameError regression, not detection,
+        # and must stay isolated from the real filesystem (KI-054, WI-P75).
+        monkeypatch.setattr(
+            execute_mod,
+            "_modelless_subdir_needs_migration",
+            lambda subdir, abs_db_dir_fn=None: (True, 0),
+        )
 
         # This call would have raised NameError before the fix
         processed, scanned, updated = asyncio.run(
