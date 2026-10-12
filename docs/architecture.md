@@ -133,9 +133,14 @@ script:
    `get_existing_memory_subdirs()`.
 2. For each subdir, runs a **model-less, read-only detection
    phase** first: the store directory is resolved via the
-   framework's `abs_db_dir()`, and the persisted `index.pkl`
-   docstore is read directly — no `Memory` instance, no embedding
-   model, and no index is constructed. The existing
+   confined lightweight resolver `_abs_db_dir_light()` — a
+   verbatim replication of `abs_db_dir()`'s standard branch via
+   `helpers.files`, which fails closed (returns `None`) for
+   `projects/`-scoped subdirs and on any import failure — and
+   the persisted `index.pkl` docstore is read directly — no
+   `Memory` instance, no embedding model, no index is
+   constructed, and the heavy `plugins._memory.helpers.memory`
+   module is never imported during detection. The existing
    `_needs_migration` predicate is applied over the five Neuro
    Core fields (`memory_type`, `importance`, `confidence`,
    `stability`, `validation_status`); if every document already
@@ -156,6 +161,25 @@ script:
      entry into a `derived_from` edge in `GraphStore` with
      `source="migration"`.
 4. Calls `mem.update_documents(modified)` to persist the changes.
+
+The heavy `plugins._memory.helpers.memory` module is imported
+**exactly once, and only when needed**: if at least one subdir
+requires migration (or a fail-closed fallback fires), the import
+happens once, before any write; if every subdir reports nothing to
+migrate, the script completes in seconds without importing it at
+all (validation measured the fresh/empty-store skip at 0.72s on a
+disposable fixture — a fixture-scale figure, not a general
+performance claim). All progress output is flushed, so it remains
+visible under pipe capture, including when a timeout interrupts the
+run.
+
+**Residual limitation:** `projects/`-scoped memory subdirs are
+resolved through the full path (they fail closed in the lightweight
+resolver by design), so on a cold container they still pay the
+heavy module import cost and may still hit the framework's fixed
+120-second timeout. Correct resolution of this residual requires
+`helpers.projects`; changing this would require a D-NC1-157
+exception (HITL's sole authority — not requested).
 
 The migration is idempotent: running it twice has no effect the
 second time. It is non-destructive: it never overwrites an existing

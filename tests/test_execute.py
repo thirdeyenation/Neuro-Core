@@ -397,6 +397,12 @@ class TestMainReturnAndReporting:
         def _get_existing():
             return ["main", "other"]
 
+        # WI-P79: enumeration is now a real lightweight pre-pass — pin it
+        # so the detection phase sees exactly the stubbed subdirs.
+        monkeypatch.setattr(
+            execute, "_list_memory_subdirs", lambda: ["main", "other"]
+        )
+
         # Replace the import guard so main() does not need the real
         # ``plugins._memory.helpers.memory`` module. This is exactly the
         # contract ``main()`` enforces: it must call ``_import_memory()``
@@ -430,6 +436,12 @@ class TestMainReturnAndReporting:
         """``main()`` returns 1 and prints a fatal error when the
         ``_memory`` plugin cannot be imported.
         """
+        # WI-P79: pin the lightweight enumeration; the autouse fixture
+        # forces detection to report migration-needed, so the full path
+        # (and its import guard) is reached.
+        monkeypatch.setattr(
+            execute, "_list_memory_subdirs", lambda: ["default"]
+        )
         # Force the import guard to fail.
         monkeypatch.setattr(
             execute,
@@ -685,6 +697,12 @@ class TestMigrationSkipsKnowledgePreload:
         def _get_existing():
             return ["main"]
 
+        # WI-P79: pin the lightweight enumeration; the autouse fixture
+        # forces detection to report migration-needed, so the full path runs.
+        monkeypatch.setattr(
+            execute, "_list_memory_subdirs", lambda: ["main"]
+        )
+
         monkeypatch.setattr(
             execute,
             "_import_memory",
@@ -893,6 +911,12 @@ class TestModellessSkipPath:
         _write_store(d, {"d1": _PDoc(_migrated_meta())})
         before = _store_fingerprint(d)
 
+        # WI-P79: pin the lightweight enumeration so the Phase-1 pre-pass
+        # sees exactly this fixture subdir.
+        monkeypatch.setattr(
+            execute, "_list_memory_subdirs", lambda: ["migrated"]
+        )
+
         def _confined_detection(subdir, abs_db_dir_fn=None):
             return _REAL_DETECTION(subdir, abs_db_dir_fn=lambda s: str(d))
 
@@ -921,10 +945,18 @@ class TestModellessSkipPath:
     def test_fresh_container_empty_store_never_loads_model(
         self, tmp_path, capsys, monkeypatch
     ):
-        """Design scenario 1 + C6: absent stores skip model-less; the run
-        completes without ever reaching the Memory layer (binding no-model
-        assertion via the raising stub).
+        """Design scenario 1 + C6 (WI-P79 strengthened): absent stores skip
+        model-less in the Phase-1 pre-pass and the process exits BEFORE the
+        heavy ``plugins._memory.helpers.memory`` module is ever imported —
+        asserted by a raising import stub (binding import-blocking
+        assertion).
         """
+        # WI-P79: pin the lightweight enumeration to a fresh-container-like
+        # subdir set; detection is genuine and confined to absent tmp dirs.
+        monkeypatch.setattr(
+            execute, "_list_memory_subdirs", lambda: ["default", "main"]
+        )
+
         def _confined_detection(subdir, abs_db_dir_fn=None):
             # Absent dirs under tmp_path: genuine detection, confined fixture.
             return _REAL_DETECTION(
@@ -935,18 +967,13 @@ class TestModellessSkipPath:
             execute, "_modelless_subdir_needs_migration", _confined_detection
         )
 
-        class _MustNotConstruct:
-            @staticmethod
-            async def get_by_subdir(*a, **k):
-                raise AssertionError(
-                    "model machinery must not be constructed on the skip path"
-                )
+        def _forbidden_import():
+            raise AssertionError(
+                "plugins._memory.helpers.memory must never be imported on "
+                "the fresh-empty-store early-exit path (WI-P79 C5)"
+            )
 
-        monkeypatch.setattr(
-            execute,
-            "_import_memory",
-            lambda: (lambda: ["default", "main"], _MustNotConstruct),
-        )
+        monkeypatch.setattr(execute, "_import_memory", _forbidden_import)
 
         exit_code = execute.main()
 
@@ -1056,3 +1083,192 @@ def _make_registry():
             return _StubMem(memory_subdir)
 
     return _StubMemory, registry, update_calls, get_by_subdir_calls
+
+
+# ---------------------------------------------------------------------------
+# WI-P79-KI054-DEFERRED-IMPORT: lightweight enumeration/resolution, deferred
+# heavy import, flushed output (ARC conditions C2, C3, C4).
+# ---------------------------------------------------------------------------
+
+
+class TestLightweightPrePassConditions:
+    """Binding tests for the WI-P79 ARC conditions.
+
+    C2 (drift detection): the lightweight resolver and enumerator must stay
+    equivalent to the framework's ``abs_db_dir`` standard branch and
+    ``get_existing_memory_subdirs`` standard enumeration. The comparison
+    runs in a clean subprocess (the conftest ``helpers`` stub makes the
+    real framework module unimportable in-process).
+    """
+
+    def test_drift_detection_against_framework_reference(self):
+        """C2 (BINDING): _abs_db_dir_light matches abs_db_dir's standard
+        branch; _list_memory_subdirs is a conservative superset of the
+        framework's enumeration (identical standard subdirs; projects/
+        entries listed by name, never silently dropped)."""
+        import subprocess
+        import sys as _sys
+
+        probe_resolver = """
+import sys
+sys.path.insert(0, "/a0")
+from helpers.files import get_abs_path
+import usr.plugins.neuro_core.execute as ex
+
+# Resolver: standard branch must match the framework primitive exactly.
+for s in ["default", "main", "custom-x"]:
+    assert ex._abs_db_dir_light(s) == get_abs_path("usr/memory", s), s
+# projects/-scoped must fail closed.
+assert ex._abs_db_dir_light("projects/anything") is None
+print("DRIFT-OK-RESOLVER")
+"""
+        result = subprocess.run(
+            [_sys.executable, "-c", probe_resolver],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONPATH": "/a0"},
+            timeout=120,
+        )
+        assert result.returncode == 0, result.stderr[-2000:]
+        assert "DRIFT-OK-RESOLVER" in result.stdout
+
+        # Enumeration comparison needs the REAL framework module (heavy:
+        # langchain et al.), which only exists in the framework runtime.
+        probe_enum = """
+import sys
+sys.path.insert(0, "/a0")
+from plugins._memory.helpers.memory import get_existing_memory_subdirs
+import usr.plugins.neuro_core.execute as ex
+
+fw = get_existing_memory_subdirs()
+light = ex._list_memory_subdirs()
+fw_std = sorted(s for s in fw if not s.startswith("projects/"))
+light_std = sorted(s for s in light if not s.startswith("projects/"))
+assert fw_std == light_std, (fw_std, light_std)
+for s in fw:
+    if s.startswith("projects/"):
+        assert s in light, s
+assert "default" in light
+print("DRIFT-OK-ENUM")
+"""
+        result = subprocess.run(
+            ["/opt/venv-a0/bin/python", "-c", probe_enum],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONPATH": "/a0"},
+            timeout=300,
+        )
+        assert result.returncode == 0, result.stderr[-2000:]
+        assert "DRIFT-OK-ENUM" in result.stdout
+
+    def test_detection_call_site_signature_against_real_helpers(self):
+        """WI-P79 rev 2 (VAL defect D1/D2, BINDING): the detection call site
+        must honor _abs_db_dir_light's actual return contract (a PATH string,
+        not a callable) against the REAL helpers.files — with NO conftest
+        stub. The pytest helpers stub returns a callable Mock for
+        get_abs_path, which masked a 'str' object is not callable TypeError
+        at the call site and made the model-less skip unreachable in real
+        execution while the full suite stayed green. This probe runs the
+        un-injected detection path in a clean subprocess under the real
+        framework and pins: absent store → (False, 0) skip; projects/-scoped
+        subdir → (None, 0) fail-closed fallback; never a TypeError."""
+        import subprocess
+        import sys as _sys
+
+        probe_call_site = """
+import sys
+sys.path.insert(0, "/a0")
+import usr.plugins.neuro_core.execute as ex
+
+# Un-injected call site: exercises the real _abs_db_dir_light -> db_dir
+# contract (rev 2 fix). Absent store must skip model-less, not raise.
+r = ex._modelless_subdir_needs_migration('nonexistent-subdir-probe')
+assert r == (False, 0), r
+# projects/-scoped must fail closed to the full path, not raise.
+r2 = ex._modelless_subdir_needs_migration('projects/anything')
+assert r2 == (None, 0), r2
+print("CALLSITE-OK")
+"""
+        result = subprocess.run(
+            [_sys.executable, "-c", probe_call_site],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONPATH": "/a0"},
+            timeout=120,
+        )
+        assert result.returncode == 0, result.stderr[-2000:]
+        assert "CALLSITE-OK" in result.stdout
+
+    def test_resolver_projects_scoped_fails_closed(self):
+        """C2: projects/-scoped subdirs never resolve through the
+        lightweight resolver — they fail closed to the full path."""
+        assert execute._abs_db_dir_light("projects/neuro_core_2") is None
+        assert execute._abs_db_dir_light("projects/") is None
+
+    def test_enumeration_failure_falls_back_to_full_path(
+        self, stub_memory_registry, capsys, monkeypatch
+    ):
+        """C2 fail-closed: when lightweight enumeration fails (None),
+        main() warns and runs the exact full migration path."""
+        _StubMemory, registry, _, _ = stub_memory_registry
+        registry["main"] = {"d1": _StubDoc("d1", metadata={})}
+        monkeypatch.setattr(execute, "_list_memory_subdirs", lambda: None)
+        monkeypatch.setattr(
+            execute,
+            "_import_memory",
+            lambda: (lambda: ["main"], _StubMemory),
+        )
+
+        exit_code = execute.main()
+
+        assert exit_code == 0
+        out = capsys.readouterr().out
+        assert "falling back to the full migration path" in out
+        assert "subdir 'main': scanned=1 updated=1" in out
+
+    def test_deferred_import_called_exactly_once_before_writes(
+        self, stub_memory_registry, monkeypatch
+    ):
+        """C3: the heavy module is imported exactly once, only after
+        detection reports a migration-needing subdir, and before any
+        persistence write."""
+        _StubMemory, registry, update_calls, _ = stub_memory_registry
+        registry["main"] = {"d1": _StubDoc("d1", metadata={})}
+        monkeypatch.setattr(execute, "_list_memory_subdirs", lambda: ["main"])
+
+        import_calls = []
+
+        def _counting_import():
+            import_calls.append(1)
+            return (lambda: ["main"], _StubMemory)
+
+        monkeypatch.setattr(execute, "_import_memory", _counting_import)
+
+        exit_code = execute.main()
+
+        assert exit_code == 0
+        assert len(import_calls) == 1  # exactly once
+        # The write happened (necessarily after the single import).
+        assert len(update_calls["main"]) == 1
+
+    def test_every_print_call_is_flushed(self):
+        """C4 (BINDING): every ``print()`` call in execute.py passes
+        ``flush=True`` so progress output survives the framework runner's
+        PIPE capture up to any timeout kill."""
+        import ast
+        import inspect
+
+        source = inspect.getsource(execute)
+        tree = ast.parse(source)
+        unflushed = [
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "print"
+            and not any(kw.arg == "flush" for kw in node.keywords)
+        ]
+        assert unflushed == [], (
+            "print() calls without flush=True at lines "
+            f"{unflushed} — output would be lost under PIPE capture"
+        )
