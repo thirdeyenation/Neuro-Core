@@ -111,6 +111,53 @@ extensions and graph cascade-delete cleanup. See
 5. **Configure** — configuration lives in `default_config.yaml` and can
    be overridden per project and per agent; see `docs/configuration.md`.
 
+## The execute.py migration script
+
+The plugin ships a one-shot migration script, `execute.py`, at the
+plugin root. It does not run by itself: it runs when **you** trigger
+it — either through the plugin manager's **execute** action for Neuro
+Core in the Agent Zero WebUI, or manually from the Agent Zero root
+with:
+
+    python -m usr.plugins.neuro_core.execute
+
+**When do you need to run it?** After installing or updating the
+plugin (for example, when a plugin update tells you its data format
+changed, or when support asks you to run the migration), run it once
+so that memories created before Neuro Core was installed (or before
+the update) are brought up to the current schema. Running it again is
+always safe.
+
+**What it does:** it brings any pre-existing Agent Zero memories up to
+the Neuro Core schema — seeding the typed `memory_type` field (default
+`"note"`), the three score fields (`importance` / `confidence` /
+`stability`), and the `validation_status` field (default
+`"unvalidated"`). The migration is **non-destructive**: existing values
+are never overwritten, and only documents missing one or more Neuro
+Core fields are touched.
+
+**Fresh vs. existing stores:**
+
+- **Fresh (empty) store:** the script detects that there is nothing to
+  migrate and exits within seconds — it never loads the heavy memory
+  machinery at all.
+- **Existing store:** the script first inspects the persisted memory
+  store directly (without loading the heavy memory module) to determine
+  which memory subdirectories need migration. Subdirectories that are
+  already fully migrated are skipped; only those that need work are
+  migrated through the full path.
+
+**Fail-closed safety:** the pre-migration inspection is strictly
+read-only — it never writes to your memory store. If it cannot
+confidently determine a subdirectory's state (for example, an
+unrecognized internal store format from an unsupported framework
+version), it does not guess: it falls back to the full, authoritative
+migration path for that subdirectory, which produces the same correct
+result. In no case does an unrecognized store format cause data loss or
+corruption. The supported framework range and this safety behavior are
+recorded in
+`docs/decisions/ADR-NC1-005-framework-compatibility-contract.md`.
+
 ## Data and privacy
 
 Neuro Core stores data in three places:

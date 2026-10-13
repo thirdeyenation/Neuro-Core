@@ -730,11 +730,30 @@ _REAL_DETECTION = execute._modelless_subdir_needs_migration
 
 
 class InMemoryDocstore:
-    """Module-level picklable docstore stand-in.
+    """Module-level picklable docstore stand-in — REAL persisted shape.
 
     The class name matches the framework docstore allowlist
     (``LocalFileStore`` / ``InMemoryDocstore``) so pickled fixtures exercise
     the real structure checks in ``_modelless_subdir_needs_migration``.
+
+    KI-057-AA fidelity fix (WI-P80, ARC condition C4): the document mapping
+    lives in ``_dict`` — the langchain_community InMemoryDocstore attribute
+    verified in real persisted stores on BOTH framework v2.8 (commit
+    5ff106a2) and current (direct probe of .a0proj/memory/index.pkl:
+    attrs ['_dict'], no '.store'). Earlier '.store'-shaped mocks diverged
+    from real persisted data and masked the v2.8 fail-closed defect.
+    """
+
+    def __init__(self, store: dict | None = None):
+        self._dict = store if store is not None else {}
+
+
+class LocalFileStore:
+    """Picklable stand-in for the '.store'-shaped structural family
+    (LocalFileStore-style mapping attribute) — also recognized by the
+    broadened detector (WI-P80, ARC condition C1). The class name matches
+    the detector allowlist so pickled fixtures exercise the real structure
+    checks.
     """
 
     def __init__(self, store: dict | None = None):
@@ -742,7 +761,9 @@ class InMemoryDocstore:
 
 
 InMemoryDocstoreNoStore = type("InMemoryDocstore", (), {"__module__": __name__})
-"""Picklable class whose instances lack a ``.store`` attribute (drift C5)."""
+"""Picklable allowlisted class whose instances expose NEITHER recognized
+dict attribute ('.store' nor '_dict') — the fail-closed negative fixture
+(WI-P80, ARC condition C4)."""
 
 
 class _PDoc:
@@ -876,15 +897,65 @@ class TestModellessDetectionUnit:
     def test_structure_drift_missing_store_attr_falls_back(self, tmp_path, capsys):
         d = tmp_path / "drift4"
         d.mkdir()
-        # Instance of the allowlisted class with .store deleted: the
-        # unpickled object has no ``.store`` attribute, exercising exactly
-        # the missing-store-attr fallback branch (C5).
+        # KI-057-AA fidelity fix (WI-P80, ARC condition C4): instance of the
+        # ALLOWLISTED class exposing NEITHER recognized dict attribute
+        # ('.store' nor '_dict') — the fail-closed negative must hold for
+        # allowlisted-but-unrecognized shapes too. The instance attribute
+        # is deleted before pickling, so the unpickled object carries the
+        # allowlisted class name but no recognized mapping.
         broken_docstore = InMemoryDocstore()
-        del broken_docstore.store
+        del broken_docstore._dict
         with open(d / "index.pkl", "wb") as f:
             pickle.dump((broken_docstore, {}), f)
         assert _REAL_DETECTION("s", abs_db_dir_fn=lambda s: str(d))[0] is None
-        assert "without a dict '.store'" in capsys.readouterr().out
+        assert "without a recognized dict mapping" in capsys.readouterr().out
+
+    def test_v28_shaped_dict_docstore_fast_path(self, tmp_path):
+        """ARC condition C4: the v2.8-shaped persisted docstore
+        (InMemoryDocstore exposing '_dict') is recognized via the fast
+        path — migrated docs report no migration needed, never None.
+        """
+        d = tmp_path / "v28shaped"
+        _write_store(d, {"d1": _PDoc(_migrated_meta())})
+        status, scanned = _REAL_DETECTION("s", abs_db_dir_fn=lambda s: str(d))
+        assert status is False
+        assert scanned == 1
+
+    def test_v28_shaped_dict_docstore_migration_needed(self, tmp_path):
+        """ARC condition C4: the v2.8-shaped '_dict' docstore with an
+        unmigrated doc reports migration needed via the fast path.
+        """
+        d = tmp_path / "v28shaped2"
+        _write_store(d, {"d1": _PDoc({})})
+        status, scanned = _REAL_DETECTION("s", abs_db_dir_fn=lambda s: str(d))
+        assert status is True
+        assert scanned == 1
+
+    def test_current_shaped_dict_docstore_fast_path(self, tmp_path):
+        """ARC condition C4: the current-version persisted shape (the same
+        InMemoryDocstore '_dict' family, verified against the live
+        .a0proj/memory/index.pkl) is recognized via the fast path.
+        """
+        d = tmp_path / "currentshaped"
+        _write_store(d, {"d1": _PDoc(_migrated_meta()), "d2": _PDoc(_migrated_meta())})
+        status, scanned = _REAL_DETECTION("s", abs_db_dir_fn=lambda s: str(d))
+        assert status is False
+        assert scanned == 2
+
+    def test_store_shaped_family_still_recognized(self, tmp_path):
+        """ARC condition C1: the '.store'-shaped structural family
+        (LocalFileStore-style) remains recognized by the broadened
+        detector — no regression of the original recognition path.
+        """
+        d = tmp_path / "storeshaped"
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(str(d), "index.pkl"), "wb") as f:
+            pickle.dump((LocalFileStore({"d1": _PDoc(_migrated_meta())}), {"k1": "d1"}), f)
+        with open(os.path.join(str(d), "index.faiss"), "wb") as f:
+            f.write(b"FAISS")
+        status, scanned = _REAL_DETECTION("s", abs_db_dir_fn=lambda s: str(d))
+        assert status is False
+        assert scanned == 1
 
     def test_detection_is_read_only_store_byte_identity(self, tmp_path):
         """ARC condition C2: detection writes NOTHING to the store dir."""

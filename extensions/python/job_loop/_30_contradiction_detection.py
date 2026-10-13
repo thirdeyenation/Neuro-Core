@@ -490,9 +490,11 @@ class ContradictionDetectionJob(Extension):
         (``plugins/_memory/helpers/memory.py``):
         ``get_embedding_model_config_object()`` →
         ``models.get_embedding_model(mc.provider, mc.name,
-        model_config=mc, **mc.build_kwargs())``; the wrapper's
-        batch-shaped ``embed(inputs)`` API is used (framework contract:
-        embedding wrappers expose batch-shaped ``embed``).
+        model_config=mc, **mc.build_kwargs())``. The wrapper's batch
+        method is selected by guarded capability detection (WI-P80, ARC
+        condition C3): callable batch-shaped ``embed`` first, then the
+        batch-shaped ``embed_documents`` LangChain compatibility adapter,
+        then a clean empty-mapping skip — never version-string gating.
         """
         if not docs:
             return {}
@@ -508,7 +510,31 @@ class ContradictionDetectionJob(Extension):
             )
             ids = [str(d["id"]) for d in docs]
             contents = [str(d.get("page_content", "")) for d in docs]
-            vectors = model.embed(contents)
+            # Guarded cross-framework capability detection (WI-P80, ARC
+            # condition C3 — fixed order, never version-string gating):
+            #   1. callable batch-shaped 'embed' (current framework
+            #      wrappers, e.g. models.py:884);
+            #   2. callable batch-shaped 'embed_documents' fallback (the
+            #      LangChain compatibility adapter over the same underlying
+            #      inference — identical batch semantics per the framework
+            #      embedding contract; present on v2.8-shaped wrappers
+            #      that lack batch embed());
+            #   3. clean skip — return the empty mapping so gated
+            #      detections are skipped for this pass.
+            # The outer except below (WI-P63 condition 4 fail-safe) is
+            # retained unchanged as the final backstop.
+            batch_embed = getattr(model, "embed", None)
+            if not callable(batch_embed):
+                batch_embed = getattr(model, "embed_documents", None)
+            if not callable(batch_embed):
+                _logger.warning(
+                    "contradiction_detection: resolved embedding wrapper "
+                    "exposes neither batch embed() nor embed_documents(); "
+                    "skipping gated detections for this pass (empty "
+                    "embeddings mapping)."
+                )
+                return {}
+            vectors = batch_embed(contents)
             mapping: Dict[str, List[float]] = {}
             for mid, vec in zip(ids, vectors):
                 if vec is None:

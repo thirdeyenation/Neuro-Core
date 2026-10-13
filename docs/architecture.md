@@ -124,10 +124,14 @@ entry points: `hooks.py` (lifecycle) and `execute.py` (migration).
 
 ### `execute.py` — one-shot migration
 
-`execute.py` runs **exactly once** when the plugin is upgraded from a
-version that did not have Neuro Core metadata, or when a fresh
-plugin is first activated on an existing FAISS store. The migration
-script:
+`execute.py` does not run automatically. It runs when the **user**
+triggers it — via the plugin manager's **execute** action for Neuro
+Core in the Agent Zero WebUI, or manually from the Agent Zero root
+with `python -m usr.plugins.neuro_core.execute`. It is intended to be
+run once after installing or updating the plugin, so that memories
+created before Neuro Core was installed (or before the update) are
+brought up to the current schema; it is idempotent, so running it
+again is always safe. The migration script:
 
 1. Iterates over all subdirs returned by
    `get_existing_memory_subdirs()`.

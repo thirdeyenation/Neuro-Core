@@ -251,12 +251,28 @@ def _modelless_subdir_needs_migration(
             flush=True,
         )
         return None, 0
+    # Structural docstore-shape resolution (WI-P80, ARC condition C1):
+    # recognition requires BOTH guards — the class-name allowlist above AND
+    # a dict-valued attribute from the verified structural families below.
+    #   '.store' — the LocalFileStore-style mapping attribute.
+    #   '_dict'  — the langchain_community InMemoryDocstore mapping attribute
+    #              (the persisted shape on BOTH framework v2.8 (commit
+    #              5ff106a2, plugins/_memory/helpers/memory.py:219/:44-51)
+    #              and current; a langchain-community 0.3.19 implementation
+    #              detail — recorded in ADR-NC1-005).
+    # Recognition is by STRUCTURE, never by version string (ADR-NC1-005):
+    # any allowlisted docstore exposing neither recognized dict attribute,
+    # and any other unexpected structure, fails closed (None → full
+    # migration path) exactly as before.
     store = getattr(docstore, "store", None)
+    if not isinstance(store, dict):
+        store = getattr(docstore, "_dict", None)
     if not isinstance(store, dict):
         print(
             f"[neuro_core] WARNING: model-less read of '{memory_subdir}' "
-            f"found a docstore without a dict '.store' attribute — "
-            f"falling back to the full migration path.",
+            f"found a docstore without a recognized dict mapping "
+            f"('.store' or '_dict') — falling back to the full "
+            f"migration path.",
             flush=True,
         )
         return None, 0
