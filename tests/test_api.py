@@ -567,21 +567,17 @@ def _stub_graph_store_with_enum_edges(monkeypatch, api_mod=None):
         def __init__(self, memory_subdir: str):
             self.memory_subdir = memory_subdir
 
-        def get_edges(self, from_id: str):
-            return [
-                _edge_with_enum_metadata(),
-            ]
+        def get_edges(self, from_id: Optional[str] = None):
+            # Real GraphStore contract: no-arg returns the full adjacency
+            # map (helpers/graph_store.py:321-339); per-node form returns
+            # that node's edges.
+            if from_id is None:
+                return {"X": [_edge_with_enum_metadata()]}
+            return [_edge_with_enum_metadata()]
 
         def neighbors(self, from_id: str, hops: int = 1):
             # Empty list = no inbound edges (simplifies the test).
             return []
-
-        # _list_all_relationships reads store._data.values() directly.
-        _data = {
-            "X": [
-                _edge_with_enum_metadata(),
-            ],
-        }
 
     monkeypatch.setattr(api_mod, "GraphStore", _StubGraphStore)
 

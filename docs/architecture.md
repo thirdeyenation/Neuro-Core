@@ -24,8 +24,8 @@ existing `_memory` plugin by adding:
    index is required — adding metadata keys is non-breaking.
 2. **A graph layer** of typed, weighted relationships between
    memories (`supports`, `contradicts`, `depends_on`, `derived_from`,
-   `related_to`, `precedes`, `follows`). The graph lives in two new
-   JSON sidecar files (`relationships.json` and `scores.json`)
+   `related_to`, `precedes`, `follows`, `part_of`). The graph lives in
+   two new JSON sidecar files (`relationships.json` and `scores.json`)
    placed in the same `abs_db_dir(memory_subdir)` directory as the
    FAISS index.
 3. **Hybrid retrieval** via `search_context_graph()`. A single
@@ -33,9 +33,10 @@ existing `_memory` plugin by adding:
    and importance/recency-weighted reranking, returning a structured
    `ContextGraph` (nodes + edges) that the agent can serialize to a
    prompt fragment.
-4. **Three new agent tools** — `memory_score`, `memory_relate`,
-   `memory_reflect` — that let the agent itself maintain the graph
-   and the score sidecar.
+4. **Six agent tools** — `memory_score`, `memory_relate`,
+   `memory_reflect`, plus `neuro_capture`, `neuro_retrieve`, and
+   `neuro_validate` — that let the agent capture, retrieve, and
+   maintain the graph and the score sidecar.
 5. **Three background lifecycle jobs** — importance decay, episode
    grouping, and contradiction detection — that run as `job_loop`
    extensions piggy-backing on Agent Zero's existing job scheduler.
@@ -54,7 +55,7 @@ All Neuro Core state lives in three places, all under
 | Substrate | File | Format | Written by | Read by |
 |---|---|---|---|---|
 | FAISS document metadata | `index.faiss` + `index.pkl` | FAISS + pickled docstore | `_memory` plugin, Neuro Core (validation_status, memory_type, episode_id) | `_memory` plugin, Neuro Core retrieval |
-| Scores sidecar | `scores.json` | JSON | `ScoreStore` (via `memory_score` tool, `run_importance_decay`, `update_access`) | `ScoreStore.get()` (via retrieval) |
+| Scores sidecar | `scores.json` | JSON | `ScoreStore` (via `memory_score` tool, `run_importance_decay`, `update_access`) | `ScoreStore.get_optional()` / `ScoreStore.get()` (via retrieval — absence-aware read; legacy `get()` retained for stub stores) |
 | Relationships sidecar | `relationships.json` | JSON | `GraphStore` (via `memory_relate` tool, `ContextGraphApi`, `execute.py` migration, contradiction detector, cascade-delete hook) | `GraphStore.neighbors()` (via retrieval), `GraphStore.get_edges()` (via `run_graph_analytics`) |
 
 The two existing sidecars from `_memory` (`embedding.json` and
@@ -77,7 +78,7 @@ Three reasons:
 ### Sidecar write pattern
 
 Both `ScoreStore` and `GraphStore` use the same atomic write pattern
-that the framework itself uses in `helpers/kvp.py`:
+that the framework itself uses in `/a0/helpers/kvp.py`:
 
 ```python
 fd, tmp = tempfile.mkstemp(dir=os.path.dirname(target_path))
@@ -123,15 +124,38 @@ entry points: `hooks.py` (lifecycle) and `execute.py` (migration).
 
 ### `execute.py` — one-shot migration
 
-`execute.py` runs **exactly once** when the plugin is upgraded from a
-version that did not have Neuro Core metadata, or when a fresh
-plugin is first activated on an existing FAISS store. The migration
-script:
+`execute.py` does not run automatically. It runs when the **user**
+triggers it — via the plugin manager's **execute** action for Neuro
+Core in the Agent Zero WebUI, or manually from the Agent Zero root
+with `python -m usr.plugins.neuro_core.execute`. It is intended to be
+run once after installing or updating the plugin, so that memories
+created before Neuro Core was installed (or before the update) are
+brought up to the current schema; it is idempotent, so running it
+again is always safe. The migration script:
 
 1. Iterates over all subdirs returned by
    `get_existing_memory_subdirs()`.
-2. For each subdir, opens a `Memory` instance, fetches
-   `db.get_all_docs()`, and for every document:
+2. For each subdir, runs a **model-less, read-only detection
+   phase** first: the store directory is resolved via the
+   confined lightweight resolver `_abs_db_dir_light()` — a
+   verbatim replication of `abs_db_dir()`'s standard branch via
+   `helpers.files`, which fails closed (returns `None`) for
+   `projects/`-scoped subdirs and on any import failure — and
+   the persisted `index.pkl` docstore is read directly — no
+   `Memory` instance, no embedding model, no index is
+   constructed, and the heavy `plugins._memory.helpers.memory`
+   module is never imported during detection. The existing
+   `_needs_migration` predicate is applied over the five Neuro
+   Core fields (`memory_type`, `importance`, `confidence`,
+   `stability`, `validation_status`); if every document already
+   carries all fields — or the store is absent or empty — the
+   subdir is skipped entirely.
+3. For subdirs where at least one document is missing a field —
+   and as the **fail-closed fallback** for any detection
+   read/structure failure (for example a corrupt pickle or an
+   unexpected docstore structure) — the migration opens a
+   `Memory` instance, fetches `db.get_all_docs()`, and for every
+   document:
    - If the document is missing one or more of the fields in
      `_NEURO_CORE_FIELDS = ("memory_type", "importance",
      "confidence", "stability", "validation_status")`, calls
@@ -140,7 +164,26 @@ script:
    - If the document has a `consolidated_from` list, converts each
      entry into a `derived_from` edge in `GraphStore` with
      `source="migration"`.
-3. Calls `mem.update_documents(modified)` to persist the changes.
+4. Calls `mem.update_documents(modified)` to persist the changes.
+
+The heavy `plugins._memory.helpers.memory` module is imported
+**exactly once, and only when needed**: if at least one subdir
+requires migration (or a fail-closed fallback fires), the import
+happens once, before any write; if every subdir reports nothing to
+migrate, the script completes in seconds without importing it at
+all (validation measured the fresh/empty-store skip at 0.72s on a
+disposable fixture — a fixture-scale figure, not a general
+performance claim). All progress output is flushed, so it remains
+visible under pipe capture, including when a timeout interrupts the
+run.
+
+**Residual limitation:** `projects/`-scoped memory subdirs are
+resolved through the full path (they fail closed in the lightweight
+resolver by design), so on a cold container they still pay the
+heavy module import cost and may still hit the framework's fixed
+120-second timeout. Correct resolution of this residual requires
+`helpers.projects`; changing this would require a D-NC1-157
+exception (HITL's sole authority — not requested).
 
 The migration is idempotent: running it twice has no effect the
 second time. It is non-destructive: it never overwrites an existing
@@ -168,7 +211,7 @@ Neuro Core ships three `job_loop` extensions and one `_functions`
 hook, all under
 `usr/plugins/neuro_core/extensions/python/`.
 
-A `startup_migration` extension at `usr/plugins/neuro_core/extensions/python/startup_migration/_05_neuro_patch.py` fires at container startup to install the Memory monkey-patch (D35); `startup_migration` fires from the plugin-path extension, not from a `usr/extensions/` relay.
+At plugin init (`hooks.py:install()`), Neuro Core re-applies the framework's public `@extensible` decorator to the three host-called `Memory` methods at full identity (`helpers/decorate.py`), so the `_functions` handler tree fires for host-initiated operations (D-NC1-010; ADR-NC1-001). Neuro Core-originated operations go through the native access layer (`helpers/native_access.py`) instead of any runtime monkey-patching. Decoration is applied at two points: plugin install (`hooks.py:install()`) and every framework startup via the `startup_migration` extension `usr/plugins/neuro_core/extensions/python/startup_migration/_10_neuro_decoration.py`, whose `execute()` calls `helpers/decorate.py:decorate_memory()` (exception-safe and idempotent, so decoration survives container restarts where install-time wiring does not re-run).
 
 ### Job loop extensions
 
@@ -177,6 +220,11 @@ Agent Zero's `helpers/job_loop.py` calls
 hooks into this loop with three extensions, each throttled
 independently by the `should_run(...)` helper in
 `helpers/lifecycle.py`:
+
+Job execution is deferred for the first 300 seconds of process
+uptime after framework boot; a skipped tick performs no work and
+records no throttle state, so the first post-grace tick runs the
+real job.
 
 #### `_10_access_decay.py` — Importance decay
 
@@ -218,31 +266,83 @@ independently by the `should_run(...)` helper in
   `true`); `contradiction_llm_enabled` (default `false` in v0.1.0).
 - **Implementation**: Calls `run_contradiction_detection(memory,
   config)` from `helpers/lifecycle.py`. The function:
-  1. Selects up to `contradiction_batch_size` (default `100`)
-     `fact`-type memories with
-     `validation_status != "deprecated"`.
+  1. Builds the eligible facts: only documents whose normalized
+     memory type includes `fact` (lenient normalization via
+     `helpers.metadata.normalize_memory_types`) are eligible;
+     untyped records are **ineligible** by design — they are never
+     compared and never disputed. The scheduled sweep processes
+     **all** eligible facts per subdir per pass.
   2. For each fact, runs `Memory.search_similarity_threshold(...)`
      with `contradiction_similarity_threshold` (default `0.85`) to
-     find candidates.
-  3. For each candidate pair, applies the lexical heuristic
+     find candidates when a memory-backed store is supplied.
+     `contradiction_batch_size` (default `100`) caps this
+     memory-search candidate path only — it does **not** truncate
+     the scheduled facts path (WI-P63 / KI-048, D-NC1-137).
+  3. Applies the threshold-gating embeddings channel (WI-P63 /
+     KI-048): the `_30` job computes an embeddings mapping at the
+     call site via the single `_compute_embeddings` seam and always
+     passes it — never `None`. When a mapping is supplied, every
+     candidate pair is gated by `contradiction_similarity_threshold`:
+     pairs below the threshold are not compared and not disputed,
+     even if the lexical heuristic would flag them. A missing vector
+     on either side of a pair is a per-pair fail-safe: no comparison,
+     no dispute. An empty mapping degrades to zero detections. The
+     legacy direct-call channel without a mapping (`embeddings=None`)
+     runs the O(n^2) lexical pairwise fallback ungated, preserving
+     prior behavior verbatim.
+  4. For each compared candidate pair, applies the lexical heuristic
      (`_NEGATION_TOKENS` and `_OPPOSITE_PAIRS` in
      `helpers/lifecycle.py`) to decide opposition.
-  4. **Critical caveat (Workstream B obs #4)**: The function
-     updates the in-memory metadata dict and **does not** persist
-     the new `validation_status` to FAISS. The caller
-     (`_30_contradiction_detection.py`) is responsible for writing
-     the change back. This will be verified in Workstream C
-     integration test #10.
+  5. Returns the additive `disputes` list (each entry carries
+     `memory_id` — the disputed, older memory — `disputed_id`,
+     `detected_at` and `basis`) **without mutating any metadata
+     dict**; persistence is the caller's responsibility. The `_30`
+     job-loop extension persists `validation_status = "disputed"`
+     into FAISS document metadata via the host `update_documents`
+     mechanism (`_persist_disputes` in
+     `_30_contradiction_detection.py`), enforcing WI-P60 transition
+     governance: only `unvalidated`/`unreviewed` -> `disputed` and
+     `validated` -> `disputed` are written; `deprecated`/`superseded`
+     terminal states are skipped; `disputed` -> `disputed` is a
+     no-op; unknown values are skipped with a warning. Write
+     payloads are staged deep copies — the originals are never
+     mutated before a successful write — so a failed write leaves
+     the on-disk status unchanged and is retried on the next sweep
+     pass. Per-detection structural log lines from the helper are
+     the reconstructable dispute audit trail until the boundary-6
+     amendment decides a durable audit home.
+- **Timeout degradation**: the sweep runs under the job-loop
+  scheduler's 30-second `asyncio.wait_for` budget. An oversized run
+  that exceeds it is cancelled for that tick (producing no detections
+  on that tick) and is retried on the next scheduled interval; the
+  scheduler itself stays healthy.
+- **Validation boundary (WI-P63 / KI-048)**: the semantics above are
+  validated at integration level against the plugin test suite. A
+  live scheduled sweep with detection enabled and restart behavior
+  are **not tested**; the `contradiction_detection_enabled` flip-back
+  is a formally sequenced condition (D-NC1-138) owned by the
+  orchestrator and has not executed. The `true` default above is the
+  schema default, not a statement about the running container's
+  current configuration.
 
 ### `_functions` extension — Cascade delete
 
-`helpers/memory.py:Memory.delete_documents_by_ids(...)` is decorated
-by Agent Zero's `@extensible`, which auto-generates the hook points
-`_functions/plugins._memory.helpers.memory/Memory/delete_documents_by_ids/start`
+The framework's `plugins/_memory` Memory methods carry **no**
+`@extensible` decorators — verified against framework source
+(zero `@extensible` occurrences in
+`/a0/plugins/_memory/helpers/memory.py`; see ADR-NC1-001, which
+resolves KI-022/OA-9). Hook points for
+`Memory.delete_documents_by_ids(...)` are provided by Neuro Core's
+startup re-decoration instead: at plugin install (`hooks.py`) and at
+every framework startup (`extensions/python/startup_migration/_10_neuro_decoration.py`),
+`helpers/decorate.py` re-applies
+`helpers.extension.extensible` to the host-called Memory methods at
+full identity, generating the hook points
+`_functions/plugins/_memory/helpers/memory/Memory/delete_documents_by_ids/start`
 and `.../end`. Neuro Core installs a single extension at the
 `end` hook point:
 
-- **Path**: `extensions/python/_functions/plugins._memory.helpers.memory/Memory/delete_documents_by_ids/end/_01_graph_cleanup.py`
+- **Path**: `extensions/python/_functions/plugins/_memory/helpers/memory/Memory/delete_documents_by_ids/end/_01_graph_cleanup.py`
 - **Purpose**: After `_memory` finishes deleting the requested
   documents, iterate over the deleted IDs and call
   `GraphStore.remove_edges_for_id(memory_id)` for each one. This
@@ -253,6 +353,20 @@ The extension only fires on success — if the upstream
 `delete_documents_by_ids()` raises, no cleanup runs (which is
 correct, since no documents were actually deleted).
 
+**Delete ordering (WI-P10-DELETE-ORDERING).** The sidecar cascade is
+owned exclusively by this end-hook, strictly AFTER confirmed deletion.
+The former pre-delete cascade in the native access layer
+(`helpers/native_access.py`, D39-A ordering) is superseded — grounded
+provenance: D-NC1-035 explicitly recorded the delete-ordering question
+as REMAINS OPEN after its transfer to the native path, so closing it
+here is open-question closure, not ratified-policy amendment. Failure
+asymmetry: a failing framework delete leaves all sidecar edges intact;
+a success-then-crash-before-hook window leaves orphaned (recoverable,
+visible via the read-only reconcile scan) edges — never loss of live
+memories' edges. Single-edge unlink (``memory_relate`` remove path) is
+a targeted one-atomic-write removal; bulk ``remove_edges_for_id``
+remains the legitimate post-success document-deletion cascade.
+
 ---
 
 ## 5. ContextGraph pipeline
@@ -261,16 +375,26 @@ The hybrid-retrieval pipeline is the heart of Neuro Core's value-add.
 It is invoked by `search_context_graph(memory, query, graph_store,
 score_store, config) -> ContextGraph` and runs in four stages.
 
+Retrieval through `NeuroCoreService.retrieve()` (exposed to agents as
+the `neuro_retrieve` tool) filters on the **exact** scope provided —
+`Scope(project, agent)`. Callers must pass the scope the memory was
+captured under: omitting `agent` silently misses agent-scoped memories,
+because the filter matches project AND agent exactly.
+
 ### Stage 1 — Semantic seed retrieval
 
 ```
-seeds = memory.search_similarity_threshold(query, threshold=0.5, k=20)
+seed_docs = await memory.search_similarity_threshold(
+    query=query, limit=semantic_limit, threshold=semantic_threshold)
 ```
 
 This calls the existing `_memory` plugin's FAISS-based semantic
-search. The threshold and `k` are hard-coded inside
-`search_context_graph`; the rerank step (Stage 3) is what filters
-the result list down to the final returned node count.
+search. `semantic_limit` (default `10`) and `semantic_threshold`
+(default `0.5`) are config-resolved inside `search_context_graph`
+(`helpers/retrieval.py`); the final node list is re-ranked by the
+composite score computed during seed-node construction (Stage 1) and
+neighbor registration (Stage 2) — there is no separate top_k cut at
+assembly time.
 
 ### Stage 2 — BFS graph expansion
 
@@ -287,37 +411,58 @@ neighbors (hop 1) and their neighbors (hop 2). The BFS is capped at
 `graph_neighbors_max` (default `40`) neighbors per seed to bound
 latency.
 
-This stage is **skipped entirely** when `graph_enabled` is `false`
-in the config — in that mode the returned `ContextGraph` has the
-seed nodes and an empty `edges` list.
+This stage is **skipped entirely** when no graph store is available
+(`graph_store is None`) or when `graph_max_hops` is `0` — in that
+mode the returned `ContextGraph` has the seed nodes and an empty
+`edges` list. There is no separate `graph_enabled` config key; the
+pipeline is bounded by `graph_max_hops` (default `2`) and
+`graph_neighbors_max` (default `40` additional graph neighbors beyond
+the seed set, allocated hop-ascending then edge-confidence-descending).
 
-### Stage 3 — Importance-weighted rerank
+### Stage 3 — Importance/recency-weighted scoring (folded into Stages 1–2)
 
 ```
-for node in nodes:
-    scores = score_store.get(node.doc_id)
-    importance = scores.importance if scores else 0.5
-    recency = compute_recency(node.metadata["timestamp"])
-    node.score = (
-        config["similarity_weight"] * node.cosine_similarity
-      + config["importance_weight"] * importance
-      + config["recency_weight"]   * recency
-    )
+importance = score_store.get_optional(doc_id)   # absence-aware read
+           # legacy stores without get_optional() keep their existing
+           # get() semantics (stub-store fallback only)
+           # sidecar entry exists  -> sidecar importance, healthy
+           # no sidecar entry      -> metadata importance + the explicit
+           #                          `neuro_degraded: true` marker — the
+           #                          metadata mirror is never authoritative
+           #                          (legacy-record semantics,
+           #                          ADR-NC1-002 boundary 3, WI-P12)
+           # metadata lacks importance -> 0.5 fallback
+recency    = _recency_score(last_accessed_at or timestamp)
+node.score = config["similarity_weight"] * semantic
+           + config["importance_weight"] * importance
+           + config["recency_weight"]   * recency
 ```
 
-The three weights are configurable (default: 0.5, 0.3, 0.2) and are
-expected to sum to `1.0`, but the helper does not enforce this.
+The three weights are configurable (defaults: 0.5, 0.3, 0.2). There
+is no separate rerank pass — the composite score is computed as each
+node is registered, and graph-only neighbors use a moderate semantic
+baseline of `0.5` so importance and recency differentiate them. When
+the score sidecar is unreadable (KI-008), or when the document is a
+legacy record with no sidecar entry, importance falls back to the
+read-only metadata mirror and the node's metadata is flagged
+`neuro_degraded: true` — the fallback is surfaced as degraded, never
+presented as a healthy sidecar-backed score (WI-P12-SCORE-AUTHORITY).
 
 ### Stage 4 — Assembly and serialization
 
 ```
 context_graph = ContextGraph(
+    nodes=sorted(nodes_by_id.values(), key=lambda n: (-n.score, n.doc_id)),
+    edges=list(edges_by_key.values()),
     query=query,
-    nodes=sorted(nodes, key=lambda n: n.score, reverse=True)[:top_k],
-    edges=deduplicated_edges,
+    seed_ids=seed_ids,
 )
 prompt_text = context_graph.to_prompt_text()
 ```
+
+Nodes are sorted by descending composite score (ties broken by
+`doc_id`); the full node set is returned — no top_k truncation.
+Edges are deduplicated by `(from_id, to_id, type)`.
 
 `ContextGraph.to_prompt_text()` produces a single LLM-ready string:
 
@@ -340,21 +485,21 @@ inspect the graph structure (e.g., the API and the WebUI panel).
 
 ## 6. Tool invocation flow
 
-All three Neuro Core tools follow the same pattern:
+All six Neuro Core tools follow the same general pattern:
 
 ```
 agent calls tool.execute(**kwargs)
         │
         ▼
 Tool class (helpers/tool.py subclass)
-        │ resolves memory_subdir from agent.config
+        │ resolves memory_subdir from the agent's memory db/config
         │ validates arguments
         ▼
 Helper class (ScoreStore / GraphStore / reflection helper)
         │ acquires per-subdir RLock
         │ reads / mutates JSON sidecar (atomic write)
         ▼
-FAISS metadata update (only for memory_score / memory_reflect)
+FAISS metadata update (only for fields routed to FAISS)
         │ calls mem.update_documents([doc])
         ▼
 Returns Response(message=json.dumps({...}))
@@ -364,15 +509,17 @@ Returns Response(message=json.dumps({...}))
 
 1. Agent calls `memory_score(id="mem_abc", importance=0.85,
    validation_status="validated")`.
-2. `MemoryScore.execute()` resolves the `Memory` instance from
-   `agent.config.memory_subdir`.
-3. The tool looks up the document by ID, splits the kwargs into
-   `FAISS_FIELDS = ("validation_status", "task_status")` and
-   `SCORECAR_FIELDS = ("importance", "confidence", "stability")`.
-4. `SCORECAR_FIELDS` go to `ScoreStore.set(id, MemoryScores(...))`
-   — atomic write of `scores.json`.
-5. `FAISS_FIELDS` go to `mem.update_documents([doc])` — FAISS
-   metadata update.
+2. `MemoryScore.execute()` resolves the memory db from the agent
+   context and derives the subdir from `db.memory_subdir`.
+3. The tool splits the kwargs into
+   `_FAISS_FIELDS = ("memory_type", "validation_status", "task_status")`
+   and `_SCORECAR_FIELDS = ("importance", "confidence", "stability")`
+   (`tools/memory_score.py:44-47`).
+4. `_SCORECAR_FIELDS` go to the `ScoreStore` (atomic write of
+   `scores.json` — the single authoritative score write path per
+   ADR-NC1-002).
+5. `_FAISS_FIELDS` go to FAISS metadata via
+   `mem.update_documents([doc])`.
 6. Tool returns `{"success": true, "id": "mem_abc", "updated":
    ["importance", "validation_status"]}`.
 
@@ -380,104 +527,288 @@ Returns Response(message=json.dumps({...}))
 
 1. Agent calls `memory_relate(from_id="A", to_id="B", rel_type="supports", weight=0.8)`.
 2. `MemoryRelate.execute()` validates `rel_type` against
-   `VALID_RELATIONSHIP_TYPES`.
-3. `GraphStore.add_edge(A, B, "supports", weight=0.8, source="agent")`
-   writes the edge to `relationships.json` (atomic).
-4. If `rel_type == "related_to"`, a second `add_edge(B, A,
-   "related_to", weight=0.8, source="agent")` creates the symmetric
-   back-edge (D24).
+   `VALID_RELATIONSHIP_TYPES` (8 values incl. `part_of`).
+3. `MemoryRelate.execute()` builds a `GraphEdge` (`from_id="A"`,
+   `to_id="B"`, `type="supports"`, `weight=0.8`, `confidence=0.8`,
+   `source="agent"`, `created_at=<now ISO>`) and calls
+   `GraphStore.add_edge(edge)` — the only implemented form is
+   `add_edge(edge: GraphEdge) -> None` (`TypeError` on a
+   non-GraphEdge argument); the call writes the edge to
+   `relationships.json` (atomic), with D25 in-place dedup on the
+   `(from_id, to_id, type)` triple.
+4. If `rel_type == "related_to"`, a second `GraphEdge` (`from_id="B"`,
+   `to_id="A"`, same fields) is built and passed to
+   `GraphStore.add_edge(edge)` to create the symmetric back-edge —
+   `related_to` is the only symmetric type (D24).
 5. Tool returns the JSON success message.
 
-On `remove=True`, the same path is followed but `add_edge` is
-replaced by `GraphStore.remove_edges_for_id(A)` (which also
-removes the back-edge if it exists).
+On `remove=True` the tool performs a **surgical single-edge removal**
+(WI-P2-DEFECT-BATCH): it locates the specific `(from_id, to_id,
+rel_type)` edge in either direction, snapshots every edge touching
+that edge's anchor bucket, calls the public bulk
+`remove_edges_for_id(anchor)`, then re-adds everything except the
+one target edge — preserving all unrelated edges.
 
 ### `memory_reflect` flow
 
 1. Agent calls `memory_reflect(episode_id="ep_001", limit=20)`.
-2. `MemoryReflect.execute()` checks `config.reflection_enabled`;
-   returns an error string if `false`.
-3. `helpers/reflection.collect_episode_memories(memory,
-   episode_id, limit)` reads the FAISS index, filters documents
-   whose metadata has the matching `episode_id`, and returns the
-   list sorted by timestamp.
-4. `helpers/reflection.reflect_memories(memories)` calls the LLM
-   with `prompts/neuro.reflection.sys.md` as the system prompt and
-   the joined episode content as the user prompt. Returns the
-   reflection text.
-5. `helpers/reflection.write_reflection(memory, episode_id, text)`
-   inserts a new `memory_type="concept"` document into FAISS
-   carrying the reflection text and the source `episode_id`.
-6. Tool returns `{"success": true, "episode_id": "ep_001",
-   "new_memory_id": "<id>", "reflected_count": 12}`.
+2. `MemoryReflect.execute()` collects episode documents via
+   `helpers/reflection.collect_episode_memories(subdir, episode_id,
+   db, limit)`, returning an error Response if the episode is empty
+   or uncollectable.
+3. `helpers/reflection.reflect_memories(docs, agent)` calls the LLM
+   with `prompts/neuro.reflection.sys.md` (via
+   `DEFAULT_REFLECTION_PROMPT`, editable in-repo) as the system
+   prompt and the joined episode content as the user prompt. Returns
+   the reflection text; an LLM failure or empty content returns an
+   error Response.
+4. `helpers/reflection.write_reflection(subdir, content, episode_id,
+   db)` persists the reflection as a new memory carrying the source
+   `episode_id` and writes its ScoreStore sidecar entry (D50).
+5. Tool returns an acknowledgement message naming the new memory ID
+   and source-memory count.
 
 ---
 
 ## 7. WebUI panel
 
-The right-canvas WebUI panel is registered via the existing
-`MemoryDashboardApi` infrastructure. The panel is an Alpine.js
-component that loads a reactive store, calls the Neuro Core HTTP
-API, and renders the graph + node cards.
+The Neuro Core graph lives in the framework's right-canvas system.
+Four plugin assets make it up:
 
-### Registration
+- `extensions/webui/right-canvas-register-surfaces/neuro_register.js`
+  - registers the surface at framework init time via the framework's
+  `callJsExtensions("right_canvas_register_surfaces", ...)` hook:
+  `registerSurface({ id: 'neuro-core-graph', title: 'Neuro Core', icon: 'hub', order: 50, ... })`.
+  Registration is idempotent (upsert by surface id).
+- `extensions/webui/right-canvas-panels/graph-panel.html` - a
+  `data-surface-id="neuro-core-graph"` wrapper whose visibility is
+  gated by `$store.rightCanvas.isSurfaceVisible(...)`; it mounts the
+  actual panel via `<x-component path=".../graph-panel.html" mode="canvas">`.
+- `extensions/webui/sidebar-quick-actions-main-start/neuro-entry.html`
+  - a sidebar quick-action link that opens the surface with
+  `$store.rightCanvas.open('neuro-core-graph')`.
+- Panel styling is inline in the panel body itself (a `<style>` block in
+  `webui/right-canvas-panels/graph-panel.html`), keyed to framework
+  CSS custom properties. A historical `webui/graph-panel.css` stylesheet
+  exists but is dormant: no loader references it anywhere in the plugin
+  (webui/, extensions/, api/, hooks.py) and it has diverged from the
+  classes the panel actually uses; it is retained pending an ORC-routed
+  disposition decision (KI-018-AA, WI-P21). The panel's Cytoscape library
+  is vendored locally at `webui/vendor/cytoscape-3.30.2.min.js` and served
+  through the plugin asset route (no external CDN dependency).
 
-`api/context_graph.py` exposes a single `ContextGraphApi` class that
-the framework picks up automatically by filename convention. It is
-registered under the path prefix `/api/plugins/neuro_core/` and
-dispatches by HTTP method and path suffix inside the `process()`
-method:
+Note: a historical `webui/graph-store.js` Alpine store existed but was never
+referenced by the panel (which uses an inline `x-data` scope) and diverged
+from the real API response shapes; it was removed in WI-P11 as dormant
+divergent code.
 
-- `GET /api/plugins/neuro_core/context_graph?query=...&memory_subdir=...`
-- `GET /api/plugins/neuro_core/relationships/<memory_id>?memory_subdir=...`
-- `POST /api/plugins/neuro_core/relationships`
-- `GET /api/plugins/neuro_core/relationships?memory_subdir=...`
+The panel body (`webui/right-canvas-panels/graph-panel.html`) is a
+self-contained Alpine.js component (`x-data` scope) rather than a
+thin client of the store: it owns its search state, Cytoscape
+instance, and rendering.
 
-The panel's HTML template is loaded as an extension surface under
-`extensions/webui/panel.html` and injects a button in the existing
-Memory Dashboard toolbar that opens the right-canvas.
+### Panel capabilities
 
-### Alpine.js store wiring
-
-`webui/neuro_core_store.js` exports a singleton Alpine store that
-holds the panel's reactive state:
-
-```js
-Alpine.store('neuroCore', {
-  query: '',
-  memorySubdir: 'main',
-  contextGraph: null,
-  loading: false,
-  error: null,
-  async search() { ... },
-  async addRelationship(fromId, toId, relType, weight) { ... },
-  async deleteRelationship(fromId, toId, relType) { ... },
-});
-```
-
-The store's `search()` method calls the `/context_graph` endpoint
-and assigns the result to `contextGraph`, which the panel template
-iterates over to render node cards and edge pills.
+- Query search via `GET
+  /api/plugins/neuro_core/context_graph?query=...&memory_subdir=...`.
+- Memory-subdir chips (add/remove/persisted in
+  `localStorage['nc_memory_subdirs']`). The subdir dropdown options are
+  sourced as a deduplicated union of `GET /memory_subdirs` results and
+  `projects/<key>` entries composed from `POST /api/projects`
+  (`action=list_options`). Since the WI-P20 BE fix the API itself serves
+  project subdirs, so the panel-side composition is a redundant-but-
+  harmless dedupe union (WI-P19 panel-side composition, reconciled
+  WI-P21).
+- Advanced filters via `GET
+  /api/plugins/neuro_core/advanced_filters?...` with `memory_type`,
+  `validation_status`, `relationship_type`, `date_range_start/end`,
+  `importance_min`, `confidence_min`, `stability_min`, and
+  `episode_id` parameters.
+- Cytoscape rendering: nodes sized by importance, edges labeled by
+  `rel_type`, score-bucket styling (high >= 0.7, mid >= 0.4, low).
+  Edges are typed-colored per the 8-enumerated `rel_type` values
+  (theme CSS variables with hex fallbacks, applied via `rel_color`)
+  and width-scaled by weight (`mapData`, 1-6); `rel_type` text labels
+  are always retained (never color-only). Selecting an edge applies
+  an `edge:selected` highlight.
+- Layout selector: the panel exposes 7 bundled Cytoscape layouts
+  (`cose`, `concentric`, `breadthfirst`, `grid`, `circle`, `random`,
+  `preset`). The preset layout is limited to load-order placement;
+  positions are not persisted.
+- Additionally, a `dagre` layout is available via a vendored
+  cytoscape-dagre extension (package version 4.0.1 per npm package
+  metadata, MIT license, vendored locally at
+  `webui/vendor/cytoscape-dagre.min.js` alongside the vendored Cytoscape
+  library). Dagre produces a left-to-right layered flow disposition
+  (the panel explicitly configures `rankDir: 'LR'` for the dagre
+  layout — the vendored extension's own default is top-to-bottom, so
+  the panel always passes the option at both layout call sites):
+  source nodes on the left, edges flowing left-to-right in layered
+  ranks, so directed pipelines and DAG-shaped
+  memory relationships are laid out as readable flows. Cycles and
+  disconnected components are handled by dagre's internal layout
+  logic (no special handling by the panel). The dagre layout is
+  registered only when the vendored script loads successfully; if it
+  fails to load, the dagre option is hidden from the layout dropdown
+  and the panel falls back to `cose`, leaving all other layouts and
+  panel behavior unchanged. Layout behavior is documented at the
+  behavior level from the vendored extension's documented semantics;
+  a live host-level visual confirmation pass for this layout is part
+  of the panel's standing assurance path (not yet executed for dagre).
+- Node inspector: tapping a node opens a details card with content,
+  a `memory_type` badge (with a "type unknown" fallback when the
+  metadata does not carry a type), score badges, and its
+  relationship list. The score rows are sidecar-backed: since
+  WI-P58-KI041 (KI-041), the plate loads the authoritative score record
+  via `GET /api/plugins/neuro_core/memory_edit` on node selection or
+  refocus — importance and confidence prefer the sidecar value and
+  fall back to node metadata (graceful "n/a" when neither carries a
+  value), and stability shows the sidecar-backed value when present or
+  is explicitly rendered as "not stored" (the sidecar is the score
+  authority per WI-P12-SCORE-AUTHORITY; the display path stays
+  read-only w.r.t. FAISS metadata and never fabricates a value). A
+  `validation_status` chip is shown when present. Since
+  WI-P53-KI030 (KI-030, contents/scores component), the node
+  inspector also carries a safe-mode edit affordance for the
+  memory's Contents and scores (Importance/Confidence/Stability):
+  the display is read-only until an explicit Edit click opens the
+  edit form; Save requires a second confirming click; Cancel
+  discards all pending edits without any write. Edits post to
+  `POST /api/plugins/neuro_core/memory_edit` (see `docs/api.md`):
+  content goes through the standard metadata path, scores go to the
+  `scores.json` sidecar only (single-write discipline), and
+  out-of-range/non-numeric score values are rejected by the server
+  rather than clamped. As of WI-P59-KI029 (ADR-NC1-004), the surface
+  also accepts a full-set-replace `types` payload: the scalar primary
+  stays enum-locked to the 8 implemented `MemoryType` values and the
+  additive `memory_types` collection carries the full set including
+  custom user-defined tokens (validated server-side by
+  `helpers.metadata.normalize_memory_types`; loud rejection, no
+  partial write; no sidecar write). Validation/dispute-status
+  editing (KI-034) remains intentionally not part of this surface;
+  the framework Memory ID is immutable and not editable. Implemented and pinned at panel-source and handler-test
+  level; live browser confirmation is pending the queued assurance
+  pass (D-NC1-125). Tapping an
+  edge opens a display-only edge inspector overlay showing
+  `rel_type`, weight, confidence, and endpoints (read-only; the node
+  inspector contract is unchanged and a background tap clears the
+  overlay). Since WI-P31 (KI-018-BL/BN/BM), the edge plate dismisses
+  on any click outside the plate itself (a document-level mousedown
+  outside the plate, a graph-background tap, or re-clicking the same
+  edge); its only control is a non-destructive Exit/X button with
+  explicit edge-NOT-deleted wording — edge deletion remains the
+  separate, confirmed delete-affordance flow and this control never
+  deletes the edge; and its `from_name`/`to_name` rows are dormant
+  display hooks for the custom Memory Name feature (KI-031 is open;
+  the rows stay hidden today because the data carries no name fields,
+  and they surface without further panel changes once that feature
+  lands). Clicking a related node
+  re-runs the search centered on that node. Each relationship row in
+  the inspector carries a delete affordance (confirm step, then
+  `DELETE /api/plugins/neuro_core/relationships` with the edge's
+  `(from_id, to_id, rel_type)` triple); failures surface in the
+  panel's visible error state and a successful delete re-queries the
+  graph. Edge deletion is implemented (WI-P9-EDGE-DELETE), pending
+  live validation evidence; edge ADD is implemented (WI-P13-ADD-EDGE-UI) as an inspector add-edge
+  form posting a JSON body to `POST
+  /api/plugins/neuro_core/relationships`, validated at integration
+  level on disposable fixtures; live browser/host confirmation is
+  pending the queued assurance pass.
+- Theme observation: a `MutationObserver` on the document element
+  re-applies Cytoscape styles when the framework theme changes.
+- Legend: a theme-aware legend is shown when nodes exist; it lists
+  all 8 relationship-type edge colors sourced exclusively from
+  `REL_TYPE_COLORS` via `relTypeColor()` (no duplicated hex values),
+  and its node rows explain that node size encodes importance and
+  describe the `memory_type` badge (with the "type unknown"
+  fallback).
+- Zoom controls: zoom in/out steps at ×1.25 / ÷1.25, clamped to
+  the existing `minZoom` 0.2 / `maxZoom` 3 config — `zoomIn`
+  applies `Math.min(zoom * 1.25, maxZoom)` and `zoomOut` applies
+  `Math.max(zoom / 1.25, minZoom)`; a fit/reset affordance calls
+  `cy.fit` with padding 30.
+- Density mitigation: rendering degrades by graph size —
+  `full` (≤200 nodes AND ≤400 edges), `simplified` (≤500 AND
+  ≤1000; edge labels dropped), `minimal` (above that; node labels
+  also dropped; size/color/weight encodings preserved).
+  Degradation is style-only (never data culling); the thresholds
+  are behavior-pinned by tests, not performance-proven.
+- Background polish: the `.nc-graph-canvas` wrapper carries a
+  subtle dot lattice via `color-mix(in srgb, var(--color-primary)
+  12%, transparent)` at 18px spacing; no custom property is
+  redefined and the effect is automatic in both dark and light
+  themes.
+- Node shape differentiation: nodes are shape-coded by memory
+  type via the bounded `NODE_TYPE_SHAPES` mapping (8 enumerated
+  `memory_type` values → 8 distinct Cytoscape shapes: concept=ellipse,
+  episode=round-rectangle, task=diamond, solution=hexagon,
+  reflection=pentagon, fragment=rectangle, observation=octagon,
+  summary=star). Since WI-P31 (KI-018-BJ), a supplemental
+  `NODE_TYPE_SHAPES_LIVE` mapping is checked first and covers the six
+  implemented `MemoryType` enum values absent from the P28 map:
+  fact=round-tag, event=round-diamond, decision=cut-rectangle,
+  skill=round-hexagon, preference=rhomboid, note=barrel (shape names
+  verified present in the vendored cytoscape-3.30.2 library and
+  disjoint from the 8 P28 shapes). The resolution order is
+  `NODE_TYPE_SHAPES_LIVE`, then `NODE_TYPE_SHAPES`, then the `ellipse`
+  fallback; the P28-pinned outputs are unchanged (task=diamond,
+  episode=round-rectangle, concept=ellipse, summary=star). The node
+  builder binds `node_shape` per node and
+  the always-applied node style block binds `shape:
+  data(node_shape)`, so the encoding is preserved at every density
+  level (including `minimal`, which drops only labels). An unknown
+  or missing `memory_type` falls back to `ellipse` — shape is
+  never the sole carrier of type information (the `memory_type`
+  badge in the inspector and legend remains). Shape encoding is
+  behavior-pinned by tests; legibility of complex shapes at the
+  smallest rendered size is subject to the panel's standing live
+  visual confirmation path.
+- Cluster coloring: when the displayed graph has more than one
+  connected component, nodes in real clusters are colored by cluster
+  — the panel computes connected-component grouping entirely
+  in-browser over the nodes/edges arrays it already received (no
+  API-side companion). Since WI-P31 (KI-018-BK), only real clusters
+  — components with 2+ nodes (`realClusters`) — receive cluster
+  coloring and legend rows; singleton components keep the calm base
+  node color even in a multi-component graph (a single node is not a
+  cluster). The legend's cluster section is collapsible and its rows
+  are capped at 6 with a `+k more clusters…` overflow row, so the
+  legend can no longer cover the middle pane. Component ordering is
+  deterministic (components are sorted by their minimum node index,
+  so the same data always yields the same colors); colors come from
+  a dedicated cluster palette that is disjoint from the 8
+  relationship-type edge colors. A single-component graph stays
+  visually calm (base node coloring, no cluster override). Cluster
+  legend rows (swatch plus component size) appear in the legend only
+  when more than one component exists. Clustering is computed per
+  render within the displayed subgraph; it is not persisted, and no
+  server-side community detection is involved.
 
 ### End-to-end search flow
 
-1. User types a query in the panel search input and clicks "Search".
-2. The panel calls `Alpine.store('neuroCore').search()`.
-3. The store makes a `GET` request to
+1. User types a query in the panel search input and clicks
+   "Search" (the panel auto-issues an initial `recent` search on
+   mount).
+2. The panel's `search()` fetches
    `/api/plugins/neuro_core/context_graph?query=...&memory_subdir=...`.
-4. The server-side handler instantiates `Memory` for the
-   subdir, calls `search_context_graph(...)`, and returns the
-   serialized `ContextGraph` as JSON.
-5. The store assigns the result to `contextGraph`. The panel
-   re-renders:
-   - The header shows the query echo and a node/edge count.
-   - Each `GraphNode` becomes a node card with color-coded score
-     badges (green ≥ 0.7, yellow 0.4–0.7, grey < 0.4).
-   - Each `GraphEdge` becomes an edge pill below the cards.
-6. The user can click an edge pill to delete it — the store calls
-   the `POST /relationships` endpoint (currently only adds; the
-   delete UI is wired but the endpoint is a no-op in v0.1.0).
+3. The server-side handler resolves the memory db for the subdir,
+   calls `search_context_graph(...)`, and returns the serialized
+   `ContextGraph` as JSON.
+4. The panel assigns `nodes`/`edges` and calls `renderGraph()`,
+   mapping each node to a Cytoscape node (id, label, content,
+   importance, metadata, `memory_type`) and each edge to
+   `source/target/rel_type` plus weight (0.5 default for
+   legacy/missing values), confidence, and `rel_color`, then runs
+   the selected layout (`cose` default).
 
 The WebUI panel is the only Neuro Core surface that gives the user
 a visual graph; all other interaction is via the API and the agent
-tools.
+tools. The panel renders and inspects the graph and, since
+WI-P9-EDGE-DELETE, exposes a per-edge DELETE affordance in the node
+inspector (confirm-gated, described above); edge deletion is
+implemented pending live validation evidence. Since
+WI-P13-ADD-EDGE-UI, the panel exposes both per-edge DELETE and
+inspector add-edge affordances — deletion implemented and
+validated at implementation level, edge creation implemented and
+validated at integration level — with live browser/host
+confirmation pending the queued assurance pass for both.

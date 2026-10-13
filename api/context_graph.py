@@ -30,6 +30,7 @@ from usr.plugins.neuro_core.helpers.graph_store import (
     GraphStore,
     VALID_RELATIONSHIP_TYPES,
 )
+from usr.plugins.neuro_core.helpers.metadata import resolved_memory_type_fields
 from usr.plugins.neuro_core.helpers.retrieval import search_context_graph
 from usr.plugins.neuro_core.helpers.scores import ScoreStore
 
@@ -143,16 +144,16 @@ class ContextGraphApi(ApiHandler):
 
 
 def _default_retrieval_config() -> dict:
-    """Build a retrieval config dict from the plugin's default_config.yaml."""
-    try:
-        from helpers import plugins
-        # We need an agent to call get_plugin_config, but the API handler
-        # may not have one bound yet. We fall back to hardcoded defaults
-        # if no agent is available.
-        # The default values are documented in ``default_config.yaml``.
-    except Exception:  # pragma: no cover - defensive
-        pass
-    return {
+    """Build a retrieval config dict for the retrieval pipeline.
+
+    Reads the plugin's resolved settings via ``get_plugin_config``
+    (framework chain: project/profile, project, user/profile, user plugin
+    config, bundled ``default_config.yaml``) and merges the ContextGraph
+    retrieval keys over hardcoded fallbacks identical to the values this
+    function historically returned, so behavior is unchanged when the
+    config is unavailable or a key is absent.
+    """
+    defaults = {
         "graph_max_hops": 2,
         "graph_neighbors_max": 10,
         "semantic_limit": 5,
@@ -161,6 +162,18 @@ def _default_retrieval_config() -> dict:
         "importance_weight": 0.3,
         "recency_weight": 0.2,
     }
+    try:
+        from helpers.plugins import get_plugin_config
+
+        cfg = get_plugin_config("neuro_core")
+        if isinstance(cfg, dict):
+            for key in defaults:
+                value = cfg.get(key)
+                if value is not None:
+                    defaults[key] = value
+    except Exception:  # pragma: no cover - defensive
+        pass
+    return defaults
 
 
 def _serialize_context_graph(graph: ContextGraph) -> dict:
@@ -182,10 +195,31 @@ def _serialize_context_graph(graph: ContextGraph) -> dict:
     return {
         "query": graph.query,
         "seed_ids": list(graph.seed_ids),
-        "nodes": [_enum_safe_asdict(n) for n in graph.nodes],
+        "nodes": [_serialize_node(n) for n in graph.nodes],
         "edges": [_serialize_edge(e) for e in graph.edges],
         "prompt_text": graph.to_prompt_text(),
     }
+
+
+def _serialize_node(node: GraphNode) -> dict:
+    """Serialize one ``GraphNode`` with KI-049 resolved type fields.
+
+    The node metadata is serialized enum-safe first (unchanged behavior,
+    pinned by tests/test_api.py), then the KI-049 resolved-memory-type
+    fields are merged additively: a legacy record whose type lives only in
+    the nested ``metadata`` dict gains top-level ``memory_type`` /
+    ``memory_types`` in the SERIALIZED COPY so the Graph UI Inspector shows
+    the actually stored type. The source document and the in-memory
+    ``GraphNode`` are never mutated (C1 read-path no-mutation discipline).
+    """
+    data = _enum_safe_asdict(node)
+    meta = data.get("metadata")
+    if isinstance(meta, dict):
+        resolved = resolved_memory_type_fields(meta)
+        if resolved:
+            data["metadata"] = dict(meta)
+            data["metadata"].update(resolved)
+    return data
 
 
 def _serialize_edge(edge: GraphEdge) -> dict:

@@ -19,9 +19,10 @@ Validation order (per spec):
        reject unknown values with a clear error.
     3. Verify both IDs exist in the active ``Memory`` instance —
        return a clear error if either is not found.
-    4. If ``remove=True``: call ``GraphStore.remove_edges_for_id()``
-       scoped to the specific (from_id, to_id, rel_type) tuple;
-       return a confirmation.
+    4. If ``remove=True``: remove the specific (from_id, to_id,
+       rel_type) edge via a targeted one-atomic-write removal
+       (WI-P10: exactly one ``GraphStore.remove_edge`` call; never a
+       bulk cascade); return a confirmation.
     5. Otherwise: call ``GraphStore.add_edge()``; return a confirmation
        with all applied values.
 
@@ -76,33 +77,43 @@ def _remove_specific_edge(
 ) -> int:
     """Remove the single edge matching (from_id, to_id, rel_type).
 
-    ``GraphStore.remove_edges_for_id`` is bulk-only (deletes ALL edges
-    touching ``from_id``), so we read the current edge list, drop the
-    matching one, and rewrite via the public API. Returns the number
-    of edges removed (0 or 1).
+    WI-P10-DELETE-ORDERING (S1, ARC pre-design C4): repair-by-replacement
+    of the WI-P2 surgical helper. Name, signature, and return contract
+    are preserved; the defective body is replaced.
+
+    Old body (KI-003/KI-013 defect site): snapshot every edge touching
+    the anchor, bulk ``remove_edges_for_id(anchor)``, then re-add all but
+    the target — multiple non-atomic writes; a failure/crash between the
+    bulk delete and any re-add permanently lost unrelated edges.
+
+    New body: read-only locate of the matched edge (either direction),
+    then exactly ONE targeted ``GraphStore.remove_edge`` call against
+    the bucket holding it (WI-P9 ratified pattern). No bulk cascade, no
+    snapshot, no re-add loop: unrelated edges are untouched by
+    construction and the entire removal effect is one locked atomic
+    write (KI-003/KI-013 signatures avoided by construction).
+    Returns the number of edges removed (0 or 1); a 0-match performs NO
+    store write.
     """
-    current = list(store.get_edges(from_id))
+    edges_map = store.get_edges() or {}
+
+    def _matches(edge, f: str, t: str) -> bool:
+        return edge.from_id == f and edge.to_id == t and edge.type == rel_type
+
     target = None
-    for e in current:
-        if e.from_id == from_id and e.to_id == to_id and e.type == rel_type:
-            target = e
+    for edge_list in edges_map.values():
+        for e in edge_list:
+            if _matches(e, from_id, to_id) or _matches(e, to_id, from_id):
+                target = e
+                break
+        if target is not None:
             break
     if target is None:
-        # Also check the reverse direction.
-        reverse = list(store.get_edges(to_id))
-        for e in reverse:
-            if e.from_id == to_id and e.to_id == from_id and e.type == rel_type:
-                # Best-effort: the public API only supports bulk remove.
-                store.remove_edges_for_id(to_id)
-                return 1
         return 0
 
-    # Forward direction: wipe and rewrite with the target removed.
-    remaining = [e for e in current if e is not target]
-    store.remove_edges_for_id(from_id)
-    for e in remaining:
-        store.add_edge(e)
-    return 1
+    # Exactly one targeted, single-locked-atomic-write removal of the
+    # matched edge. No bulk removal, no snapshot, no re-add.
+    return store.remove_edge(target.from_id, target.to_id, target.type)
 
 
 # ---------------------------------------------------------------------------

@@ -390,16 +390,18 @@ async def write_reflection(
                 _rec["source"] = "neuro_reflect"
                 _rec["episode_id"] = str(episode_id or "")
                 _ss.save()
-        except Exception as _exc:  # pragma: no cover — defensive
-            try:
-                _log = logging.getLogger(__name__)
-                _log.warning(
-                    "write_reflection: sidecar write failed for %r: %s",
-                    new_id,
-                    _exc,
-                )
-            except Exception:
-                pass
+        except Exception as _exc:
+            # KI-014 (WI-P2-DEFECT-BATCH): sidecar write failures must
+            # propagate to the caller — never be silently discarded.
+            # The tool layer (memory_reflect) converts the error into a
+            # proper error Response.
+            _log = logging.getLogger(__name__)
+            _log.warning(
+                "write_reflection: sidecar write failed for %r: %s",
+                new_id,
+                _exc,
+            )
+            raise
 
     return str(new_id or "")
 

@@ -79,8 +79,11 @@ async def test_standard_subdir_discovered(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_project_subdir_discovered(tmp_path: Path) -> None:
-    # Create a project memory subdir under tmp_path/projects/<project>/memory/
-    (tmp_path / "projects" / "neuro_core_ops" / "memory").mkdir(parents=True)
+    # Create a project memory subdir under the actual project-memory
+    # location: tmp_path/projects/<project>/.a0proj/memory/
+    (tmp_path / "projects" / "neuro_core_ops" / ".a0proj" / "memory").mkdir(
+        parents=True
+    )
 
     handler = _make_handler(tmp_path)
     result = await _call_process(handler)
@@ -92,7 +95,7 @@ async def test_project_subdir_discovered(tmp_path: Path) -> None:
     entry = subdirs[0]
     assert entry["name"] == "neuro_core_ops"
     assert entry["type"] == "project"
-    assert entry["path"].endswith("/neuro_core_ops/memory/")
+    assert entry["path"].endswith("/neuro_core_ops/.a0proj/memory/")
 
 
 # ---------------------------------------------------------------------------

@@ -234,58 +234,20 @@ async def test_invalid_rel_type_rejected(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_edge_removal_succeeds(tmp_path: Path) -> None:
-    from usr.plugins.neuro_core.helpers.graph_store import (
-        GraphEdge,
-        GraphStore,
-        RelationshipType,
-    )
+async def test_edge_removal_succeeds(memory_subdir: Path) -> None:
+    """WI-P2-DEFECT-BATCH: removal targets ONLY the specific edge.
 
-    store = GraphStore.__new__(GraphStore)
-    store.memory_subdir = "default"
-    store._path = _memory_subdir_path(tmp_path, "default")
-    store._path.parent.mkdir(parents=True, exist_ok=True)
-    store._lock = __import__("threading").RLock()
+    Updated from the legacy fake-store form, which codified the old
+    bulk-remove-and-rewrite call pattern (the defect itself, like the
+    D41 mirror assertion was). Uses a real GraphStore and asserts that
+    unrelated edges survive the removal.
+    """
+    from usr.plugins.neuro_core.helpers.graph_store import GraphEdge, GraphStore
 
-    # Seed two edges from "a"; we will remove one of them.
-    e1 = GraphEdge(
-        from_id="a",
-        to_id="b",
-        type=RelationshipType.SUPPORTS.value,
-        weight=1.0,
-        confidence=1.0,
-        source="agent",
-        created_at="2026-01-01T00:00:00Z",
-    )
-    e2 = GraphEdge(
-        from_id="a",
-        to_id="c",
-        type=RelationshipType.RELATED_TO.value,
-        weight=1.0,
-        confidence=1.0,
-        source="agent",
-        created_at="2026-01-01T00:00:00Z",
-    )
-    store._data = {"a": [e1, e2], "b": [e1], "c": [e2]}
-
-    # Track all mutations.
-    added: list[GraphEdge] = []
-    removed_ids: list[str] = []
-
-    def _fake_add_edge(edge: GraphEdge) -> None:
-        added.append(edge)
-
-    def _fake_remove_edges_for_id(mid: str) -> None:
-        removed_ids.append(mid)
-        # Mimic real behavior: drop all entries with this from_id.
-        store._data.pop(mid, None)
-
-    def _fake_get_edges(mid: str) -> list[GraphEdge]:
-        return list(store._data.get(mid, []))
-
-    store.add_edge = _fake_add_edge  # type: ignore[assignment]
-    store.remove_edges_for_id = _fake_remove_edges_for_id  # type: ignore[assignment]
-    store.get_edges = _fake_get_edges  # type: ignore[assignment]
+    store = GraphStore(memory_subdir)
+    store.add_edge(GraphEdge(from_id="a", to_id="b", type="supports"))
+    store.add_edge(GraphEdge(from_id="a", to_id="c", type="related_to"))
+    store.add_edge(GraphEdge(from_id="c", to_id="a", type="supports"))
 
     tool = _make_tool(graph_store=store, available_ids=["a", "b", "c"])
 
@@ -299,11 +261,10 @@ async def test_edge_removal_succeeds(tmp_path: Path) -> None:
     assert "Error" not in resp.message
     assert "Removed" in resp.message
     assert "a -[supports]-> b" in resp.message
-    # Only "a" was bulk-removed; "c" edge should be re-added.
-    assert removed_ids == ["a"]
-    assert any(
-        e.from_id == "a" and e.to_id == "c" for e in added
-    ), "The other (a,c) edge should be re-added after bulk remove"
+    edges_map = store.get_edges()
+    assert not _has_edge(edges_map, "a", "b"), "target edge must be removed"
+    assert _has_edge(edges_map, "a", "c"), "unrelated a->c edge must survive"
+    assert _has_edge(edges_map, "c", "a"), "unrelated c->a edge must survive"
 
 
 # ---------------------------------------------------------------------------
@@ -577,4 +538,72 @@ async def test_directional_type_does_not_write_reverse_edge(tmp_path: Path) -> N
     reverse_edges = [e for e in saved if e.from_id == "b" and e.to_id == "a"]
     assert reverse_edges == [], (
         f"directional type must not create reverse edge, found: {reverse_edges}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# WI-P2-DEFECT-BATCH regression: edge removal must target ONLY the specific
+# (from_id, to_id, rel_type) edge — in both directions — preserving every
+# unrelated edge, including incoming edges lost by the wipe-and-rewrite.
+# ---------------------------------------------------------------------------
+
+
+def _has_edge(edges_map, src, dst):
+    return any(e.to_id == dst for e in edges_map.get(src, []))
+
+
+@pytest.mark.asyncio
+async def test_reverse_direction_removal_preserves_unrelated_edges(
+    memory_subdir,
+) -> None:
+    """Removing an edge via its reverse direction must delete ONLY that
+    edge — not bulk-delete every edge touching the target id.
+    """
+    from usr.plugins.neuro_core.helpers.graph_store import GraphEdge, GraphStore
+
+    store = GraphStore(memory_subdir)
+    store.add_edge(GraphEdge(from_id="b", to_id="a", type="supports"))
+    store.add_edge(GraphEdge(from_id="b", to_id="c", type="supports"))
+    store.add_edge(GraphEdge(from_id="c", to_id="a", type="supports"))
+
+    tool = _make_tool(graph_store=store, available_ids=["a", "b", "c"])
+    resp = await tool.execute(
+        from_id="a", to_id="b", rel_type="supports", remove=True
+    )
+
+    assert "Error" not in resp.message
+    edges_map = store.get_edges()
+    assert not _has_edge(edges_map, "b", "a"), "target edge b->a must be removed"
+    assert _has_edge(edges_map, "b", "c"), (
+        "unrelated edge b->c (touching to_id) must survive — the old "
+        "remove_edges_for_id(to_id) bulk delete destroyed it"
+    )
+    assert _has_edge(edges_map, "c", "a"), "unrelated edge c->a must survive"
+
+
+@pytest.mark.asyncio
+async def test_forward_removal_preserves_incoming_and_unrelated_edges(
+    memory_subdir,
+) -> None:
+    """The forward-direction removal must not lose incoming edges to
+    from_id or unrelated outgoing edges (wipe-and-rewrite data loss).
+    """
+    from usr.plugins.neuro_core.helpers.graph_store import GraphEdge, GraphStore
+
+    store = GraphStore(memory_subdir)
+    store.add_edge(GraphEdge(from_id="a", to_id="b", type="supports"))
+    store.add_edge(GraphEdge(from_id="a", to_id="c", type="supports"))
+    store.add_edge(GraphEdge(from_id="c", to_id="a", type="supports"))
+
+    tool = _make_tool(graph_store=store, available_ids=["a", "b", "c"])
+    resp = await tool.execute(
+        from_id="a", to_id="b", rel_type="supports", remove=True
+    )
+
+    assert "Error" not in resp.message
+    edges_map = store.get_edges()
+    assert not _has_edge(edges_map, "a", "b"), "target edge a->b must be removed"
+    assert _has_edge(edges_map, "a", "c"), "unrelated outgoing edge a->c must survive"
+    assert _has_edge(edges_map, "c", "a"), (
+        "incoming edge c->a must survive the wipe-and-rewrite"
     )

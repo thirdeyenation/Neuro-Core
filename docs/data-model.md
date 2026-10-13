@@ -26,11 +26,31 @@ helpers (`run_importance_decay`, `run_contradiction_detection`,
 
 - **Type**: `str`
 - **Default**: `"note"` (from `apply_defaults()` when missing)
-- **Set by**: `execute.py` migration (legacy), `helpers.metadata.apply_defaults()`
-- **Description**: The category of this memory. One of `MemoryType`
-  enum values: `fact`, `concept`, `task`, `event`, `decision`,
-  `preference`, `skill`, `episode`, `note`. Stored as the enum's string
-  value, not the `Enum` instance.
+- **Set by**: `execute.py` migration (legacy), `helpers.metadata.apply_defaults()`,
+  `api/memory_edit.py` (WI-P59-KI029 full-set-replace types edit)
+- **Description**: The primary category of this memory. One of the 8
+  implemented `MemoryType` enum values: `fact`, `concept`, `task`,
+  `event`, `decision`, `skill`, `preference`, `note` (verified against
+  `helpers/metadata.py`). Stored as the enum's string value, not the
+  `Enum` instance. The enum is fixed — user-defined types never enter
+  the scalar primary.
+
+### `memory_types`
+
+- **Type**: `list[str]` (additive collection; absent on legacy records)
+- **Default**: none (scalar-only records are read-derived as
+  `[memory_type]` by `helpers.metadata.normalize_memory_types()`)
+- **Set by**: `api/memory_edit.py` (WI-P59-KI029 types edit) — the only
+  writer
+- **Description**: The full authoritative type set including the
+  primary (invariant: `memory_type` is a member). Reads never mutate
+  it. Custom (user-defined) tokens live only here — lowercase,
+  1-40 chars, `^[a-z0-9][a-z0-9_-]{0,39}$`, max 1 primary + 7
+  additional, no enum collisions or duplicates. When the scalar was
+  rewritten outside the collection (e.g. by the `memory_score` tool),
+  reads flag the set `inconsistent` without mutation; the next
+  memory_edit types edit repairs it via full-set-replace.
+  (WI-P59-KI029, ADR-NC1-004.)
 
 ### `importance`
 
@@ -65,13 +85,47 @@ helpers (`run_importance_decay`, `run_contradiction_detection`,
 
 - **Type**: `str`
 - **Default**: `"unvalidated"` (from `apply_defaults()`)
-- **Set by**: `apply_defaults()`, `memory_score` tool,
-  `run_contradiction_detection()` (marks the older of a contradicting
-  pair as `"disputed"`)
+- **Set by**: `apply_defaults()`, `memory_score` tool, the
+  scheduled `_30` contradiction sweep — which persists `disputed`
+  into FAISS metadata via `_persist_disputes`
+  (`extensions/python/job_loop/_30_contradiction_detection.py`)
+  under WI-P60 transition governance (`run_contradiction_detection()`
+  returns the disputes payload only; it does not mark anything) — and,
+  since WI-P61-KI030, the user via the `memory_edit` handler's
+  `validation_status` payload (see the user transition matrix below)
 - **Description**: One of `ValidationStatus` enum values:
   `unvalidated`, `validated`, `disputed`, `deprecated`. `deprecated`
   memories are excluded from recall results by
   `Memory.search_similarity_threshold()`.
+
+  **User transition matrix (WI-P61-KI030)** — enforced server-side at
+  the single validation point in `api/memory_edit.py`:
+
+  | From | Allowed user targets |
+  |---|---|
+  | `unvalidated` | `disputed`, `validated` |
+  | `validated` | `disputed`, `unvalidated` |
+  | `disputed` | `unvalidated`, `validated` |
+  | `deprecated` | *(none — terminal)* |
+
+  Same-state and non-matrix transitions are rejected loudly with no
+  partial write; an unknown stored value is surfaced via GET with an
+  `unknown` flag and rejected on edit — never silently mapped or
+  invented. The user write goes through the same governed FAISS
+  metadata path as the type set (WI-P60 rev3 deep-copy staging), never
+  the sidecar. Each successful user transition writes one
+  activity-ledger event (`validation_status_user_edit`), distinguishing
+  user edits from sweep persists; rejected transitions write no entry.
+
+  **Re-dispute semantics (no suppression mechanism):** clearing a
+  dispute is NOT permanent. A user-cleared `disputed -> unvalidated`
+  memory may be re-disputed by the next contradiction-sweep pass if the
+  contradiction persists.
+
+  **Attestation semantics:** selecting `validated` is a user
+  attestation that the memory was reviewed. `validation_status` records
+  the governance action taken (user or sweep), not an automated content
+  verification of the memory.
 
 ### `read_only`
 
@@ -164,6 +218,23 @@ invalid `memory_type` or `validation_status` raises `ValueError`.
 
 ---
 
+### `memory_name`
+
+- **Type**: `str`
+- **Default**: absent (the key does not exist until a user assigns a name)
+- **Set by**: `POST /api/plugins/neuro_core/memory_names` (Memory Name
+  kind) via `Memory.get_by_subdir` + `Memory.update_documents` — the
+  standard metadata write path. Cleared by POSTing an empty/null name
+  (the key is removed, not blanked).
+- **Description**: User-assigned display alias for the memory
+  (WI-P52-KI031 / KI-031). The framework Memory ID is immutable; this
+  key only adds a human-readable alias displayed in the Context Graph
+  panel (node Details panel and edge plates). Additive-only: unknown
+  metadata keys pass `validate_neuro_metadata` unchanged and the
+  `neuro_*`-only sanitizer does not strip plain keys, so this field
+  rides future storage migrations (Phase 2 absorb) without further
+  change.
+
 ## Section 2 — `scores.json` Schema
 
 `scores.json` is the sidecar file written by `helpers/scores.py`
@@ -221,6 +292,16 @@ If `scores.json` does not exist when the first `ScoreStore` operation
 runs, it is created with an empty dict (`{}`). The file is created
 lazily on first write, not on plugin load.
 
+### Degraded reads
+
+If a sidecar read fails at retrieval time (for example, a corrupted or
+unreadable `scores.json`), retrieval does **not** silently present the
+metadata/`0.5` fallback as a healthy sidecar-backed score. The affected
+node's metadata is stamped with an explicit `neuro_degraded` marker, and
+the importance-decay lifecycle job counts such failures in its
+`degraded` result field. Degradation is always explicit, never a silent
+fallback and never a fabricated baseline.
+
 ---
 
 ## Section 3 — `relationships.json` Schema
@@ -273,6 +354,37 @@ A flat dict from source memory ID (str) to a list of outgoing edges:
 | `source` | str | `"agent"` | Origin tag — `"agent"` for `memory_relate` calls, `"api"` for the HTTP API, `"lifecycle"` for the contradiction detector, `"migration"` for the `execute.py` one-shot import. |
 | `created_at` | str (ISO-8601) | current UTC | Timestamp of edge creation. |
 
+### Reserved key `_cluster_names`
+
+Besides the adjacency buckets, the top-level dict may carry one
+reserved key, `_cluster_names`: a mapping from a stable cluster key to
+a user-assigned custom cluster name (WI-P52-KI031 / KI-031). The
+cluster key is the lexicographically smallest member memory ID of the
+2+-node connected component the name labels (deterministic per view;
+components themselves are computed client-side from current edges).
+The key is additive: files written before WI-P52-KI031 have no
+`_cluster_names` key and load unchanged, the key is never returned as
+adjacency by `GraphStore`, and it is preserved across adjacency
+writes. Legacy files do not gain an empty key on first write.
+
+KI-040 parse hardening (WI-P55): every top-level key is list-validated
+at the single ingestion point in `GraphStore._read_file`; non-list
+values that are not reserved keys are skipped as adjacency buckets with
+a warning log and never reach any reader, while underscore-prefixed
+reserved keys are preserved verbatim across writes.
+
+```json
+{
+  "_cluster_names": {"mem_abc123": "Alpha Cluster"},
+  "mem_abc123": [ ...outgoing edges... ]
+}
+```
+
+Custom names are read and written through `GraphStore`
+(`get_cluster_names()` / `set_cluster_name()`), exposed via the
+`memory_names` API handler, and rendered in the graph panel cluster
+legend.
+
 ### `VALID_RELATIONSHIP_TYPES`
 
 ```python
@@ -294,11 +406,21 @@ types with a `400`-equivalent error message.)
 
 `GraphStore` exposes:
 
-- `add_edge(from_id, to_id, rel_type, weight=1.0, ...) -> GraphEdge`
+- `add_edge(edge: GraphEdge) -> None` — adds the edge to the adjacency
+  list. D25 deduplication: an existing edge with the same
+  `(from_id, to_id, type)` triple is updated in place (weight,
+  confidence, created_at, source) rather than appended; different
+  `(to_id, type)` combinations are kept as separate edges. Raises
+  `TypeError` on a non-`GraphEdge` argument.
 - `remove_edges_for_id(memory_id) -> int` — returns count removed
-- `neighbors(memory_id, hops: int = 1) -> set[str]` — set of memory IDs
-  reachable within `hops` (1 = direct neighbors, 2 = neighbors of
-  neighbors, ...)
+- `neighbors(from_id: str | list[str], max_hops: Optional[int] = None,
+  rel_type: Optional[str] = None, hops: Optional[int] = None)
+  -> list[tuple[str, int, GraphEdge]]` — BFS from one memory ID or a list
+  of seed IDs, merged and deduped on the full `(from_id, to_id, type)`
+  triple; each result is a `(memory_id, hops, GraphEdge)` triple.
+  `max_hops` bounds the traversal depth (direct neighbors = depth 1);
+  `rel_type` filters by relationship type. The legacy `hops` parameter
+  is accepted for backward compatibility (treated as `max_hops`).
 - `get_edges(from_id: str | None = None) -> Union[list[GraphEdge], dict[str, list[GraphEdge]]]` —
   with a `from_id`, returns that source's outgoing edges (backward
   compatible); with no argument, returns the full adjacency map

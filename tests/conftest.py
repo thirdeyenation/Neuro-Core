@@ -221,11 +221,12 @@ class _MemoryStub(types.ModuleType):
         # ``memory_subdir`` fixture or test-local monkeypatching.
         get = None
 
-        # The three methods wrapped by ``_patch.py`` at install time.
-        # They must exist on the class so ``install_patches()`` can
-        # bind the wrappers.  The search and delete stubs delegate to
-        # ``self.db`` (a MagicMock in tests) so the wrapper sees the
-        # mocked return value and can exercise its side-effect logic.
+        # The three methods covered by the NC1 startup decoration hook
+        # (helpers/decorate.py). They must exist on the class so the
+        # decorator can bind the extensible wrappers.  The search and
+        # delete stubs delegate to ``self.db`` (a MagicMock in tests) so
+        # the wrapper sees the mocked return value and can exercise its
+        # side-effect logic.
         async def insert_text(self, text, metadata=None):
             return None
 

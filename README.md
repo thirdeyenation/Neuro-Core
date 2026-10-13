@@ -1,237 +1,259 @@
 # Neuro Core
 
-Temporal knowledge graph memory enhancement for Agent Zero. Extends the built-in `_memory` plugin with typed memory categories, graph relationships, importance/confidence/stability scoring, structured `ContextGraph` retrieval, and lifecycle jobs.
+Neuro Core is an Agent Zero memory enhancement plugin. It extends the
+existing `_memory` plugin with typed memory metadata, a typed
+relationship graph, importance/confidence/stability scoring, lifecycle
+maintenance jobs, and structured ContextGraph retrieval with
+explainable scoring factors. It is a Python-only, in-process plugin —
+no external service or database daemon is required.
 
-## What It Does
+- Plugin identity: `neuro_core` (version 1.1.0)
+- Install location: `/a0/usr/plugins/neuro_core/`
+- Status: optional plugin — it must be explicitly enabled
+  (`always_enabled: false` in `plugin.yaml`) and is configured per
+  project and per agent (`per_project_config: true`,
+  `per_agent_config: true` in `plugin.yaml`).
 
-Neuro Core layers five capabilities on top of the existing FAISS-backed `Memory` store without replacing it. All new state is stored as FAISS document metadata plus two JSON sidecar files (`relationships.json`, `scores.json`) alongside each `memory_subdir` index. There is no new database, no new service, and no new HTTP layer.
+## What it provides
 
-## Installation Prerequisites
+**Six agent tools** (declared under `tools/`):
 
-- **Agent Zero** version 0.9.0 or newer (per `index.yaml`).
-- The built-in **`_memory` plugin must be enabled** before enabling Neuro Core. Neuro Core imports `from plugins._memory.helpers.memory import Memory` and hooks into its `insert_documents`, `delete_documents_by_ids`, and `search_similarity_threshold` methods; it cannot function without the `_memory` plugin loaded.
-- Python 3.10+ (matches the Agent Zero runtime).
-- No additional pip packages are required for the core feature set. Network graph analytics (networkx) are an optional dependency and the plugin degrades gracefully if absent.
+- `neuro_capture` — capture a memory with typed metadata
+- `neuro_retrieve` — scoped hybrid retrieval
+- `neuro_validate` — validate or dispute a memory
+- `memory_score` — update importance/confidence/stability and
+  validation status of a memory
+- `memory_relate` — create or remove typed graph relationships
+- `memory_reflect` — reflect over an episode of memories
 
-To enable: copy the plugin into `usr/plugins/neuro_core/`, then enable it from the Agent Zero WebUI (Settings → Plugins). The `execute.py` migration runs automatically on first activation and migrates any legacy `consolidated_from` metadata to the `relationships.json` sidecar.
+See `docs/tools.md` for per-tool behavior and arguments.
 
-## Main Behavior
+**HTTP API** — eight handler modules under `api/`, served under
+`/api/plugins/neuro_core/`:
 
-### 1. Metadata Scoring
+- `context_graph` — hybrid retrieval returning a serialized ContextGraph
+- `relationships` — list, create, and delete graph edges. Edge deletion
+  is implemented and covered by the test suite; the panel's add-edge UI
+  is implemented and covered by integration tests. As of this release,
+  these flows have not yet been confirmed end-to-end in a live
+  host/browser session.
+- `advanced_filters` — filtered graph queries
+- `episode_audit` — episode listing and per-episode audit
+- `reflection_audit` — reflection-memory listing and audit
+- `memory_subdirs` — memory subdir discovery
+- `memory_names` — user-assigned Memory Name aliases and custom Cluster names
+- `memory_edit` — safe-mode editing of one memory's contents, scores,
+  and memory types. Edits are validated before saving; scores are stored
+  in the plugin's scores sidecar. Memory types support one primary type
+  plus a set of additional types, including user-defined custom type
+  names. Validation status (unvalidated / validated / disputed) can also
+  be edited, with server-side rules governing which transitions are
+  allowed; marking a memory "validated" records that a person reviewed
+  it — it is not an automated content check. There is no permanent
+  suppression mechanism: if a contradiction between memories persists,
+  the periodic contradiction sweep may flag the memory as disputed
+  again. Every accepted status change is recorded in the plugin's
+  activity ledger.
 
-- Adds typed metadata fields to every FAISS document: `memory_type`, `importance`, `confidence`, `stability`, `validation_status`, `read_only`, `episode_id`, and `tags`.
-- `memory_type` accepts eight values: `fact`, `concept`, `task`, `event`, `decision`, `skill`, `preference`, `note`.
-- `validation_status` accepts four states: `unvalidated`, `validated`, `disputed`, `deprecated`. Deprecated memories are excluded from recall results.
-- Numeric scores (`importance`, `confidence`, `stability`) live in the `scores.json` sidecar to avoid full FAISS index rewrites on every update. `validation_status` and `memory_type` live in the FAISS metadata itself.
-- All metadata writes go through `validate_neuro_metadata()` which clamps scores to `[0.0, 1.0]` and coerces invalid enum values to safe fallbacks.
+See `docs/api.md` for routes, parameters, and response schemas.
 
-### 2. Graph Relationships
+**WebUI assets** — a right-canvas graph panel
+(`extensions/webui/right-canvas-panels/graph-panel.html`), its local
+vendored Cytoscape library (`webui/vendor/cytoscape-3.30.2.min.js`, served
+via the plugin-asset route with no external CDN dependency), a sidebar
+quick-action entry (`extensions/webui/sidebar-quick-actions-main-start/neuro-entry.html`),
+and a Settings window (`webui/config.html`) that opens the standard Agent
+Zero plugin-settings modal with Basic operator-level controls and an
+Advanced section covering every configuration key, plus a plugin-native
+configuration help surface (`webui/help/configuration.html`) linked from it.
 
-- Adds a typed graph layer between memories with seven relationship types: `supports`, `contradicts`, `depends_on`, `derived_from`, `related_to`, `precedes`, `follows`.
-- `related_to` is the only symmetric relationship type; the tool writes both directions atomically.
-- All edges live in `relationships.json`, keyed by `memory_subdir`, with a per-subdir `RLock` for thread safety and atomic `tempfile.mkstemp` + `os.replace` writes.
-- Cascade deletion: when a memory is removed via `Memory.delete_documents_by_ids()`, the `_10_graph_cascade.py` extension hook automatically removes every edge touching that ID.
+**Lifecycle jobs** — three `job_loop` extensions
+(`_10_access_decay.py`, `_20_episode_grouping.py`,
+`_30_contradiction_detection.py`) plus memory-creation/search hook
+extensions and graph cascade-delete cleanup. See
+`docs/architecture.md` for the full wiring.
 
-### 3. ContextGraph Retrieval
+## Requirements
 
-- Replaces flat `list[Document]` recall results with a structured `ContextGraph` containing typed nodes and edges.
-- The retrieval pipeline (`helpers/retrieval.py`) runs four stages: semantic seed search, lexical/keyword fallback, graph-neighbor expansion up to `graph_max_hops` (default 2), and importance-weighted re-ranking using the configurable `importance_weight` / `recency_weight` / `similarity_weight` blend.
-- `ContextGraph.to_prompt_text()` serializes the result into LLM-readable text that can be injected directly into the agent's monologue.
-- Access tracking: every successful recall increments `access_count` and updates `last_accessed_at` in the score sidecar (via the `_10_access_tracking.py` hook), feeding back into importance-based ranking.
+- Agent Zero **v2.13** (commit `e3051fb`) — the version this release was
+  validated against.
+- Python **3.12+** (3.12 is the tested baseline; the packaging metadata
+  declares a lower floor, but 3.12+ is what is tested).
+- The framework's built-in **`_memory` plugin** — Neuro Core extends it
+  and must have it available.
+- `networkx>=3.0` — installed automatically by the plugin's `hooks.py`
+  the first time the plugin is enabled (a one-time `pip install` side
+  effect at enable time).
+- No other dependencies beyond the Agent Zero framework runtime itself
+  (framework-provided libraries such as `langchain_core` come with
+  Agent Zero; there is no separate requirements file to install).
 
-### 4. Lifecycle Jobs
+## Installation
 
-Three background extensions run on Agent Zero's 60-second `job_loop` scheduler, each with its own throttle interval:
+1. **Prerequisites** — a running Agent Zero instance (Docker or local)
+   with the built-in `_memory` plugin available, and Python 3.12+.
+2. **Place the plugin** — put this directory at
+   `/a0/usr/plugins/neuro_core/`.
+3. **Enable the plugin** — open Agent Zero's settings and switch the
+   Neuro Core plugin on in the plugin settings UI. Enabling runs the
+   plugin's install hook, which installs `networkx` (one-time, printed
+   in the logs). Note: plugin enablement has been verified at the
+   manifest/discovery level (the plugin is discovered, its manifest and
+   settings surface load, and the toggle is present in the settings
+   UI); a full live enable-cycle confirmation in a running host is
+   still pending.
+4. **Verify the installation** — after enabling, confirm that:
+   - the Neuro Core entry appears in the sidebar quick actions, and
+   - the graph panel opens from the right canvas, and
+   - the plugin's settings window opens from the plugin settings UI.
+   If any of these fail, check the Agent Zero logs for
+   `[neuro_core]` messages.
+5. **Configure** — configuration lives in `default_config.yaml` and can
+   be overridden per project and per agent; see `docs/configuration.md`.
 
-- **`_10_access_decay.py`** — applies `importance *= (1 - importance_decay_rate)` to all non-`validated` memories on a `decay_interval_hours` cadence (default 24h).
-- **`_20_episode_grouping.py`** — clusters recent memories into episodes by temporal proximity, using `episode_boundary_hours` (default 4h) and `episode_min_memories` (default 3) thresholds.
-- **`_30_contradiction_detection.py`** — sweeps for semantically contradictory memory pairs on a `contradiction_interval_hours` cadence (default 168h / 1 week). Marks the older memory `disputed`. LLM-based detection is opt-in via `contradiction_llm_enabled` (off by default).
+## The execute.py migration script
 
-Each job uses module-level throttle state to skip runs within the configured interval, so the per-tick cost is near zero.
+The plugin ships a one-shot migration script, `execute.py`, at the
+plugin root. It does not run by itself: it runs when **you** trigger
+it — either through the plugin manager's **execute** action for Neuro
+Core in the Agent Zero WebUI, or manually from the Agent Zero root
+with:
 
-### 5. Episode Reflection
+    python -m usr.plugins.neuro_core.execute
 
-- The `memory_reflect` tool collects all memories sharing an `episode_id`, sends them to the agent's LLM via `call_utility_model` with a dedicated reflection system prompt, and persists the synthesized insight as a new `concept` memory (importance 0.8, stability 0.9, source `neuro_reflect`).
-- Reflections participate in normal recall, so the agent can later retrieve the consolidated summary alongside the original episode fragments.
-- Use this after completing a complex multi-step task to consolidate what was learned into a single, high-stability insight memory.
+**When do you need to run it?** After installing or updating the
+plugin (for example, when a plugin update tells you its data format
+changed, or when support asks you to run the migration), run it once
+so that memories created before Neuro Core was installed (or before
+the update) are brought up to the current schema. Running it again is
+always safe.
 
-## Agent Tools
+**What it does:** it brings any pre-existing Agent Zero memories up to
+the Neuro Core schema — seeding the typed `memory_type` field (default
+`"note"`), the three score fields (`importance` / `confidence` /
+`stability`), and the `validation_status` field (default
+`"unvalidated"`). The migration is **non-destructive**: existing values
+are never overwritten, and only documents missing one or more Neuro
+Core fields are touched.
 
-All three tools follow the same `Tool` subclass pattern as `plugins/_memory/tools/memory_save.py` and never raise — every error path returns a `Response(message=...)` with `break_loop=False`.
+**Fresh vs. existing stores:**
 
-### `memory_relate`
+- **Fresh (empty) store:** the script detects that there is nothing to
+  migrate and exits within seconds — it never loads the heavy memory
+  machinery at all.
+- **Existing store:** the script first inspects the persisted memory
+  store directly (without loading the heavy memory module) to determine
+  which memory subdirectories need migration. Subdirectories that are
+  already fully migrated are skipped; only those that need work are
+  migrated through the full path.
 
-Create or remove a typed relationship between two memory entries.
+**Fail-closed safety:** the pre-migration inspection is strictly
+read-only — it never writes to your memory store. If it cannot
+confidently determine a subdirectory's state (for example, an
+unrecognized internal store format from an unsupported framework
+version), it does not guess: it falls back to the full, authoritative
+migration path for that subdirectory, which produces the same correct
+result. In no case does an unrecognized store format cause data loss or
+corruption. The supported framework range and this safety behavior are
+recorded in
+`docs/decisions/ADR-NC1-005-framework-compatibility-contract.md`.
 
-| Argument   | Type    | Required | Description                                                                 |
-|------------|---------|----------|-----------------------------------------------------------------------------|
-| `from_id`  | string  | yes      | Source memory ID. Must exist in the active `Memory` instance.               |
-| `to_id`    | string  | yes      | Target memory ID. Must exist in the active `Memory` instance.               |
-| `rel_type` | string  | yes      | One of: `supports`, `contradicts`, `depends_on`, `derived_from`, `related_to`, `precedes`, `follows`. |
-| `weight`   | float   | no       | Edge weight in `[0.0, 1.0]`. Defaults to `1.0`; clamped if out of range.     |
-| `remove`   | bool    | no       | If `true`, delete the matching edge instead of adding it.                   |
+## Data and privacy
 
-**Example — add a support edge:**
+Neuro Core stores data in three places:
 
+- **`neuro_core.db`** — the plugin's SQLite domain database. By default
+  it lives in the plugin directory; the `database_path` configuration
+  key controls the location (relative paths resolve plugin-relative,
+  absolute paths are honored verbatim).
+- **Sidecar files** — `scores.json` (importance/confidence/stability
+  and access counts) and `relationships.json` (the typed relationship
+  graph), stored alongside the plugin's data.
+- **The host memory store** — memory contents and their metadata live
+  in Agent Zero's own FAISS-based memory store, exactly like ordinary
+  Agent Zero memories. Neuro Core reads and enriches that store; it
+  does not duplicate memory content into a second database.
+
+**Egress disclosure:** memory content is sent to whatever **embedding
+provider** your Agent Zero configuration uses (memory storage and
+retrieval rely on embeddings). Neuro Core adds no additional network
+egress of its own, but using it means your memory content is processed
+by that embedding provider, exactly as with plain Agent Zero memory.
+
+**Deleting your data:**
+
+- To delete everything Neuro Core persists, stop Agent Zero and remove
+  the plugin's data files: the SQLite database at the configured
+  `database_path` (by default `neuro_core.db` in the plugin directory)
+  and the `scores.json` / `relationships.json` sidecars next to it.
+- Memories themselves (including Neuro Core's metadata on them) live in
+  the host memory store; delete them through Agent Zero's own memory
+  management, or remove the host memory directory, depending on how
+  much you want to erase.
+
+## Uninstalling / removing the plugin
+
+- The plugin's `uninstall()` hook is intentionally a **no-op**: it does
+  not remove pip packages (other plugins may share them) and does not
+  delete your data.
+- **Removing the plugin directory** (`/a0/usr/plugins/neuro_core/`)
+  is the uninstall. Agent Zero's plugin manager removes the plugin
+  files when you uninstall it through the UI; deleting the directory
+  manually achieves the same result.
+- **What remains on disk after removal:**
+  - the SQLite database (`neuro_core.db` at the configured
+    `database_path`) — contains the plugin's domain data;
+  - the `scores.json` and `relationships.json` sidecars;
+  - the `networkx` pip package installed at enable time (harmless to
+    leave; remove with `pip uninstall networkx` if you want a fully
+    clean environment).
+- **Safe-removal guidance:** back up or explicitly delete the database
+  and sidecar files listed above if you do not want residual data left
+  behind. Do not delete files inside the Agent Zero framework itself.
+
+## Known limitations
+
+- Plugin enablement has been verified at the manifest/discovery level
+  (the plugin is discovered and its settings toggle appears); a full
+  live enable-cycle confirmation in a running host is still pending.
+- The plugin's live HTTP endpoints have not been exercised in
+  end-to-end validation for this release; they are covered by the
+  plugin's test suite at the implementation level.
+- The live FAISS similarity query path has not been run against a live
+  host index in this release's validation; index loadability is
+  verified.
+- The plugin's pre-release documentation guard is textual only — it
+  checks committed documents for internal identifiers and paths; it is
+  not a runtime data-leak prevention mechanism.
+- The relationships edge-deletion flow and the panel's add-edge UI are
+  implemented and test-covered but not yet confirmed end-to-end in a
+  live host/browser session (see the `relationships` API entry above).
+
+## Documentation
+
+- `docs/tools.md` — agent tools
+- `docs/api.md` — HTTP API
+- `docs/architecture.md` — architecture and data flow
+- `docs/configuration.md` — configuration keys
+- `docs/data-model.md` — storage and data model
+- `docs/decisions/README.md` — architecture decision records (index)
+- `packaging/export-manifest.md` — what a public distribution artifact
+  contains and how to produce one
+- `CHANGELOG.md` — change history
+
+## Support
+
+Issues and feature requests: [github.com/thirdeyenation/Neuro-Core/issues](https://github.com/thirdeyenation/Neuro-Core/issues).
+Please include your Agent Zero version, the Neuro Core version, steps
+to reproduce, and expected vs. actual behavior.
+
+## Tests
+
+Run the full suite with the committed wrapper (it sets `PYTHONPATH=/a0` and
+runs from the plugin root automatically; extra pytest args are forwarded):
+
+```bash
+/a0/usr/plugins/neuro_core/tests/run_suite.sh
 ```
-memory_relate(
-    from_id="mem_abc123",
-    to_id="mem_def456",
-    rel_type="supports",
-    weight=0.8,
-)
-```
 
-Returns: `Edge added: mem_abc123 -[supports]-> mem_def456 (weight=0.80).`
-
-**Example — remove a `related_to` edge:**
-
-```
-memory_relate(
-    from_id="mem_abc123",
-    to_id="mem_def456",
-    rel_type="related_to",
-    remove=true,
-)
-```
-
-Because `related_to` is symmetric, this also removes the reverse edge. All other relationship types are directional and only the matching `(from_id, to_id, rel_type)` tuple is removed.
-
-### `memory_score`
-
-Update importance, confidence, stability, validation status, memory type, or task status of a memory entry.
-
-| Argument            | Type   | Required | Description                                                                                       |
-|---------------------|--------|----------|---------------------------------------------------------------------------------------------------|
-| `id`                | string | yes      | Memory ID to update. Must exist in the active `Memory` instance.                                  |
-| `importance`        | float  | no       | Importance in `[0.0, 1.0]`. Written to `scores.json`.                                             |
-| `confidence`        | float  | no       | Confidence in `[0.0, 1.0]`. Written to `scores.json`.                                             |
-| `stability`         | float  | no       | Stability in `[0.0, 1.0]`. Written to `scores.json`.                                              |
-| `validation_status` | string | no       | One of: `unvalidated`, `validated`, `disputed`, `deprecated`. Written to FAISS metadata.          |
-| `memory_type`       | string | no       | One of: `fact`, `concept`, `task`, `event`, `decision`, `skill`, `preference`, `note`.            |
-| `task_status`       | string | no       | One of: `pending`, `active`, `done`, `cancelled`. Only valid when `memory_type == "task"`.        |
-
-Omit any field to leave it unchanged.
-
-**Example — mark a memory as validated and bump its importance:**
-
-```
-memory_score(
-    id="mem_abc123",
-    importance=0.9,
-    confidence=0.95,
-    stability=0.85,
-    validation_status="validated",
-)
-```
-
-Returns a confirmation listing every field that was changed with its new value.
-
-### `memory_reflect`
-
-Trigger a reflection pass over a memory episode and persist the LLM-synthesized insight as a new `concept` memory.
-
-| Argument     | Type   | Required | Description                                                              |
-|--------------|--------|----------|--------------------------------------------------------------------------|
-| `episode_id` | string | yes      | The shared `episode_id` metadata field that groups the source memories. |
-| `limit`      | int    | no       | Max source memories to include, clamped to `[1, 100]`. Defaults to `20`. |
-
-**Example — reflect on a completed multi-step task:**
-
-```
-memory_reflect(episode_id="ep_2026_06_11_research_workflow")
-```
-
-Returns: `Reflection written as memory mem_xyz789 (episode: ep_2026_06_11_research_workflow, 7 source memories)`.
-
-## API Endpoints
-
-All endpoints are mounted under `/api/plugins/neuro_core/` via the `ContextGraphApi` handler in `api/context_graph.py`. They require an authenticated session (cookie or API key).
-
-| Method | Path                                | Purpose                                                              |
-|--------|-------------------------------------|----------------------------------------------------------------------|
-| `GET`  | `/context_graph`                    | Run hybrid retrieval and return the serialized `ContextGraph`.        |
-| `GET`  | `/relationships/<memory_id>`        | List all edges (inbound + outbound) touching the given memory ID.     |
-| `POST` | `/relationships`                    | Add a new graph edge. Body: `from_id`, `to_id`, `rel_type`, `weight`. |
-| `GET`  | `/relationships`                    | List every edge in the active `memory_subdir`.                        |
-
-All requests require a `memory_subdir` parameter. The `GET /context_graph` endpoint additionally requires a `query` string and accepts optional `seed_ids` and `max_hops` overrides.
-
-## Key Files
-
-- **Core data model**
-  - `helpers/metadata.py` — `MemoryType` and `ValidationStatus` enums, `validate_neuro_metadata()`.
-  - `helpers/graph_store.py` — `GraphStore`, `GraphEdge`, `RelationshipType` enum, atomic JSON writes.
-  - `helpers/scores.py` — `ScoreStore`, `MemoryScores` dataclass.
-  - `helpers/context_graph.py` — `ContextGraph`, `GraphNode`, `GraphEdge` dataclasses, prompt serialization.
-  - `helpers/retrieval.py` — hybrid retrieval pipeline.
-  - `helpers/reflection.py` — episode collection, LLM reflection call, persistence.
-- **Tools**
-  - `tools/memory_relate.py`
-  - `tools/memory_score.py`
-  - `tools/memory_reflect.py`
-- **API**
-  - `api/context_graph.py` — `ContextGraphApi` handler exposing the four endpoints above.
-- **Extensions**
-  - `extensions/python/_functions/plugins._memory.helpers.memory/Memory/insert_documents/start/_10_neuro_metadata.py` — auto-tag new documents with Neuro Core fields.
-  - `extensions/python/_functions/plugins._memory.helpers.memory/Memory/delete_documents_by_ids/end/_10_graph_cascade.py` — cascade-delete graph edges.
-  - `extensions/python/_functions/plugins._memory.helpers.memory/Memory/search_similarity_threshold/end/_10_access_tracking.py` — increment access counters on recall.
-  - `extensions/python/job_loop/_10_access_decay.py` — importance decay sweep.
-  - `extensions/python/job_loop/_20_episode_grouping.py` — episode clustering.
-  - `extensions/python/job_loop/_30_contradiction_detection.py` — contradiction detection sweep.
-- **Prompts**
-  - `prompts/agent.system.tool.memory_relate.md`
-  - `prompts/agent.system.tool.memory_score.md`
-  - `prompts/agent.system.tool.memory_reflect.md`
-  - `prompts/neuro.reflection.sys.md` — system prompt for the reflection LLM call.
-
-## Configuration Scope
-
-All settings are read via `plugins.get_plugin_config("neuro_core", agent=agent)`.
-
-- **Settings section**: `agent`
-- **Per-project config**: `true`
-- **Per-agent config**: `true`
-
-## Configuration Keys
-
-Every key below lives in `default_config.yaml` and is documented with its default value and effect.
-
-| Key                                | Default | Description                                                                                              |
-|------------------------------------|---------|----------------------------------------------------------------------------------------------------------|
-| `graph_enabled`                    | `true`  | Master switch for the graph layer. When `false`, the `memory_relate` tool and `/relationships` endpoints are disabled. |
-| `decay_enabled`                    | `true`  | Master switch for the importance decay job.                                                              |
-| `decay_interval_hours`             | `24`    | Minimum hours between decay sweeps. The job loop checks this throttle and skips runs within the window. |
-| `importance_decay_rate`            | `0.02`  | Per-day equivalent decay multiplier applied to non-`validated` memories. Example: `importance *= 0.98`.  |
-| `contradiction_detection_enabled`  | `true`  | Master switch for the contradiction detection job.                                                       |
-| `contradiction_llm_enabled`         | `false` | When `true`, the contradiction sweep uses an LLM call to semantically compare memory pairs. Off by default because the call is expensive. |
-| `contradiction_batch_size`         | `100`   | Maximum number of memories scanned per sweep.                                                            |
-| `contradiction_interval_hours`     | `168`   | Minimum hours between contradiction sweeps (default 1 week).                                             |
-| `reflection_enabled`               | `false` | Master switch for the `memory_reflect` tool and reflection pipeline. Enable per-project when needed.     |
-| `reflection_max_memories`          | `50`    | Upper bound on memories included in a single reflection pass.                                            |
-| `graph_neighbors_max`              | `40`    | Maximum neighbor count returned per node during graph expansion.                                         |
-| `graph_max_hops`                   | `2`     | Maximum hop depth for graph-neighbor expansion in `ContextGraph` retrieval.                              |
-| `importance_weight`                | `0.3`   | Weight of the importance score in the final retrieval ranking blend.                                    |
-| `recency_weight`                   | `0.2`   | Weight of the recency score in the final retrieval ranking blend.                                       |
-| `similarity_weight`                | `0.5`   | Weight of the semantic similarity score in the final retrieval ranking blend.                           |
-| `episode_boundary_hours`           | `4`     | Maximum gap between two memories for them to share an `episode_id`. Wider gaps start a new episode.     |
-| `episode_min_memories`             | `3`     | Minimum number of memories required for the episode grouping job to form an episode.                    |
-
-The three ranking weights (`importance_weight`, `recency_weight`, `similarity_weight`) are expected to sum to `1.0`; if they do not, the retrieval pipeline normalizes them automatically.
-
-## Known Limitations
-
-- **No dedup-guard on `memory_reflect` episodes (D24).** The reflection tool does not check whether a reflection has already been written for a given `episode_id`. Calling `memory_reflect(episode_id="ep_xyz")` twice will create two separate reflection memories unless the caller deduplicates upstream. A `reflections.json` index or an `episode_id` uniqueness check is on the Phase 5 roadmap; until then, callers should track which episodes have already been reflected on.
-- **Module-cache restart requirement after plugin updates.** Agent Zero's runtime caches imported Python modules in `sys.modules`. When you edit a Neuro Core file (e.g., a tool or helper), the running process continues to execute the cached version until it is restarted. The standard `importlib.reload()` workaround works inside the running process but is not safe to leave in production code. Always restart the Agent Zero container (or the affected worker) after updating Neuro Core to pick up the changes.
-- **LLM-based contradiction detection is off by default.** `contradiction_llm_enabled` defaults to `false` because the semantic-comparison call is expensive and not yet stability-validated. The contradiction sweep is a no-op until this is enabled explicitly in a controlled setting.
-- **Numeric scores live outside FAISS.** `importance`, `confidence`, and `stability` are stored in `scores.json`, not in FAISS metadata. This is intentional (avoids full index rewrites on every update) but means those three values will not appear in `memory_load` results — only `validation_status` and `memory_type` will. Inspect `scores.json` directly or use the Memory Dashboard to view them.
-- **Symmetric back-edges only for `related_to`.** Of the seven relationship types, only `related_to` is symmetric. Directional types (`supports`, `contradicts`, `depends_on`, `derived_from`, `precedes`, `follows`) write exactly one edge; traversal in the reverse direction requires a separate call.
-- **In-process only.** Neuro Core shares the Agent Zero process and storage paths with `_memory`. It cannot be deployed as a separate service, and it does not provide cross-instance synchronization.
-
-## Plugin Metadata
-
-- **Name**: `neuro_core`
-- **Title**: Neuro Core
-- **Version**: 0.1.0
-- **Tags**: `memory`, `knowledge-graph`, `lifecycle`
-- **Min Agent Zero version**: 0.9.0
+See `CONTRIBUTING.md` for contribution requirements.

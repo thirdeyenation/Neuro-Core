@@ -1,27 +1,42 @@
-graph_enabled: true
+# Neuro Core plugin configuration defaults.
+# Resolution order (highest priority first): project/profile, project,
+# user/profile, user plugin config, then this bundled file.
+# Every key below is read at runtime; see docs/configuration.md.
 
-# Lifecycle / decay
+# Path to the plugin's SQLite domain-store database. Relative values
+# resolve plugin-relative; absolute values are honored verbatim.
+database_path: neuro_core.db
+
+# ---- Lifecycle job-loop keys (helpers/lifecycle.py DEFAULT_CONFIG) ----
 decay_enabled: true
 decay_interval_hours: 24
-importance_decay_rate: 0.02   # per-day equivalent
-
+importance_decay_rate: 0.02
 contradiction_detection_enabled: true
-contradiction_llm_enabled: false     # v1: LLM-based contradiction detection is OFF by default.
-                                     # The job_loop extension is a no-op until this is enabled
-                                     # in a controlled setting (per the stability audit).
 contradiction_batch_size: 100
-contradiction_interval_hours: 168   # 1 week; how often to run the contradiction sweep
+contradiction_similarity_threshold: 0.85
+contradiction_llm_enabled: false
+contradiction_interval_hours: 168
+graph_analytics_enabled: true
+graph_analytics_top_pct: 0.10
+graph_analytics_boost: 0.05
+episode_boundary_hours: 4
+episode_min_memories: 3
 
-reflection_enabled: true
-reflection_max_memories: 50
-
-graph_neighbors_max: 40
+# ---- ContextGraph retrieval keys (helpers/retrieval.py, via api/context_graph.py) ----
+# Values match the API's established effective defaults (behavior-preserving).
 graph_max_hops: 2
-
+graph_neighbors_max: 10
+similarity_weight: 0.5
 importance_weight: 0.3
 recency_weight: 0.2
-similarity_weight: 0.5
+semantic_limit: 5
+semantic_threshold: 0.6
 
-# Episode grouping (Phase 4)
-episode_boundary_hours: 4   # gap > this many hours splits a new episode
-episode_min_memories: 3     # minimum memories required to form an episode
+# ---- Recall shaping (helpers/recall_shaping.py, ADR-NC1-003, D-NC1-106) ----
+# Phase-1 recall shaping is TEMPORARILY DISABLED (D-NC1-113): pending KI-036 sanitizer (update_documents metadata round-trip); flip to true as pre-authorized fast-follow.
+recall_shaping_enabled: true
+recall_shaping_neighbors_max: 3
+validation_factor_validated: 1.0
+validation_factor_unvalidated: 0.8
+validation_factor_disputed: 0.6
+validation_factor_deprecated: 0.4

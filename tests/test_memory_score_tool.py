@@ -139,12 +139,40 @@ class TestValidScoreUpdate:
         assert record.confidence == pytest.approx(0.8)
         assert record.stability == pytest.approx(0.7)
 
-        # D41 fix: score updates now also write back to FAISS docstore.
-        mem_wrap.update_documents.assert_called_once()
-        called_doc = mem_wrap.update_documents.call_args.args[0][0]
-        assert called_doc.metadata.get("importance") == pytest.approx(0.9)
-        assert called_doc.metadata.get("confidence") == pytest.approx(0.8)
-        assert called_doc.metadata.get("stability") == pytest.approx(0.7)
+        # Single authoritative write path (WI-P2-DEFECT-BATCH — supersedes
+        # the D41 mirror): score fields are written to the sidecar ONLY.
+        # No FAISS metadata mirror write for score fields (the KI-009
+        # drift source).
+        mem_wrap.update_documents.assert_not_called()
+
+
+    def test_no_faiss_mirror_write_for_score_fields(
+        self, monkeypatch, tmp_path
+    ):
+        """WI-P2-DEFECT-BATCH regression (score drift / KI-009 source):
+        score updates must use a single authoritative write path — the
+        scores.json sidecar. The FAISS metadata mirror write for score
+        fields (the D41 double-write) must be gone.
+        """
+        doc = _make_doc({"memory_type": "fact"})
+        tool, mem_wrap, _ = _make_tool(doc, memory_subdir="default")
+        _patch_memory(monkeypatch, mem_wrap)
+        _patch_score_store_to_tmp(monkeypatch, tmp_path, "default")
+
+        result = asyncio.run(
+            tool.execute(id="mem-001", importance=0.9, confidence=0.8)
+        )
+
+        assert "Error" not in result.message
+        # The sidecar received the write...
+        from usr.plugins.neuro_core.helpers.scores import ScoreStore
+
+        record = ScoreStore("default").get("mem-001")
+        assert record is not None
+        assert record.importance == pytest.approx(0.9)
+        assert record.confidence == pytest.approx(0.8)
+        # ...and the FAISS metadata mirror write did NOT happen.
+        mem_wrap.update_documents.assert_not_called()
 
     def test_success_response_includes_neuro_core_ack(
         self, monkeypatch, tmp_path

@@ -534,7 +534,11 @@ class TestEmptySubdirNoError:
             memory=None,
             facts=[],
         )
-        assert result == {"checked": 0, "disputed": 0}
+        assert result == {
+            "checked": 0,
+            "disputed": 0,
+            "disputes": [],  # WI-P60: additive disputes-bearing payload
+        }
 
     def test_none_facts_and_none_memory_returns_zero_zero(self) -> None:
         """``facts=None`` and ``memory=None`` → graceful no-op."""
@@ -544,7 +548,11 @@ class TestEmptySubdirNoError:
             memory=None,
             facts=None,
         )
-        assert result == {"checked": 0, "disputed": 0}
+        assert result == {
+            "checked": 0,
+            "disputed": 0,
+            "disputes": [],  # WI-P60: additive disputes-bearing payload
+        }
 
     def test_empty_facts_does_not_call_memory_hook(self) -> None:
         """An empty subdir must not even invoke the memory hook."""
@@ -622,11 +630,20 @@ class TestReturnValue:
         result = lifecycle.run_contradiction_detection(
             "default", {}, memory=None, facts=[]
         )
-        # Canonical shape — not just the values, the exact dict.
-        assert result == {"checked": 0, "disputed": 0}
+        # Canonical shape — not just the values, the exact dict. The
+        # disputes key is additive per WI-P60 (KI-034 approved design).
+        assert result == {
+            "checked": 0,
+            "disputed": 0,
+            "disputes": [],
+        }
 
     def test_return_value_respects_batch_size_cap(self) -> None:
-        """``contradiction_batch_size`` caps the number of facts processed."""
+        """WI-P63 (KI-048) condition 1 / D-NC1-137: on the FALLBACK path
+        (``facts=`` supplied), ALL eligible facts are processed per pass
+        — ``contradiction_batch_size`` no longer truncates the first-N
+        facts. The cap retains its meaning on the memory-search path
+        only (see the memory-search-path pin below)."""
         facts = [
             _fact(f"m{i}", f"fact number {i} is online")
             for i in range(10)
@@ -640,8 +657,54 @@ class TestReturnValue:
             memory=None,
             facts=facts,
         )
-        # Only the first 3 facts are processed.
-        assert result["checked"] == 3
+        # Process-all semantics: all 10 facts are checked despite the cap.
+        assert result["checked"] == 10
+
+    def test_batch_size_cap_retained_on_memory_search_path(self) -> None:
+        """WI-P63 (KI-048) condition 1 / D-NC1-137: the cap's retained
+        meaning — on the memory-search path (``memory=`` supplied, no
+        ``facts=``), ``contradiction_batch_size`` bounds the number of
+        candidate memories pulled from the store per pass. Pinned
+        observably: with the cap at 3, the opposing candidate registered
+        BEYOND the first 3 hits is never considered (no dispute); with
+        the cap raised, the same candidate is considered and disputed."""
+        opposing = (
+            "m9", "please disable the plugin", 0.99,
+            {"timestamp": "2026-01-02T00:00:00+00:00"},
+        )
+
+        def _run(cap: int) -> dict:
+            fake_memory = _FakeMemory()
+            # First 3 hits are neutral (no opposition); the opposing
+            # candidate is registered 4th.
+            neutral_hits = [
+                (f"n{i}", f"neutral note number {i}", 0.99,
+                 {"timestamp": "2026-01-02T00:00:00+00:00"})
+                for i in range(3)
+            ]
+            fake_memory.register("please enable the plugin",
+                                 neutral_hits + [opposing])
+            return lifecycle.run_contradiction_detection(
+                "default",
+                {
+                    "contradiction_similarity_threshold": 0.85,
+                    "contradiction_batch_size": cap,
+                },
+                memory=fake_memory,
+                facts=[_fact("q0", "please enable the plugin")],
+            )
+
+        # Cap=3: only the 3 neutral candidates are pulled — the opposing
+        # candidate beyond the cap is never compared → no dispute.
+        capped = _run(3)
+        assert capped["checked"] == 1
+        assert capped["disputed"] == 0
+        # Cap raised: the opposing candidate is now within the pull and
+        # the dispute fires — proving the cap (not the heuristic) bounded
+        # the candidate set above.
+        raised = _run(10)
+        assert raised["checked"] == 1
+        assert raised["disputed"] == 1
 
     def test_return_value_default_config_path(self) -> None:
         """No explicit config → defaults from ``DEFAULT_CONFIG`` are used."""

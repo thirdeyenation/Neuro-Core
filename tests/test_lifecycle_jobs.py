@@ -113,7 +113,7 @@ class TestImportanceDecay:
         result = lifecycle.run_importance_decay(
             "default", {"importance_decay_rate": 0.10}, store, docs
         )
-        assert result == {"processed": 1, "decayed": 1, "skipped": 0}
+        assert result == {"processed": 1, "decayed": 1, "skipped": 0, "degraded": 0}
         # 0.8 * 0.9 = 0.72
         assert store.get("m1").importance == pytest.approx(0.72, rel=1e-9)
 
@@ -126,7 +126,7 @@ class TestImportanceDecay:
         result = lifecycle.run_importance_decay(
             "default", {"importance_decay_rate": 0.10}, store, docs
         )
-        assert result == {"processed": 1, "decayed": 0, "skipped": 1}
+        assert result == {"processed": 1, "decayed": 0, "skipped": 1, "degraded": 0}
         assert store.get("m1").importance == pytest.approx(0.8)
 
     def test_skips_high_stability_docs(self) -> None:
@@ -138,7 +138,7 @@ class TestImportanceDecay:
         result = lifecycle.run_importance_decay(
             "default", {"importance_decay_rate": 0.10}, store, docs
         )
-        assert result == {"processed": 1, "decayed": 0, "skipped": 1}
+        assert result == {"processed": 1, "decayed": 0, "skipped": 1, "degraded": 0}
         assert store.get("m1").importance == pytest.approx(0.8)
 
     def test_decay_clamps_to_zero(self) -> None:
@@ -171,7 +171,7 @@ class TestImportanceDecay:
         result = lifecycle.run_importance_decay(
             "default", {"importance_decay_rate": 0.05}, store, docs
         )
-        assert result == {"processed": 5, "decayed": 3, "skipped": 2}
+        assert result == {"processed": 5, "decayed": 3, "skipped": 2, "degraded": 0}
 
     def test_throttle_blocks_second_call_within_interval(self) -> None:
         """The throttle gate returns False when the gap < interval_hours."""
@@ -833,7 +833,7 @@ class TestExecuteMigrationMemoryParam:
             "directly — this triggers 'name Memory is not defined' at runtime"
         )
 
-    def test_run_migration_completes_without_name_error(self) -> None:
+    def test_run_migration_completes_without_name_error(self, monkeypatch) -> None:
         """End-to-end: ``_run_migration(stub, stub)`` must complete without
         raising ``NameError`` when the function is the only scope that
         knows about the ``Memory`` class."""
@@ -846,9 +846,10 @@ class TestExecuteMigrationMemoryParam:
                 self.get_by_subdir_calls: list = []
 
             @staticmethod
-            async def get_by_subdir(subdir, log_item=None):
-                # Note: log_item is accepted to match the real Memory.get_by_subdir
-                # signature. The test does not assert on it.
+            async def get_by_subdir(subdir, log_item=None, **kwargs):
+                # Note: log_item and preload_knowledge are accepted to match
+                # the real Memory.get_by_subdir signature (WI-P74 passes
+                # preload_knowledge=False). The test does not assert on them.
                 pass
 
                 class _MemObj:
@@ -865,6 +866,15 @@ class TestExecuteMigrationMemoryParam:
 
         def _stub_get_subdirs() -> list[str]:
             return ["default", "projects/neuro_core"]
+
+        # Pin model-less detection to the full migration path: this test
+        # exercises the _run_migration NameError regression, not detection,
+        # and must stay isolated from the real filesystem (KI-054, WI-P75).
+        monkeypatch.setattr(
+            execute_mod,
+            "_modelless_subdir_needs_migration",
+            lambda subdir, abs_db_dir_fn=None: (True, 0),
+        )
 
         # This call would have raised NameError before the fix
         processed, scanned, updated = asyncio.run(
@@ -943,3 +953,188 @@ class TestAbsDbDirMigration:
                 "this attribute does not exist on the Memory class"
             )
 
+
+
+
+
+# ---------------------------------------------------------------------------
+# 7. Boot-grace guard (WI-2026-09-04-PHASE0-PATCH-ARCH, D-NC1-015)
+# ---------------------------------------------------------------------------
+
+
+class TestBootGraceGuard:
+    """Boot grace-period guard on all three job_loop extensions.
+
+    Remediation for the boot deadlock (D-NC1-015): each job_loop
+    extension must skip every tick until the process has been up for
+    at least ``_BOOT_GRACE_SECONDS`` (300 s), and a skipped tick must
+    record NO throttle state, so the first post-grace tick runs the
+    real job immediately.
+    """
+
+    _JOBS = [
+        ("AccessDecayJob", "_10_access_decay"),
+        ("EpisodeGroupingJob", "_20_episode_grouping"),
+        ("ContradictionDetectionJob", "_30_contradiction_detection"),
+    ]
+
+    @staticmethod
+    def _load(file_stem: str, tag: str):
+        import importlib.util
+        from pathlib import Path
+
+        target = (
+            Path(__file__).resolve().parent.parent
+            / "extensions"
+            / "python"
+            / "job_loop"
+            / f"{file_stem}.py"
+        )
+        assert target.exists(), f"job_loop file not found: {target}"
+        spec = importlib.util.spec_from_file_location(
+            f"_neuro_core_test_grace_{tag}_{file_stem}", str(target)
+        )
+        assert spec is not None and spec.loader is not None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    @pytest.mark.asyncio
+    async def test_within_grace_tick_does_no_work_and_records_no_state(
+        self,
+    ) -> None:
+        """A tick inside the grace period: no job work, no throttle write.
+
+        For each extension, ``_process_uptime_seconds`` is patched to
+        report a young process; ``_read_config`` and ``_subdirs`` are
+        replaced with functions that raise (proving the job body is
+        never reached) and ``_STATE['last_run']`` must remain 0.0.
+        """
+        for cls_name, file_stem in self._JOBS:
+            mod = self._load(file_stem, "in")
+            ext = getattr(mod, cls_name)(agent=_FAKE_AGENT)
+
+            def _young_uptime() -> float:
+                return 10.0  # well within the 300s grace period
+
+            def _must_not_be_reached(*args, **kwargs):
+                raise AssertionError(
+                    f"{file_stem}: job body reached during boot grace"
+                )
+
+            mod._process_uptime_seconds = _young_uptime
+            ext._read_config = _must_not_be_reached
+            ext._subdirs = _must_not_be_reached
+            mod._STATE["last_run"] = 0.0
+
+            await ext.execute()
+
+            assert mod._STATE["last_run"] == 0.0, (
+                f"{file_stem}: skipped tick must not record throttle state"
+            )
+
+    @pytest.mark.asyncio
+    async def test_after_grace_tick_runs_job(self) -> None:
+        """A tick after the grace period proceeds into the job body.
+
+        ``_read_config`` is replaced with a counting stub returning a
+        disabled config, so the job exits cleanly right after config
+        resolution — but reaching ``_read_config`` at all proves the
+        grace guard let the tick through.
+        """
+        for cls_name, file_stem in self._JOBS:
+            mod = self._load(file_stem, "out")
+            ext = getattr(mod, cls_name)(agent=_FAKE_AGENT)
+
+            def _old_uptime() -> float:
+                return 10000.0  # far beyond the 300s grace period
+
+            calls = []
+
+            def _disabled_config(*args, **kwargs):
+                calls.append(1)
+                return {
+                    "decay_enabled": False,
+                    "contradiction_detection_enabled": False,
+                    "contradiction_llm_enabled": False,
+                }
+
+            mod._process_uptime_seconds = _old_uptime
+            ext._read_config = _disabled_config
+            mod._STATE["last_run"] = 0.0
+
+            # The plugin test conftest stubs the ``helpers`` package with
+            # an empty ``__path__`` when the real framework is not loaded;
+            # ``_10_access_decay._run`` does ``from helpers import plugins``
+            # right after the grace guard. Give the stub a ``plugins``
+            # attribute so the post-grace path can reach ``_read_config``.
+            import sys
+            import types
+
+            helpers_mod = sys.modules.get("helpers")
+            if helpers_mod is not None and not hasattr(helpers_mod, "plugins"):
+                helpers_mod.plugins = types.ModuleType("helpers.plugins")
+
+            await ext.execute()
+
+            assert calls, f"{file_stem}: post-grace tick must run the job body"
+
+    def test_grace_guard_consistent_across_all_three_extensions(self) -> None:
+        """All three extensions carry the same guard pattern.
+
+        Each module must define ``_BOOT_GRACE_SECONDS == 300.0``, the
+        uptime helper, the fail-safe grace check, and place the guard
+        before any throttle state handling in ``_run()``.
+        """
+        import inspect
+
+        for cls_name, file_stem in self._JOBS:
+            mod = self._load(file_stem, "cons")
+
+            assert mod._BOOT_GRACE_SECONDS == 300.0, file_stem
+            assert callable(mod._process_uptime_seconds), file_stem
+            assert callable(mod._boot_grace_active), file_stem
+            # The test process itself is young — grace must be active.
+            assert mod._boot_grace_active() is True, file_stem
+
+            run_src = inspect.getsource(getattr(mod, cls_name)._run)
+            guard_pos = run_src.find("_boot_grace_active()")
+            # Search for the actual throttle *assignment*, not the bare
+            # ``_STATE[`` token — the guard's own comment mentions it.
+            throttle_pos = run_src.find('_STATE["last_run"] =')
+            assert guard_pos != -1, f"{file_stem}: _run() has no grace guard"
+            assert throttle_pos == -1 or guard_pos < throttle_pos, (
+                f"{file_stem}: guard must precede throttle state handling"
+            )
+
+
+# ---------------------------------------------------------------------------
+# KI-008 regression (WI-P2-DEFECT-BATCH): per-item lifecycle failures must
+# be recorded as an explicit degraded count, not silently absorbed into a
+# clean-looking summary dict.
+# ---------------------------------------------------------------------------
+
+
+class _FailingSetScoreStore(_FakeScoreStore):
+    """ScoreStore stand-in whose ``set`` always fails."""
+
+    def set(self, memory_id, **kwargs):
+        raise RuntimeError("simulated sidecar write failure")
+
+
+class TestDegradationMarkers:
+    def test_decay_sidecar_failure_recorded_as_degraded(self) -> None:
+        """KI-008: a sidecar write failure during importance decay must
+        surface as ``result["degraded"] >= 1`` — never a clean summary.
+        """
+        store = _FailingSetScoreStore({"m1": _FakeScores(importance=0.8)})
+        docs = _mk_docs([
+            ("m1", {"validation_status": "unvalidated", "stability": 0.5}),
+        ])
+        result = lifecycle.run_importance_decay(
+            "default", {"importance_decay_rate": 0.10}, store, docs
+        )
+        assert result.get("degraded") == 1, (
+            "sidecar write failure must be recorded as an explicit "
+            "degraded count in the job result"
+        )

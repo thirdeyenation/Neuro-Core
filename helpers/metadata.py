@@ -264,3 +264,208 @@ def apply_defaults(metadata: dict) -> dict:
         metadata["validation_status"] = ValidationStatus.UNVALIDATED.value
 
     return metadata
+
+
+# ---------------------------------------------------------------------------
+# memory_types collection (WI-P59-KI029-MEMTYPE-EDIT, ADR-NC1-004)
+# ---------------------------------------------------------------------------
+#
+# Durable metadata policy (ADR-NC1-004; WI-P59, S2):
+#   - The scalar ``memory_type`` remains the enum-locked primary type.
+#   - The additive ``memory_types`` collection (list of strings) carries the
+#     FULL authoritative type set including the primary. Invariant:
+#     ``memory_type`` is a member of ``memory_types``.
+#   - User-defined custom types live ONLY in the collection (the enum is
+#     never extended); they match ``MEMORY_TYPE_TOKEN_RE`` (1-40 chars).
+#   - Caps (durable policy values, ADR-NC1-004): max 1 primary + 7 additional.
+#   - This module is the SINGLE sanctioned normalization authority (C1):
+#     read paths derive the normalized set WITHOUT mutating metadata; only
+#     the memory_edit handler writes through strict validation.
+
+import re as _re
+
+MEMORY_TYPE_TOKEN_RE = _re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
+MAX_ADDITIONAL_MEMORY_TYPES = 7
+
+
+class NormalizedMemoryTypes:
+    """Immutable result of normalizing the type fields of one document.
+
+    ``types`` is the authoritative set (list, primary first, deduped).
+    ``inconsistent`` is True when ``memory_types`` exists but the scalar
+    primary is not its member (reachable when tools/memory_score.py rewrites
+    the scalar; C2) — read paths TOLERATE this without mutation; the next
+    handler edit repairs the invariant via full-set-replace.
+    """
+
+    __slots__ = ("types", "primary", "additional", "inconsistent")
+
+    def __init__(self, types, primary, additional, inconsistent):
+        self.types = types
+        self.primary = primary
+        self.additional = additional
+        self.inconsistent = inconsistent
+
+    def to_payload(self):
+        """UI/API payload: primary scalar plus full normalized set."""
+        return {
+            "memory_type": self.primary,
+            "memory_types": list(self.types),
+            "additional": list(self.additional),
+            "inconsistent": self.inconsistent,
+        }
+
+
+def normalize_memory_types(metadata: dict, strict: bool = False):
+    """Normalize the scalar primary + additive memory_types collection.
+
+    This is the SINGLE normalization authority for the two type fields
+    (C1). It NEVER mutates ``metadata`` in either mode (no FAISS or store
+    writes anywhere in this function).
+
+    Lenient mode (read paths, ``strict=False``):
+    - scalar-only legacy record  -> read-derives ``[memory_type]``.
+    - missing both               -> empty set (UI renders 'type unknown').
+    - collection present          -> returns the collection as-is plus the
+      scalar as primary. When the scalar is NOT a collection member the
+      result is flagged ``inconsistent`` (C2 tolerated state; no repair
+      on read).
+
+    Strict mode (handler write path, ``strict=True``): validates a
+    full-set-replace payload mapping with keys ``primary`` (required, must
+    be an enum value) and ``additional`` (optional list; each token must
+    match ``MEMORY_TYPE_TOKEN_RE``, max
+    ``MAX_ADDITIONAL_MEMORY_TYPES``, no enum-collision, no duplicates).
+    Raises ``ValueError`` with the canonical error strings on any
+    violation (loud rejection, no partial write). Returns the
+    ``NormalizedMemoryTypes`` for the validated set.
+
+    Args:
+        metadata: The document metadata dict (read-only here).
+        strict: Validate as a write payload instead of reading.
+
+    Returns:
+        ``NormalizedMemoryTypes``
+
+    Raises:
+        ValueError: In strict mode on any payload violation.
+    """
+    if strict:
+        if not isinstance(metadata, dict):
+            raise ValueError("`types` must be an object with `primary` and optional `additional`")
+        primary = metadata.get("primary")
+        if primary is None or not isinstance(primary, str) or primary not in VALID_MEMORY_TYPES:
+            raise ValueError(
+                "`types.primary` must be one of the 8 valid memory types: "
+                + ", ".join(sorted(VALID_MEMORY_TYPES))
+            )
+        raw_additional = metadata.get("additional", [])
+        if raw_additional is None:
+            raw_additional = []
+        if not isinstance(raw_additional, list) or any(
+            not isinstance(t, str) for t in raw_additional
+        ):
+            raise ValueError("`types.additional` must be a list of strings")
+        additional = []
+        seen = {primary}
+        for token in raw_additional:
+            t = token.strip().lower()
+            if not MEMORY_TYPE_TOKEN_RE.match(t):
+                raise ValueError(
+                    "`types.additional` entries must be 1-40 chars, lowercase, "
+                    "no whitespace: ^[a-z0-9][a-z0-9_-]{0,39}$ (got: " + token + ")"
+                )
+            if t in seen:
+                if t == primary:
+                    raise ValueError(
+                        "`types.additional` entry duplicates the primary type: " + t
+                    )
+                raise ValueError("`types.additional` contains a duplicate: " + t)
+            if t in VALID_MEMORY_TYPES:
+                raise ValueError(
+                    "`types.additional` entry collides with an enum type: " + t
+                )
+            seen.add(t)
+            additional.append(t)
+        if len(additional) > MAX_ADDITIONAL_MEMORY_TYPES:
+            raise ValueError(
+                "at most " + str(MAX_ADDITIONAL_MEMORY_TYPES)
+                + " additional types are allowed (1 primary + "
+                + str(MAX_ADDITIONAL_MEMORY_TYPES) + " additional)"
+            )
+        return NormalizedMemoryTypes(
+            [primary] + additional, primary, additional, False
+        )
+
+    # ---- lenient read path (no mutation, ever) ----------------------------
+    scalar = metadata.get("memory_type")
+    collection = metadata.get("memory_types")
+    # KI-049 (WI-P65) nested-legacy fallback, read-only: records created
+    # through legacy kwarg-nesting carry the type fields inside the nested
+    # ``metadata`` dict instead of at the top level. When a top-level field
+    # is absent, fall back to the nested value so read paths surface the
+    # actually stored type. Nothing is mutated here (C1 discipline); the
+    # on-disk nested form is left untouched.
+    if scalar is None or collection is None:
+        nested = metadata.get("metadata")
+        if isinstance(nested, dict):
+            if scalar is None:
+                nested_scalar = nested.get("memory_type")
+                if isinstance(nested_scalar, str):
+                    scalar = nested_scalar
+            if collection is None:
+                nested_collection = nested.get("memory_types")
+                if nested_collection is not None:
+                    collection = nested_collection
+    if collection is None:
+        if scalar is None:
+            return NormalizedMemoryTypes([], None, [], False)
+        if isinstance(scalar, str):
+            return NormalizedMemoryTypes([scalar], scalar, [], False)
+        # Non-string scalar (defensive): treat as type-unknown on read.
+        return NormalizedMemoryTypes([], None, [], False)
+    if isinstance(collection, str):
+        collection = [collection]
+    if not isinstance(collection, list):
+        return NormalizedMemoryTypes([], None, [], False)
+    collection = [t for t in collection if isinstance(t, str)]
+    primary = scalar if isinstance(scalar, str) else None
+    additional = [t for t in collection if t != primary]
+    inconsistent = primary is not None and primary not in collection
+    if primary is not None and not inconsistent:
+        types = [primary] + additional
+    elif primary is not None:
+        # C2 tolerated inconsistent state: surface the scalar primary
+        # alongside the collection without mutating anything.
+        types = [primary] + [t for t in collection if t != primary]
+    else:
+        types = list(collection)
+    return NormalizedMemoryTypes(types, primary, additional, inconsistent)
+
+
+def resolved_memory_type_fields(metadata: dict) -> dict:
+    """KI-049 (WI-P65): additive top-level type fields for API producers.
+
+    API node payloads (``api/context_graph.py``, ``api/advanced_filters.py``)
+    expose the document metadata dict directly, so a legacy record whose type
+    lives only in the nested ``metadata`` dict reaches the UI without any
+    top-level ``memory_type``/``memory_types`` field and renders as
+    'type unknown' even though a type is stored.
+
+    This helper runs the C1 lenient normalizer (which now resolves the
+    nested-legacy fallback) and returns ONLY the fields that are absent at
+    the top level, so existing top-level values are never overridden and the
+    result is purely additive. Returns an empty dict for type-unknown records
+    and for records that already carry top-level fields. Callers must merge
+    the result into a COPY of the metadata dict — the underlying document is
+    never mutated (C1 read-path no-mutation discipline).
+    """
+    if not isinstance(metadata, dict):
+        return {}
+    norm = normalize_memory_types(metadata)
+    out: dict = {}
+    if metadata.get("memory_type") is None and norm.primary is not None:
+        out["memory_type"] = norm.primary
+    if metadata.get("memory_types") is None and norm.types:
+        out["memory_types"] = list(norm.types)
+    return out

@@ -1,11 +1,96 @@
+# NEURO CORE CHANGELOG
+
+*CURRENT DATE:* 2026-09-09
+*UPDATE STATUS:* reconciled 2026-09-09 (Phase E documentation
+reconciliation, WI-P5-DOCS-RECON)
+
+## [1.1.0] — 2026-10-10
+
+### Publication Release
+
+Neuro Core 1.1.0 is the first public release of the context graph and
+memory enhancement plugin for Agent Zero.
+
+**What Neuro Core does:** it extends Agent Zero's built-in memory
+plugin with typed memory categories, a typed relationship graph,
+importance/confidence/stability scoring, periodic maintenance jobs
+(importance decay, episode grouping, contradiction detection), and
+structured ContextGraph retrieval that explains why each result ranked
+where it did. It also ships a graph panel for the Agent Zero WebUI, a
+settings window, and an HTTP API for graph queries, filtering, audits,
+and safe-mode memory editing.
+
+**Requirements:** Agent Zero v2.13 (validated against commit
+`e3051fb`), Python 3.12+, and the framework's built-in `_memory`
+plugin. The plugin installs `networkx` automatically the first time it
+is enabled. No other dependencies beyond the Agent Zero framework
+runtime.
+
+**Known limitations in this release:**
+
+- Plugin enablement has been verified at the manifest/discovery level
+  (the plugin is discovered and its settings toggle appears); a full
+  live enable-cycle confirmation in a running host is still pending.
+- The plugin's live HTTP endpoints have not been exercised in
+  end-to-end validation for this release; they are covered by the
+  plugin's test suite at the implementation level.
+- The live FAISS similarity query path has not been run against a live
+  host index in this release's validation; index loadability is
+  verified.
+- The relationships edge-deletion flow and the panel's add-edge UI are
+  implemented and test-covered but not yet confirmed end-to-end in a
+  live host/browser session.
+- The plugin's pre-release documentation guard is textual only; it is
+  not a runtime data-leak prevention mechanism.
+
+See the README for installation, data-and-privacy disclosures, and
+uninstall guidance.
+
 ## [1.0.0] — 2026-06-25
 
 ### The First Stable Release
 
 Neuro Core v1.0.0 is the first stable release of the context graph and
 memory enhancement plugin for Agent Zero. It ships with all five core
-subsystems verified, 290 tests passing, 10 live integration scenarios
-confirmed, and all performance baselines met.
+subsystems verified, 419 tests passing (full-suite count verified
+2026-09-11 against the plugin test suite; count lineage
+346→363→372→393→401→419, where 401 is the WI-P6 baseline plus the 8
+new WI-P8-GRAPH-BLOCKERS Context Graph defect-remediation tests, and
+419 adds 18 new WI-P9-EDGE-DELETE targeted edge-deletion tests —
+edge deletion implemented, pending live validation evidence; and
+432 adds 13 new WI-P10-DELETE-ORDERING delete-ordering defect
+remediation tests (KI-003/KI-011/KI-013 signatures pinned, D39-A
+superseded by post-success hook cascade per D-NC1-035; suite count
+419->432 confirmed 2026-09-11; and 441 adds 9 new WI-P11-GRAPH-CLEANUP
+tests (graph-panel cleanup: minScore slider wired into render filtering,
+relationship-dropdown vocabulary completed to the full store enum,
+cytoscape vendored locally with zero external CDN references, dormant
+divergent webui/graph-store.js removed; suite count 432->441 confirmed
+2026-09-12; and 446 adds 5 new WI-P12-SCORE-AUTHORITY sidecar-precedence tests
+(sidecar-over-stale-metadata precedence, legacy-record degraded fallback,
+sidecar-only access tracking, boundary-4 source-level pin, re-open
+persistence; suite count 441->446 confirmed 2026-09-12; historical
+release notes had stated
+290), 10 live
+integration scenarios confirmed, and all performance baselines met.
+
+Count-lineage continuation (reconciled 2026-09-16, WI-P21): 470 adds 24
+new WI-P13-ADD-EDGE-UI inspector add-edge tests (suite 446->470);
+482 adds 12 new WI-P14-GRAPH-FILTER-DEFECTS advanced-filters
+real-interface tests (470->482); 492 adds 10 new WI-P15-AP-AO docs/
+panel date_range contract tests (482->492); 499 adds 7 new
+WI-P16-PANEL-VISIBILITY inspector/visibility tests (492->499); 510
+adds 11 new WI-P17-SEARCH-JSONPARSE CSRF/response-validation tests
+(499->510); 525 adds 15 new WI-P18-PANEL-UX tests (510->525); 539
+adds 14 new WI-P19-PANEL-INTERACTION direction-aware labeling,
+post-create refresh, form-reset, and subdir-composition tests
+(525->539); 552 adds 13 new WI-P20-APISIDE-REMEDIATION
+memory_subdirs scan-location, delete-refresh, and multi-seed
+visited-set tests (539->552, confirmed 2026-09-15); 570 adds 18 new
+WI-P21-LEDGER-ZERO tests (AL query-args consistency pins, BH
+per-type/multi-edge behavior pins, AA dormancy pins, CHANGELOG
+lineage pin, api.md doc pin, shell-copy pointer; suite count
+552->570 confirmed 2026-09-16).
 
 ### What Neuro Core Does
 
@@ -28,10 +113,16 @@ genuinely structured knowledge over time.
   now synthesizes concept memories from recurring patterns automatically
 - Startup sidecar reconciliation — orphan sidecar entries detected and
   cleaned on every restart (D55)
-- Memory score write-back to FAISS metadata — score changes immediately
-  visible in retrieval ranking (D41)
-- API relationships routing corrected — full CRUD on graph edges via
-  `/api/plugins/neuro_core/relationships` (D42, D45)
+- Sidecar-authoritative memory scores (supersedes D41 write-back) —
+  per ADR-NC1-002 (WI-P12-SCORE-AUTHORITY, KI-009 resolution), score and
+  access-count writes go only to the `scores.json` sidecar (single
+  authoritative writer); the FAISS metadata score copy is read-only and
+  never authoritative — retrieval surfaces `neuro_degraded` for legacy
+  records without sidecar entries instead of presenting the mirror as
+  healthy
+- API relationships routing corrected — list, create, and targeted delete of graph edges via
+  `/api/plugins/neuro_core/relationships` (D42, D45; delete implemented and validated at
+  implementation level, WI-P9; live host/browser confirmation pending)
 
 **Reliability Fixes**
 - EpisodeGroupingJob silent failure resolved — `_iter_docs` and
@@ -56,8 +147,6 @@ genuinely structured knowledge over time.
 
 **Documentation**
 - `docs/` — architecture, API, tools, data model, configuration (5 docs)
-- KNOWN_FRAMEWORK_CONTRACTS.md — 11 sections of verified framework
-  behavior, test invocation contract, sidecar patterns
 
 # Changelog
 All notable changes to Neuro Core will be documented in this file.
@@ -112,4 +201,4 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Live integration test suite (9-step) deferred to v0.2.0
 ---
 ## [Unreleased]
-*Nothing yet — see roadmap in README.md*
+*TO BE FILLED*

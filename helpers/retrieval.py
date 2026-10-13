@@ -29,6 +29,7 @@ retrieval algorithm stay free of side effects.
 
 from __future__ import annotations
 
+import logging
 import math
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Iterable
@@ -64,7 +65,11 @@ def _cfg(config: Any, key: str, default: float | int) -> float | int:
     if hasattr(config, "get"):
         try:
             v = config.get(key)
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "neuro_core retrieval: config lookup failed for %r: %s",
+                key, exc,
+            )
             v = None
         if v is not None:
             return v
@@ -120,15 +125,43 @@ def _doc_id(doc: Any) -> str:
     )
 
 
-def _importance_for(doc_id: str, doc: Any, score_store: Any) -> float:
-    """Read the importance score from the sidecar; fall back to metadata."""
+def _importance_for(doc_id: str, doc: Any, score_store: Any) -> tuple:
+    """Read the importance score from the sidecar; fall back to metadata.
+
+    Returns ``(importance, degraded)``. ``degraded`` is True when the
+    sidecar read failed OR the document is a legacy record without a
+    sidecar entry — callers must surface an explicit degradation marker
+    (``neuro_degraded``) instead of silently presenting the metadata/0.5
+    fallback as a healthy sidecar-backed score (KI-008,
+    WI-P2-DEFECT-BATCH; legacy-record semantics per ADR-NC1-002
+    boundary 3, WI-P12-SCORE-AUTHORITY: the metadata copy is a
+    potentially stale mirror, never authoritative).
+    """
     if score_store is not None:
         try:
-            rec = score_store.get(doc_id)
-            if rec is not None:
-                return float(rec.importance)
-        except Exception:
-            pass
+            # Absence-aware read when the store supports it; legacy stores
+            # (including test stubs) keep their existing get() semantics.
+            if hasattr(score_store, "get_optional"):
+                rec = score_store.get_optional(doc_id)
+            else:
+                rec = score_store.get(doc_id)
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "neuro_core retrieval: score sidecar read failed for %r: %s",
+                doc_id, exc,
+            )
+            return _metadata_importance(doc), True
+        if rec is not None:
+            return float(rec.importance), False
+        # Legacy record: no sidecar entry. The metadata copy is a
+        # potentially stale mirror — surface the degraded marker instead
+        # of presenting it as healthy sidecar-backed data.
+        return _metadata_importance(doc), True
+    return _metadata_importance(doc), False
+
+
+def _metadata_importance(doc: Any) -> float:
+    """Best-effort importance from doc metadata; 0.5 fallback."""
     meta = getattr(doc, "metadata", None) or {}
     imp = meta.get("importance")
     if isinstance(imp, (int, float)):
@@ -194,8 +227,12 @@ async def search_context_graph(
             limit=sem_limit,
             threshold=sem_threshold,
         )
-    except Exception:
-        # Memory failures should never crash retrieval; fall back to empty.
+    except Exception as exc:
+        # Memory failures should never crash retrieval; fall back to empty,
+        # but record the degradation explicitly (KI-008).
+        logging.getLogger(__name__).warning(
+            "neuro_core retrieval: semantic seed search failed: %s", exc
+        )
         seed_docs = []
 
     seed_ids: list[str] = [_doc_id(d) for d in seed_docs]
@@ -207,8 +244,13 @@ async def search_context_graph(
         if did in nodes_by_id:
             continue
         sem = _semantic_for(d)
-        imp = _importance_for(did, d, score_store)
+        imp, imp_degraded = _importance_for(did, d, score_store)
         meta = getattr(d, "metadata", None) or {}
+        if imp_degraded:
+            # KI-008: surface the sidecar failure explicitly instead of
+            # presenting the fallback as a healthy sidecar-backed score.
+            meta = dict(meta)
+            meta["neuro_degraded"] = True
         rec = _recency_score(
             meta.get("last_accessed_at") or meta.get("timestamp")
         )
@@ -281,10 +323,18 @@ async def search_context_graph(
                     if fetched:
                         content = getattr(fetched[0], "page_content", "") or ""
                         meta = dict(getattr(fetched[0], "metadata", None) or {})
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logging.getLogger(__name__).warning(
+                        "neuro_core retrieval: neighbor fetch failed for "
+                        "%r: %s",
+                        target_id, exc,
+                    )
 
-                imp = _importance_for(target_id, None, score_store)
+                imp, imp_degraded = _importance_for(
+                    target_id, None, score_store
+                )
+                if imp_degraded:
+                    meta["neuro_degraded"] = True
                 rec = _recency_score(
                     meta.get("last_accessed_at") or meta.get("timestamp")
                 )

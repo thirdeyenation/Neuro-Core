@@ -25,3 +25,5 @@ execute_record.json
 Thumbs.db
 # Build artifacts
 neuro_core.egg-info/
+# Live database (runtime data, never commit)
+*.db

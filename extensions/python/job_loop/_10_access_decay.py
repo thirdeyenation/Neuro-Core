@@ -49,6 +49,66 @@ _logger = logging.getLogger("neuro_core.job_loop.access_decay")
 _STATE: dict[str, float] = {"last_run": 0.0}
 
 
+# Boot-grace guard (WI-2026-09-04-PHASE0-PATCH-ARCH, D-NC1-015 remediation).
+# ---------------------------------------------------------------------------
+# At framework boot, a fresh process means fresh throttle state, so the first
+# job_loop tick fires immediately — potentially while the framework is still
+# initializing (watchdog registration in particular, see the boot-deadlock
+# diagnosis). A heavy first run also floods filesystem events during that
+# window. This guard defers every tick until the process has been up for at
+# least ``_BOOT_GRACE_SECONDS`` and — critically — a skipped tick records NO
+# throttle state, so the first post-grace tick runs the real job immediately.
+_BOOT_GRACE_SECONDS: float = 300.0
+_IMPORT_MONOTONIC: float = time.monotonic()
+
+
+def _process_uptime_seconds() -> float:
+    """Return the current process uptime in seconds.
+
+    Primary source: ``/proc/self/stat`` field 22 (``starttime``, in
+    clock ticks after boot) combined with ``/proc/stat``'s ``btime``
+    (boot epoch) — this yields true process age regardless of when this
+    module happened to be imported by the framework's dynamic loader.
+
+    Fallback (non-Linux or /proc unavailable): seconds since this
+    module was imported, via ``time.monotonic()``. That under-estimates
+    process uptime, which only ever *extends* the grace period — the
+    fail-safe direction.
+    """
+    try:
+        with open("/proc/self/stat", "rb") as f:
+            raw = f.read()
+        # Field 2 (comm) may contain spaces and parentheses; anchor on the
+        # LAST ')' — everything after it starts at field 3 (state).
+        tail = raw[raw.rindex(b")") + 1:].split()
+        starttime_ticks = float(tail[19])  # field 22 = starttime, in CLK_TCK
+        btime = None
+        with open("/proc/stat", "rb") as f:
+            for line in f:
+                if line.startswith(b"btime"):
+                    btime = float(line.split()[1])
+                    break
+        if btime is None:
+            raise ValueError("btime not found in /proc/stat")
+        hz = 100.0  # CLK_TCK is 100 on standard Linux kernels
+        return max(0.0, time.time() - btime - starttime_ticks / hz)
+    except Exception:
+        return time.monotonic() - _IMPORT_MONOTONIC
+
+
+def _boot_grace_active() -> bool:
+    """True while the process is younger than ``_BOOT_GRACE_SECONDS``.
+
+    Fail-safe: on any error computing uptime, treat the process as
+    still inside the grace period (skipping a tick is always safe; a
+    spurious 'expired' verdict is not).
+    """
+    try:
+        return _process_uptime_seconds() < _BOOT_GRACE_SECONDS
+    except Exception:  # pragma: no cover - defensive
+        return True
+
+
 # D51 — module-level helpers for async Memory access from a sync extension.
 # AccessDecayJob.execute() is async but the framework scheduler invokes
 # it from a thread that already has a running loop. We use
@@ -111,6 +171,16 @@ class AccessDecayJob(Extension):
             )
 
     async def _run(self, **kwargs: Any) -> None:
+        # ---- 0. Boot-grace guard (D-NC1-015 remediation) ----------------------
+        # Skip every tick until the process has been up for at least
+        # ``_BOOT_GRACE_SECONDS``. A skipped tick must record NO
+        # throttle state (no ``_STATE['last_run']`` update), so the
+        # first post-grace tick runs the real job immediately. This
+        # guard sits before config resolution and before any throttle
+        # check/update for exactly that reason.
+        if _boot_grace_active():
+            return
+
         # All plugin-local imports live here, NOT at module level.
         from helpers import plugins
         from usr.plugins.neuro_core.helpers.lifecycle import (

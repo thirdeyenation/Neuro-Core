@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import os
 import tempfile
 import threading
@@ -59,6 +60,23 @@ from typing import Any, Iterator, Optional, Union
 # blocking indefinitely, which prevents deadlock when a caller already
 # holds the lock and an exception prevents release.
 _LOCK_TIMEOUT_SECONDS = 5.0
+
+# ---------------------------------------------------------------------------
+# Reserved (non-adjacency) top-level keys (WI-P52-KI031)
+# ---------------------------------------------------------------------------
+
+# KI-031: user-assigned custom cluster display names persist inside the
+# EXISTING relationships.json sidecar (ADR-NC1-002 boundary 5 — GraphStore is
+# the single writer; no new store, no schema migration) under this reserved
+# top-level key. The key is additive-only: it rides any future absorb
+# migration without further change, and every adjacency code path ignores it.
+# Legacy files without the key load unchanged; files carrying it keep the
+# mapping through every adjacency write.
+RESERVED_CLUSTER_NAMES_KEY = "_cluster_names"
+
+# KI-040 (WI-P55): module logger for sidecar-ingestion warnings. Follows the
+# recall_shaping.py convention (logging.getLogger("neuro_core.<module>")).
+log = logging.getLogger("neuro_core.graph_store")
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +188,9 @@ class GraphStore:
         self._lock = _get_lock(memory_subdir)
         self._path = _relationships_path(memory_subdir)
         self._adj: dict[str, list[dict]] = {}
+        # KI-031: reserved top-level keys parsed out of relationships.json
+        # (currently only _cluster_names). Never exposed as adjacency.
+        self._reserved: dict[str, dict] = {}
         self._loaded = False
 
     # ---- Lock helper ------------------------------------------------------
@@ -211,18 +232,76 @@ class GraphStore:
 
     def _read_file(self) -> dict[str, list[dict]]:
         if not os.path.exists(self._path):
+            self._reserved = {}
             return {}
         try:
             with open(self._path, "r", encoding="utf-8") as f:
                 data = json.load(f)
         except (json.JSONDecodeError, OSError):
             # Corrupt or unreadable file: start fresh, do not crash.
+            self._reserved = {}
             return {}
         if not isinstance(data, dict):
+            self._reserved = {}
             return {}
-        return data
+        # KI-031: reserved top-level keys (currently _cluster_names) are
+        # split out of the adjacency dict so every adjacency code path sees
+        # only source-id -> edge-list buckets. They are re-injected verbatim
+        # on every write (_atomic_write), so any adjacency mutation preserves
+        # them. Legacy files without the key load unchanged.
+        reserved = data.pop(RESERVED_CLUSTER_NAMES_KEY, None)
+        self._reserved = (
+            {RESERVED_CLUSTER_NAMES_KEY: dict(reserved)}
+            if isinstance(reserved, dict)
+            else {}
+        )
+        # KI-040 (WI-P55) defense-in-depth: validate the remaining top-level
+        # keys before they can be indexed as adjacency buckets. A non-list
+        # top-level value (e.g. a future reserved key written by a stale
+        # module, or any unknown key) must never reach the adjacency map —
+        # iterating such a value yields strings, and GraphEdge.from_dict's
+        # raw["to_id"] subscript on a string raises the KI-040 TypeError
+        # ("string indices must be integers, not 'str'").
+        #
+        # Reserved-key namespace: underscore-prefixed top-level keys are
+        # treated as reserved (non-adjacency) sidecar data — the same
+        # convention as RESERVED_CLUSTER_NAMES_KEY — and are preserved
+        # verbatim in self._reserved so _atomic_write re-injects them on
+        # every write (additive-only, same posture as _cluster_names).
+        # Non-list, non-reserved keys are skipped with a warning: they are
+        # not adjacency buckets, and dropping them beats crashing every
+        # graph read (the corrupt-file posture in this same method).
+        adj: dict[str, list[dict]] = {}
+        for key, value in data.items():
+            if isinstance(value, list):
+                adj[key] = value
+            elif key.startswith("_"):
+                self._reserved[key] = value
+            else:
+                log.warning(
+                    "neuro_core graph_store: relationships.json for %r has "
+                    "non-list top-level key %r (type %s); skipping it as an "
+                    "adjacency bucket (KI-040 hardening)",
+                    self.memory_subdir,
+                    key,
+                    type(value).__name__,
+                )
+        return adj
 
     def _atomic_write(self, data: dict[str, list[dict]]) -> None:
+        # KI-031: re-inject reserved top-level keys next to the adjacency
+        # buckets. A shallow copy of the mapping keeps concurrent holders of
+        # the returned mapping isolated from the JSON serialization itself.
+        if self._reserved:
+            data = dict(data)
+            for _rkey, _rpayload in self._reserved.items():
+                if isinstance(_rpayload, dict):
+                    data[_rkey] = dict(_rpayload)
+                else:
+                    # KI-040 (WI-P55): unknown reserved payloads of other
+                    # JSON shapes are re-injected verbatim (they came from
+                    # json.load, so they are serializable by construction).
+                    data[_rkey] = _rpayload
         os.makedirs(os.path.dirname(self._path), exist_ok=True)
         fd, tmp = tempfile.mkstemp(
             dir=os.path.dirname(self._path) or ".",
@@ -318,6 +397,40 @@ class GraphStore:
                 self._atomic_write(self._adj)
             return removed
 
+    def remove_edge(self, from_id: str, to_id: str, rel_type: str) -> int:
+        """Remove exactly one edge matching ``(from_id, to_id, rel_type)``.
+
+        Targeted single-edge removal (WI-P9-EDGE-DELETE, ARC condition C1):
+        removes the first (and, under the D25 dedup invariant, only) edge in
+        the ``from_id`` bucket whose ``to_id`` and ``type`` both match. All
+        other edges — including unrelated edges in the same bucket and all
+        incoming edges to ``from_id`` — are left untouched (KI-003/KI-013
+        signatures are avoided by construction: no bulk cascade, no
+        wipe-and-rewrite).
+
+        Returns 1 if the edge was removed, 0 if no matching edge exists
+        (store unchanged, no write).
+
+        The symmetric reverse-direction pass for ``related_to`` edges is the
+        caller's responsibility (tool D24 precedent; see the relationships
+        API handler).
+        """
+        if not from_id or not to_id or not rel_type:
+            return 0
+        self._ensure_loaded()
+        with self._locked():
+            bucket = self._adj.get(from_id, [])
+            for i, raw in enumerate(bucket):
+                if raw.get("to_id") == to_id and raw.get("type") == rel_type:
+                    del bucket[i]
+                    if bucket:
+                        self._adj[from_id] = bucket
+                    else:
+                        self._adj.pop(from_id, None)
+                    self._atomic_write(self._adj)
+                    return 1
+            return 0
+
     def get_edges(
         self, from_id: Optional[str] = None
     ) -> Union[list[GraphEdge], dict[str, list[GraphEdge]]]:
@@ -353,7 +466,11 @@ class GraphStore:
         Returns a list of ``(neighbor_id, hop, triggering_edge)`` tuples.
         ``rel_type`` filters by ``RelationshipType`` value when provided.
         When ``from_id`` is a ``list``, BFS is run from each seed and the
-        results are merged (deduped via the visited set across seeds).
+        results are merged. Emitted edges are deduped on the FULL
+        ``(from_id, to_id, type)`` triple (the same key the retrieval build
+        uses), so parallel edges of different types to the same target are
+        all returned; node expansion is deduped via the visited set across
+        seeds.
 
         ``hops`` is accepted as a backward-compatible alias for ``max_hops``
         (used by earlier callers and the context_graph API). If both are
@@ -373,8 +490,16 @@ class GraphStore:
         self._ensure_loaded()
 
         visited: set[str] = set(seed_ids)
+        seed_set: set[str] = set(seed_ids)
         frontier: list[tuple[str, int, GraphEdge]] = []
         out: list[tuple[str, int, GraphEdge]] = []
+        # KI-018-BO (WI-P32): dedupe emitted EDGES on the FULL
+        # (from_id, to_id, type) triple — the same key the retrieval build
+        # (search_context_graph edges_by_key) uses — so parallel edges of
+        # different types to the same target all survive the BFS. The
+        # visited set governs NODE expansion only; it must never suppress
+        # edge emission.
+        seen_keys: set[tuple[str, str, str]] = set()
 
         with self._locked():
             snapshot = {
@@ -399,17 +524,95 @@ class GraphStore:
                 for edge in snapshot.get(node, []):
                     if rel_type is not None and edge.type != rel_type:
                         continue
-                    if edge.to_id in visited:
+                    # KI-018-BO (WI-P32): EDGE EMISSION is governed solely by
+                    # the full (from_id, to_id, type) triple. Edges to
+                    # already-visited targets are still emitted — only their
+                    # expansion is skipped — so parallel edges of different
+                    # types to the same target all appear. Previously any edge
+                    # whose target was already discovered was silently
+                    # dropped, so a second edge of a different type from an
+                    # already-connected node never reached retrieval/panel.
+                    key = (edge.from_id, edge.to_id, edge.type)
+                    if key in seen_keys:
                         continue
-                    visited.add(edge.to_id)
+                    seen_keys.add(key)
                     entry = (edge.to_id, hop, edge)
                     out.append(entry)
-                    next_frontier.append((edge.to_id, hop, edge))
+                    # Hop-1 seed-to-seed edges: emitted above but never
+                    # enqueued — seeds are already fully expanded at hop 1,
+                    # so re-adding them to the frontier would re-expand them
+                    # and change hop semantics.
+                    if edge.to_id not in visited:
+                        visited.add(edge.to_id)
+                        next_frontier.append(entry)
             frontier = next_frontier
             if not frontier:
                 break
 
         return out
+
+    # ---- Reserved-key operations (WI-P52-KI031) ---------------------------
+
+    def get_cluster_names(self) -> dict[str, str]:
+        """Return the persisted custom cluster-name mapping.
+
+        Keys are stable cluster identifiers (the lexicographically smallest
+        member memory ID of each component, per the panel contract); values
+        are the user-assigned display names. The mapping is additive-only
+        sidecar data — it is never part of the adjacency contract.
+        """
+        self._ensure_loaded()
+        with self._locked():
+            reserved = self._reserved.get(RESERVED_CLUSTER_NAMES_KEY)
+            return dict(reserved) if isinstance(reserved, dict) else {}
+
+    def set_cluster_name(self, cluster_key: str, name: Optional[str]) -> int:
+        """Set or clear one custom cluster name; persist atomically.
+
+        ``cluster_key`` must be a non-empty string (the panel uses the
+        lexicographically smallest member memory ID of the component, which
+        is stable across queries because cluster membership itself is
+        stable). ``name`` is a non-empty display string, or None/empty to
+        CLEAR the stored name for that key.
+
+        Returns 1 when the file changed, 0 when there was nothing to do
+        (same name re-set, or clear of an absent key) — matching the
+        targeted-write discipline of remove_edge().
+        """
+        if not isinstance(cluster_key, str) or not cluster_key.strip():
+            raise ValueError("cluster_key must be a non-empty string")
+        clean: Optional[str]
+        if name is None:
+            clean = None
+        else:
+            if not isinstance(name, str):
+                raise ValueError("name must be a string or None")
+            clean = name.strip() or None
+        cluster_key = cluster_key.strip()
+
+        self._ensure_loaded()
+        with self._locked():
+            reserved = self._reserved.setdefault(
+                RESERVED_CLUSTER_NAMES_KEY, {}
+            )
+            if not isinstance(reserved, dict):
+                # Defensive: a legacy file may carry the key with a wrong
+                # shape. Treat it as absent rather than crash (same posture
+                # as corrupt-file handling in _read_file).
+                reserved = self._reserved[RESERVED_CLUSTER_NAMES_KEY] = {}
+            if clean is None:
+                if cluster_key not in reserved:
+                    return 0
+                del reserved[cluster_key]
+                if not reserved:
+                    del self._reserved[RESERVED_CLUSTER_NAMES_KEY]
+                self._atomic_write(self._adj)
+                return 1
+            if reserved.get(cluster_key) == clean:
+                return 0
+            reserved[cluster_key] = clean
+            self._atomic_write(self._adj)
+            return 1
 
     # ---- Introspection ----------------------------------------------------
 
