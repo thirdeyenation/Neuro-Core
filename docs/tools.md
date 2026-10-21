@@ -10,9 +10,8 @@ They fall into two groups with different error contracts:
 
 All six are Python classes inheriting from `helpers.tool.Tool` and are
 registered automatically by the framework from their filenames.
-Prompt fragments exist for the three `memory_*` tools
-(`prompts/agent.system.tool.<name>.md`); the `neuro_*` tools have no
-prompt fragments.
+Prompt fragments exist for all six tools
+(`prompts/agent.system.tool.<name>.md`).
 
 Common operational notes:
 

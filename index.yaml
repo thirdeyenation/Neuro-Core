@@ -1,7 +1,12 @@
 title: Neuro Core
-description: Explainable, scoped memory service backed by Neuro Core. Adds typed memory categories, graph relationships, importance/confidence/stability scoring, lifecycle jobs, and structured ContextGraph retrieval with explainable scoring factors.
+description: >-
+  Give your Agent Zero agents structured, explainable long-term memory with
+  typed categories, relationship graphs, importance scoring, lifecycle
+  maintenance, and a visual context graph panel.
 github: https://github.com/thirdeyenation/Neuro-Core
 tags:
   - memory
-  - knowledge-graph
-  - lifecycle
+  - rag
+  - embeddings
+  - sqlite
+  - agents

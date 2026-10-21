@@ -52,27 +52,14 @@ uninstall guidance.
 
 Neuro Core v1.0.0 is the first stable release of the context graph and
 memory enhancement plugin for Agent Zero. It ships with all five core
-subsystems verified, 419 tests passing (full-suite count verified
-2026-09-11 against the plugin test suite; count lineage
-346→363→372→393→401→419, where 401 is the WI-P6 baseline plus the 8
-new WI-P8-GRAPH-BLOCKERS Context Graph defect-remediation tests, and
-419 adds 18 new WI-P9-EDGE-DELETE targeted edge-deletion tests —
-edge deletion implemented, pending live validation evidence; and
-432 adds 13 new WI-P10-DELETE-ORDERING delete-ordering defect
-remediation tests (KI-003/KI-011/KI-013 signatures pinned, D39-A
-superseded by post-success hook cascade per D-NC1-035; suite count
-419->432 confirmed 2026-09-11; and 441 adds 9 new WI-P11-GRAPH-CLEANUP
-tests (graph-panel cleanup: minScore slider wired into render filtering,
-relationship-dropdown vocabulary completed to the full store enum,
-cytoscape vendored locally with zero external CDN references, dormant
-divergent webui/graph-store.js removed; suite count 432->441 confirmed
-2026-09-12; and 446 adds 5 new WI-P12-SCORE-AUTHORITY sidecar-precedence tests
-(sidecar-over-stale-metadata precedence, legacy-record degraded fallback,
-sidecar-only access tracking, boundary-4 source-level pin, re-open
-persistence; suite count 441->446 confirmed 2026-09-12; historical
-release notes had stated
-290), 10 live
-integration scenarios confirmed, and all performance baselines met.
+subsystems verified, with the full test suite passing (419 tests at the
+1.0.0 release; full-suite count verified 2026-09-11 against the plugin
+test suite — see the count-lineage continuation below for the complete
+suite history), and with 10 live integration scenarios confirmed on a
+real Agent Zero instance. Workstream D — instrumentation and
+measurement engineering across the context graph retrieval pipeline,
+graph store, score store, decay job, and episode grouping against
+internal engineering targets — was completed as part of this release.
 
 Count-lineage continuation (reconciled 2026-09-16, WI-P21): 470 adds 24
 new WI-P13-ADD-EDGE-UI inspector add-edge tests (suite 446->470);
@@ -138,12 +125,10 @@ genuinely structured knowledge over time.
 **Verification**
 - Workstream C: 10/10 live integration scenarios confirmed on a real
   Agent Zero instance
-- Workstream D: all 5 performance baselines measured with real objects
-  - context_graph BFS+rerank: 35ms avg (target ≤200ms)
-  - GraphStore.add_edge(): 0.55ms avg (target ≤10ms)
-  - ScoreStore.set(): 0.45ms avg (target ≤10ms)
-  - Decay job 500 docs: 2410ms (target ≤5000ms)
-  - Episode grouping 500 docs: 1.35ms avg (target ≤5000ms)
+- Workstream D: instrumentation and measurement engineering completed
+  across five subsystem areas (context graph retrieval pipeline, graph
+  store, score store, decay job, episode grouping) against internal
+  engineering targets
 
 **Documentation**
 - `docs/` — architecture, API, tools, data model, configuration (5 docs)

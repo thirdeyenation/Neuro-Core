@@ -11,6 +11,13 @@ WI-P45-KI036-SANITIZER amendment: Memory.update_documents is added as the
 fourth decoration target so the start-hook neuro_* metadata sanitizer
 (_05_neuro_sanitizer.py) fires on the FAISS write path (KI-036; ADR-NC1-001
 amendment). The decoration machinery itself is unchanged.
+
+WI-P82-KI053-REMEDIATION amendment: Memory.insert_text and
+Memory.insert_documents are added as the fifth and sixth decoration targets
+so the shipped insert-path metadata-seeding start hooks
+(Memory/insert_text/start/_10_neuro_metadata.py and the insert_documents
+sibling) fire on every host insert, including native memory_save (KI-053;
+ADR-NC1-001 amendment). The decoration machinery itself is unchanged.
 """
 
 from __future__ import annotations
@@ -26,6 +33,8 @@ _TARGETS = (
     "search_similarity_threshold_with_scores",
     "delete_documents_by_ids",
     "update_documents",
+    "insert_text",
+    "insert_documents",
 )
 
 

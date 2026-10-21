@@ -13,8 +13,13 @@ Why this hook exists instead of (or in addition to) insert_documents/start/:
     re-validated and is silently lost when the docstore is pickled.
 
     By hooking ``insert_text/start/`` we enrich the raw metadata *dict*
-    before it is passed to ``Document()``, ensuring the five Neuro Core
-    fields are present at construction time and survive FAISS persistence.
+    before it is passed to ``Document()``, so seeded values are present at
+    construction time and survive FAISS persistence. Seeding is heuristic
+    and partial: ``apply_seeding`` fills only *absent* ``importance``
+    (from ``area``) and ``confidence`` (from ``source``), plus
+    ``stability`` only when ``consolidation_action`` maps to a value.
+    ``memory_type`` and ``validation_status`` are never written on the
+    insert path.
 
 Extension contract:
     ``data["args"]`` for a bound ``Memory.insert_text(text, metadata)``

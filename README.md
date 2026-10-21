@@ -73,6 +73,18 @@ configuration help surface (`webui/help/configuration.html`) linked from it.
 extensions and graph cascade-delete cleanup. See
 `docs/architecture.md` for the full wiring.
 
+**Agent profile** — an opt-in agent profile, `agents/neuro-core-memory-operator/`
+(publicly titled "Neuro Core Memory Operator"), that gives an agent coherent
+operating discipline for Neuro Core memory work: scope semantics, tool error
+contracts, the validation lifecycle, ranking-factor interpretation, and the
+boundary between what the plugin maintains automatically and what the agent
+operates itself (assisted-manual curation — never end-to-end automatic memory
+management). Selecting the profile is opt-in; when it is not selected, agent
+behavior and tool availability are unchanged. If a user-level profile of the
+same name exists, it overrides the plugin profile's prompt keys per-key, and
+metadata keys it leaves unset are inherited from the plugin profile. See
+`docs/decisions/ADR-NC1-006-memory-operator-profile.md`.
+
 ## Requirements
 
 - Agent Zero **v2.13** (commit `e3051fb`) — the version this release was

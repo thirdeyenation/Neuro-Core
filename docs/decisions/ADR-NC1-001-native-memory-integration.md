@@ -110,3 +110,42 @@ of already-persisted contamination (one-time read-only FAISS audit is VAL
 scope; cleanup, if needed, is separately routed). ADR-NC1-002 (dual-store
 verdict) is not amended — this is a write-path metadata filter, not a
 store-authority change.
+
+## Amendment (WI-P82-KI053-REMEDIATION, 2026-10-13) — Fifth and Sixth Decoration Targets: Insert-Path Metadata Seeding (KI-053)
+
+This ADR is amended (ARC conditions 1–7, `steward-design-decision.yaml` rev 1,
+WI-P82-KI053-REMEDIATION) to record a third bounded extension of the ratified
+native-integration boundary:
+
+3. **Fifth and sixth decoration targets.** `Memory.insert_text` and
+   `Memory.insert_documents` join the four existing targets in
+   `helpers/decorate.py::_TARGETS`. This activates the shipped but previously
+   inert insert-path metadata-seeding start hooks
+   (`extensions/python/_functions/plugins/_memory/helpers/memory/Memory/insert_text/start/_10_neuro_metadata.py`
+   and the `insert_documents` sibling), so every host-initiated insert —
+   including native `memory_save` — is metadata-seeded and validated at the
+   `_functions` boundary. This closes KI-053 (native `memory_save` bypassing
+   Neuro Core bookkeeping). The decoration machinery is reused UNCHANGED;
+   no hook logic, seeding heuristics, or metadata schema was modified, and no
+   re-entrancy guard was added (double-fire of both insert hooks per
+   `insert_text` call is idempotent — final persisted metadata is identical
+   to a single-fire result, pinned by test).
+
+**Guarantee:** after `decorate_memory()` (plugin install or framework
+startup), the real framework `Memory.insert_text` and
+`Memory.insert_documents` are extensible at full identity
+(`plugins._memory.helpers.memory` / `Memory.insert_text`), so the derived
+`_functions` start points resolve the shipped `_10_neuro_metadata.py`
+handlers. Fully-populated valid metadata passes through unchanged
+(validate-only narrowing; seeding fills only absent fields), including the
+`memory_consolidation` call-site pattern.
+
+**Scope boundary (ARC conditions 6–7, non-goals):** diff limited to
+`_TARGETS` + tests + enumerated doc surfaces; no hook files, seeding
+heuristics, metadata schema, already-decorated-method behavior, or decoration
+machinery changes; no framework-source writes (D-NC1-157/D-NC1-006). Evidence
+bar for KI-053 closure (ARC condition 5): framework-runtime probe
+(`/opt/venv-a0`, `PYTHONPATH=/a0`), end-to-end native `memory_save`
+seeded-metadata evidence, restart-cycle persistence evidence, and the full
+regression suite via `tests/run_suite.sh` — recorded in the work item's
+implementation report and independently re-verified by VAL.
