@@ -1,8 +1,9 @@
 # NEURO CORE CHANGELOG
 
-*CURRENT DATE:* 2026-09-09
-*UPDATE STATUS:* reconciled 2026-09-09 (Phase E documentation
-reconciliation, WI-P5-DOCS-RECON)
+*LAST UPDATED:* 2026-10-22
+*UPDATE STATUS:* reconciled and claim-reviewed (Phase E documentation
+reconciliation, WI-P5-DOCS-RECON; subsequent claim cleanup and
+documentation reconciliation through WI-P85-P84-DOCS-UPDATES)
 
 ## [1.1.0] — 2026-10-10
 
