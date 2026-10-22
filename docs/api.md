@@ -26,19 +26,19 @@ supported** — per-memory relationship lookups therefore use the `?id=`
 query parameter, not a `/relationships/<id>` path segment.
 
 **Live-verified reachability:** in the Phase D host battery
-(WI-P4-HOST-BATTERY, Journey 4), all six handlers responded HTTP 200
+(Journey 4 of the Phase D host battery), all six handlers responded HTTP 200
 with structured payloads through the authenticated live-WebUI CSRF
 flow. Per-surface accuracy note: for the relationships list-all route,
 the Phase D battery captured only the required-arg error shape — the
-success shape was never captured there, before or after the WI-P8
+success shape was never captured there, before or after the routing
 fix. The list-all success path is instead live-verified at the
 in-process level against a real `GraphStore` with the real
-`ApiHandler` base class (WI-P8 validation evidence,
+`ApiHandler` base class (validation evidence,
 `live_list_all_output.json`); it has NOT
 been exercised through the live WebUI CSRF serving flow. The POST
 `/relationships` write path remains grounded in code only (not
 executed against live data). Phase D raw evidence: the
-WI-P4-HOST-BATTERY validation report (rev 2) and its Journey-4
+the Phase D validation report (rev 2) and its Journey-4
 artifacts.
 
 ## Auth
@@ -159,12 +159,12 @@ with the same per-edge fields as above), `count`.
 
 Create a graph edge. Body is JSON-decoded by the framework into
 `input`. The Context Graph panel's inspector add-edge form consumes this
-route (WI-P13-ADD-EDGE-UI).
+route.
 
 **Parameters** (accepted from the parsed `input` dict (POST/JSON body)
 or the query string — same fallback order (`input` -> `request.args`)
 as the `?id=` route, list-all, DELETE, and all sibling handlers;
-KI-018-AL consistency fix, WI-P21). Parsed input keeps precedence.
+a consistency fix applied across all handlers). Parsed input keeps precedence.
 `weight` uses an explicit absence check so a legitimate `0.0` from the
 query string is preserved.
 
@@ -187,7 +187,7 @@ and the current UTC ISO-8601 `created_at`.
 
 ### `DELETE /api/plugins/neuro_core/relationships`
 
-Remove one graph edge. Implemented in WI-P9-EDGE-DELETE.
+Remove one graph edge.
 
 **Parameters** (query strings on DELETE — never path segments, as the
 framework routes on `path.split("/", 2)`; also accepted from a parsed
@@ -353,7 +353,7 @@ not fatal.
 
 ## `api/memory_names.py`
 
-User-assigned display aliases (WI-P52-KI031 / KI-031). Two kinds of
+User-assigned display aliases. Two kinds of
 names, two persistence targets, one endpoint:
 
 - **Memory Name** — a user-assigned alias for an existing memory,
@@ -402,9 +402,7 @@ auth/CSRF gate as all Neuro Core handlers).
 ## `api/memory_edit.py`
 
 Safe-mode editing of one memory's Contents, scores, and type set
-(WI-P53-KI030-INSPECTOR-EDIT / KI-030; type editing added by
-WI-P59-KI029 / ADR-NC1-004). No new store (Phase-2-portable per
-D-NC1-122; the additive `memory_types` collection is carried inside the
+(type editing added by ADR-NC1-004). No new store (the additive `memory_types` collection is carried inside the
 existing FAISS document metadata):
 
 - **Content** — written through the STANDARD metadata path
@@ -412,10 +410,10 @@ existing FAISS document metadata):
   `page_content` is mutated. The framework Memory ID is immutable and
   never written.
 - **Scores** — written through `ScoreStore.set()` into the EXISTING
-  `scores.json` sidecar ONLY (KI-009/WI-P12 single-write discipline:
+  `scores.json` sidecar ONLY (single-write discipline:
   the sidecar is the score authority; FAISS metadata score keys are a
   potentially stale mirror and are never written by this handler).
-- **Validation status** (WI-P61-KI030) — via the `validation_status`
+- **Validation status** — via the `validation_status`
   payload: a single target-state string from the `ValidationStatus`
   vocabulary (`unvalidated`, `validated`, `disputed`, `deprecated`),
   enforced server-side at ONE point by the `USER_ALLOWED_TRANSITIONS`
@@ -425,8 +423,8 @@ existing FAISS document metadata):
   Same-state and non-matrix transitions are rejected loudly with NO
   partial write; an unknown STORED value is rejected on edit (never
   silently mapped or invented). The status is written through the SAME
-  governed FAISS metadata path as the type set (WI-P60 rev3 deep-copy
-  staging; never the sidecar — KI-009). Each successful user transition
+  governed FAISS metadata path as the type set (deep-copy
+  staging; never the sidecar). Each successful user transition
   writes one activity-ledger event with kind
   `validation_status_user_edit` (distinguishing user edits from sweep
   persists); rejected transitions write no entry. There is NO
@@ -435,7 +433,7 @@ existing FAISS document metadata):
   Selecting `validated` is a USER ATTESTATION that the memory was
   reviewed — `validation_status` records the governance action taken
   (user or sweep), not an automated content verification.
-- **Type set** (WI-P59-KI029) — full-set-replace via the `types`
+- **Type set** — full-set-replace via the `types`
   payload, validated entirely server-side at ONE point by the single
   normalization authority `helpers.metadata.normalize_memory_types`
   (strict mode): `primary` must be one of the 8 implemented `MemoryType`

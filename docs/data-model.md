@@ -27,7 +27,7 @@ helpers (`run_importance_decay`, `run_contradiction_detection`,
 - **Type**: `str`
 - **Default**: `"note"` (from `apply_defaults()` when missing)
 - **Set by**: `execute.py` migration (legacy), `helpers.metadata.apply_defaults()`,
-  `api/memory_edit.py` (WI-P59-KI029 full-set-replace types edit)
+  `api/memory_edit.py` (full-set-replace types edit)
 - **Description**: The primary category of this memory. One of the 8
   implemented `MemoryType` enum values: `fact`, `concept`, `task`,
   `event`, `decision`, `skill`, `preference`, `note` (verified against
@@ -40,7 +40,7 @@ helpers (`run_importance_decay`, `run_contradiction_detection`,
 - **Type**: `list[str]` (additive collection; absent on legacy records)
 - **Default**: none (scalar-only records are read-derived as
   `[memory_type]` by `helpers.metadata.normalize_memory_types()`)
-- **Set by**: `api/memory_edit.py` (WI-P59-KI029 types edit) — the only
+- **Set by**: `api/memory_edit.py` (types edit) — the only
   writer
 - **Description**: The full authoritative type set including the
   primary (invariant: `memory_type` is a member). Reads never mutate
@@ -50,7 +50,7 @@ helpers (`run_importance_decay`, `run_contradiction_detection`,
   rewritten outside the collection (e.g. by the `memory_score` tool),
   reads flag the set `inconsistent` without mutation; the next
   memory_edit types edit repairs it via full-set-replace.
-  (WI-P59-KI029, ADR-NC1-004.)
+  (ADR-NC1-004.)
 
 ### `importance`
 
@@ -89,16 +89,16 @@ helpers (`run_importance_decay`, `run_contradiction_detection`,
   scheduled `_30` contradiction sweep — which persists `disputed`
   into FAISS metadata via `_persist_disputes`
   (`extensions/python/job_loop/_30_contradiction_detection.py`)
-  under WI-P60 transition governance (`run_contradiction_detection()`
+  under transition governance (`run_contradiction_detection()
   returns the disputes payload only; it does not mark anything) — and,
-  since WI-P61-KI030, the user via the `memory_edit` handler's
+  and, since its addition, the user via the `memory_edit` handler's
   `validation_status` payload (see the user transition matrix below)
 - **Description**: One of `ValidationStatus` enum values:
   `unvalidated`, `validated`, `disputed`, `deprecated`. `deprecated`
   memories are excluded from recall results by
   `Memory.search_similarity_threshold()`.
 
-  **User transition matrix (WI-P61-KI030)** — enforced server-side at
+  **User transition matrix** — enforced server-side at
   the single validation point in `api/memory_edit.py`:
 
   | From | Allowed user targets |
@@ -112,7 +112,7 @@ helpers (`run_importance_decay`, `run_contradiction_detection`,
   partial write; an unknown stored value is surfaced via GET with an
   `unknown` flag and rejected on edit — never silently mapped or
   invented. The user write goes through the same governed FAISS
-  metadata path as the type set (WI-P60 rev3 deep-copy staging), never
+  metadata path as the type set (deep-copy staging), never
   the sidecar. Each successful user transition writes one
   activity-ledger event (`validation_status_user_edit`), distinguishing
   user edits from sweep persists; rejected transitions write no entry.
@@ -227,7 +227,7 @@ invalid `memory_type` or `validation_status` raises `ValueError`.
   standard metadata write path. Cleared by POSTing an empty/null name
   (the key is removed, not blanked).
 - **Description**: User-assigned display alias for the memory
-  (WI-P52-KI031 / KI-031). The framework Memory ID is immutable; this
+  . The framework Memory ID is immutable; this
   key only adds a human-readable alias displayed in the Context Graph
   panel (node Details panel and edge plates). Additive-only: unknown
   metadata keys pass `validate_neuro_metadata` unchanged and the
@@ -358,16 +358,16 @@ A flat dict from source memory ID (str) to a list of outgoing edges:
 
 Besides the adjacency buckets, the top-level dict may carry one
 reserved key, `_cluster_names`: a mapping from a stable cluster key to
-a user-assigned custom cluster name (WI-P52-KI031 / KI-031). The
+a user-assigned custom cluster name. The
 cluster key is the lexicographically smallest member memory ID of the
 2+-node connected component the name labels (deterministic per view;
 components themselves are computed client-side from current edges).
-The key is additive: files written before WI-P52-KI031 have no
+The key is additive: files written before the key existed have no
 `_cluster_names` key and load unchanged, the key is never returned as
 adjacency by `GraphStore`, and it is preserved across adjacency
 writes. Legacy files do not gain an empty key on first write.
 
-KI-040 parse hardening (WI-P55): every top-level key is list-validated
+Parse hardening: every top-level key is list-validated
 at the single ingestion point in `GraphStore._read_file`; non-list
 values that are not reserved keys are skipped as adjacency buckets with
 a warning log and never reach any reader, while underscore-prefixed

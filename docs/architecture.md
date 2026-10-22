@@ -211,7 +211,7 @@ Neuro Core ships three `job_loop` extensions and one `_functions`
 hook, all under
 `usr/plugins/neuro_core/extensions/python/`.
 
-At plugin init (`hooks.py:install()`), Neuro Core re-applies the framework's public `@extensible` decorator to the six host-called `Memory` methods (`search_similarity_threshold`, `search_similarity_threshold_with_scores`, `delete_documents_by_ids`, `update_documents`, `insert_text`, `insert_documents`) at full identity (`helpers/decorate.py` `_TARGETS`; the insert-path targets were added by WI-P82-KI053-REMEDIATION so native `memory_save` inserts are metadata-seeded, closing KI-053), so the `_functions` handler tree fires for host-initiated operations (D-NC1-010; ADR-NC1-001). Neuro Core-originated operations go through the native access layer (`helpers/native_access.py`) instead of any runtime monkey-patching. Decoration is applied at two points: plugin install (`hooks.py:install()`) and every framework startup via the `startup_migration` extension `usr/plugins/neuro_core/extensions/python/startup_migration/_10_neuro_decoration.py`, whose `execute()` calls `helpers/decorate.py:decorate_memory()` (exception-safe and idempotent, so decoration survives container restarts where install-time wiring does not re-run).
+At plugin init (`hooks.py:install()`), Neuro Core re-applies the framework's public `@extensible` decorator to the six host-called `Memory` methods (`search_similarity_threshold`, `search_similarity_threshold_with_scores`, `delete_documents_by_ids`, `update_documents`, `insert_text`, `insert_documents`) at full identity (`helpers/decorate.py` `_TARGETS`; the insert-path targets were added so native `memory_save` inserts are metadata-seeded), so the `_functions` handler tree fires for host-initiated operations (D-NC1-010; ADR-NC1-001). Neuro Core-originated operations go through the native access layer (`helpers/native_access.py`) instead of any runtime monkey-patching. Decoration is applied at two points: plugin install (`hooks.py:install()`) and every framework startup via the `startup_migration` extension `usr/plugins/neuro_core/extensions/python/startup_migration/_10_neuro_decoration.py`, whose `execute()` calls `helpers/decorate.py:decorate_memory()` (exception-safe and idempotent, so decoration survives container restarts where install-time wiring does not re-run).
 
 ### Job loop extensions
 
@@ -277,9 +277,9 @@ real job.
      find candidates when a memory-backed store is supplied.
      `contradiction_batch_size` (default `100`) caps this
      memory-search candidate path only — it does **not** truncate
-     the scheduled facts path (WI-P63 / KI-048, D-NC1-137).
-  3. Applies the threshold-gating embeddings channel (WI-P63 /
-     KI-048): the `_30` job computes an embeddings mapping at the
+     the scheduled facts path (D-NC1-137).
+  3. Applies the threshold-gating embeddings channel:
+     the `_30` job computes an embeddings mapping at the
      call site via the single `_compute_embeddings` seam and always
      passes it — never `None`. When a mapping is supplied, every
      candidate pair is gated by `contradiction_similarity_threshold`:
@@ -300,7 +300,7 @@ real job.
      job-loop extension persists `validation_status = "disputed"`
      into FAISS document metadata via the host `update_documents`
      mechanism (`_persist_disputes` in
-     `_30_contradiction_detection.py`), enforcing WI-P60 transition
+     `_30_contradiction_detection.py`), enforcing transition
      governance: only `unvalidated`/`unreviewed` -> `disputed` and
      `validated` -> `disputed` are written; `deprecated`/`superseded`
      terminal states are skipped; `disputed` -> `disputed` is a
@@ -316,7 +316,7 @@ real job.
   that exceeds it is cancelled for that tick (producing no detections
   on that tick) and is retried on the next scheduled interval; the
   scheduler itself stays healthy.
-- **Validation boundary (WI-P63 / KI-048)**: the semantics above are
+- **Validation boundary**: the semantics above are
   validated at integration level against the plugin test suite. A
   live scheduled sweep with detection enabled and restart behavior
   are **not tested**; the `contradiction_detection_enabled` flip-back
@@ -330,8 +330,8 @@ real job.
 The framework's `plugins/_memory` Memory methods carry **no**
 `@extensible` decorators — verified against framework source
 (zero `@extensible` occurrences in
-`/a0/plugins/_memory/helpers/memory.py`; see ADR-NC1-001, which
-resolves KI-022/OA-9). Hook points for
+`/a0/plugins/_memory/helpers/memory.py`; see ADR-NC1-001),
+Hook points for
 `Memory.delete_documents_by_ids(...)` are provided by Neuro Core's
 startup re-decoration instead: at plugin install (`hooks.py`) and at
 every framework startup (`extensions/python/startup_migration/_10_neuro_decoration.py`),
@@ -353,7 +353,7 @@ The extension only fires on success — if the upstream
 `delete_documents_by_ids()` raises, no cleanup runs (which is
 correct, since no documents were actually deleted).
 
-**Delete ordering (WI-P10-DELETE-ORDERING).** The sidecar cascade is
+**Delete ordering.** The sidecar cascade is
 owned exclusively by this end-hook, strictly AFTER confirmed deletion.
 The former pre-delete cascade in the native access layer
 (`helpers/native_access.py`, D39-A ordering) is superseded — grounded
@@ -430,7 +430,7 @@ importance = score_store.get_optional(doc_id)   # absence-aware read
            #                          `neuro_degraded: true` marker — the
            #                          metadata mirror is never authoritative
            #                          (legacy-record semantics,
-           #                          ADR-NC1-002 boundary 3, WI-P12)
+           #                          ADR-NC1-002 boundary 3)
            # metadata lacks importance -> 0.5 fallback
 recency    = _recency_score(last_accessed_at or timestamp)
 node.score = config["similarity_weight"] * semantic
@@ -442,11 +442,11 @@ The three weights are configurable (defaults: 0.5, 0.3, 0.2). There
 is no separate rerank pass — the composite score is computed as each
 node is registered, and graph-only neighbors use a moderate semantic
 baseline of `0.5` so importance and recency differentiate them. When
-the score sidecar is unreadable (KI-008), or when the document is a
+the score sidecar is unreadable, or when the document is a
 legacy record with no sidecar entry, importance falls back to the
 read-only metadata mirror and the node's metadata is flagged
 `neuro_degraded: true` — the fallback is surfaced as degraded, never
-presented as a healthy sidecar-backed score (WI-P12-SCORE-AUTHORITY).
+presented as a healthy sidecar-backed score.
 
 ### Stage 4 — Assembly and serialization
 
@@ -543,7 +543,7 @@ Returns Response(message=json.dumps({...}))
 5. Tool returns the JSON success message.
 
 On `remove=True` the tool performs a **surgical single-edge removal**
-(WI-P2-DEFECT-BATCH): it locates the specific `(from_id, to_id,
+— it locates the specific `(from_id, to_id,
 rel_type)` edge in either direction, snapshots every edge touching
 that edge's anchor bucket, calls the public bulk
 `remove_edges_for_id(anchor)`, then re-adds everything except the
@@ -593,13 +593,13 @@ Four plugin assets make it up:
   exists but is dormant: no loader references it anywhere in the plugin
   (webui/, extensions/, api/, hooks.py) and it has diverged from the
   classes the panel actually uses; it is retained pending an ORC-routed
-  disposition decision (KI-018-AA, WI-P21). The panel's Cytoscape library
+  disposition decision). The panel's Cytoscape library
   is vendored locally at `webui/vendor/cytoscape-3.30.2.min.js` and served
   through the plugin asset route (no external CDN dependency).
 
 Note: a historical `webui/graph-store.js` Alpine store existed but was never
 referenced by the panel (which uses an inline `x-data` scope) and diverged
-from the real API response shapes; it was removed in WI-P11 as dormant
+from the real API response shapes; it was removed as dormant
 divergent code.
 
 The panel body (`webui/right-canvas-panels/graph-panel.html`) is a
@@ -615,10 +615,10 @@ instance, and rendering.
   `localStorage['nc_memory_subdirs']`). The subdir dropdown options are
   sourced as a deduplicated union of `GET /memory_subdirs` results and
   `projects/<key>` entries composed from `POST /api/projects`
-  (`action=list_options`). Since the WI-P20 BE fix the API itself serves
+  (`action=list_options`). Since a backend fix the API itself serves
   project subdirs, so the panel-side composition is a redundant-but-
-  harmless dedupe union (WI-P19 panel-side composition, reconciled
-  WI-P21).
+  harmless dedupe union (panel-side composition, later
+  reconciled).
 - Advanced filters via `GET
   /api/plugins/neuro_core/advanced_filters?...` with `memory_type`,
   `validation_status`, `relationship_type`, `date_range_start/end`,
@@ -658,17 +658,17 @@ instance, and rendering.
 - Node inspector: tapping a node opens a details card with content,
   a `memory_type` badge (with a "type unknown" fallback when the
   metadata does not carry a type), score badges, and its
-  relationship list. The score rows are sidecar-backed: since
-  WI-P58-KI041 (KI-041), the plate loads the authoritative score record
+  relationship list. The score rows are sidecar-backed:
+  the plate loads the authoritative score record
   via `GET /api/plugins/neuro_core/memory_edit` on node selection or
   refocus — importance and confidence prefer the sidecar value and
   fall back to node metadata (graceful "n/a" when neither carries a
   value), and stability shows the sidecar-backed value when present or
   is explicitly rendered as "not stored" (the sidecar is the score
-  authority per WI-P12-SCORE-AUTHORITY; the display path stays
+  authority; the display path stays
   read-only w.r.t. FAISS metadata and never fabricates a value). A
-  `validation_status` chip is shown when present. Since
-  WI-P53-KI030 (KI-030, contents/scores component), the node
+  `validation_status` chip is shown when present.
+  The node
   inspector also carries a safe-mode edit affordance for the
   memory's Contents and scores (Importance/Confidence/Stability):
   the display is read-only until an explicit Edit click opens the
@@ -678,28 +678,28 @@ instance, and rendering.
   content goes through the standard metadata path, scores go to the
   `scores.json` sidecar only (single-write discipline), and
   out-of-range/non-numeric score values are rejected by the server
-  rather than clamped. As of WI-P59-KI029 (ADR-NC1-004), the surface
+  rather than clamped. Per ADR-NC1-004, the surface
   also accepts a full-set-replace `types` payload: the scalar primary
   stays enum-locked to the 8 implemented `MemoryType` values and the
   additive `memory_types` collection carries the full set including
   custom user-defined tokens (validated server-side by
   `helpers.metadata.normalize_memory_types`; loud rejection, no
   partial write; no sidecar write). Validation/dispute-status
-  editing (KI-034) remains intentionally not part of this surface;
+  editing remains intentionally not part of this surface;
   the framework Memory ID is immutable and not editable. Implemented and pinned at panel-source and handler-test
   level; live browser confirmation is pending the queued assurance
   pass (D-NC1-125). Tapping an
   edge opens a display-only edge inspector overlay showing
   `rel_type`, weight, confidence, and endpoints (read-only; the node
   inspector contract is unchanged and a background tap clears the
-  overlay). Since WI-P31 (KI-018-BL/BN/BM), the edge plate dismisses
+  overlay). The edge plate dismisses
   on any click outside the plate itself (a document-level mousedown
   outside the plate, a graph-background tap, or re-clicking the same
   edge); its only control is a non-destructive Exit/X button with
   explicit edge-NOT-deleted wording — edge deletion remains the
   separate, confirmed delete-affordance flow and this control never
   deletes the edge; and its `from_name`/`to_name` rows are dormant
-  display hooks for the custom Memory Name feature (KI-031 is open;
+  display hooks for the custom Memory Name feature (a planned feature;
   the rows stay hidden today because the data carries no name fields,
   and they surface without further panel changes once that feature
   lands). Clicking a related node
@@ -708,8 +708,8 @@ instance, and rendering.
   `DELETE /api/plugins/neuro_core/relationships` with the edge's
   `(from_id, to_id, rel_type)` triple); failures surface in the
   panel's visible error state and a successful delete re-queries the
-  graph. Edge deletion is implemented (WI-P9-EDGE-DELETE), pending
-  live validation evidence; edge ADD is implemented (WI-P13-ADD-EDGE-UI) as an inspector add-edge
+  graph. Edge deletion is implemented, pending
+  live validation evidence; edge ADD is implemented as an inspector add-edge
   form posting a JSON body to `POST
   /api/plugins/neuro_core/relationships`, validated at integration
   level on disposable fixtures; live browser/host confirmation is
@@ -743,7 +743,7 @@ instance, and rendering.
   `memory_type` values → 8 distinct Cytoscape shapes: concept=ellipse,
   episode=round-rectangle, task=diamond, solution=hexagon,
   reflection=pentagon, fragment=rectangle, observation=octagon,
-  summary=star). Since WI-P31 (KI-018-BJ), a supplemental
+  summary=star). A supplemental
   `NODE_TYPE_SHAPES_LIVE` mapping is checked first and covers the six
   implemented `MemoryType` enum values absent from the P28 map:
   fact=round-tag, event=round-diamond, decision=cut-rectangle,
@@ -767,7 +767,7 @@ instance, and rendering.
   connected component, nodes in real clusters are colored by cluster
   — the panel computes connected-component grouping entirely
   in-browser over the nodes/edges arrays it already received (no
-  API-side companion). Since WI-P31 (KI-018-BK), only real clusters
+  API-side companion). Only real clusters
   — components with 2+ nodes (`realClusters`) — receive cluster
   coloring and legend rows; singleton components keep the calm base
   node color even in a multi-component graph (a single node is not a
@@ -803,11 +803,11 @@ instance, and rendering.
 
 The WebUI panel is the only Neuro Core surface that gives the user
 a visual graph; all other interaction is via the API and the agent
-tools. The panel renders and inspects the graph and, since
-WI-P9-EDGE-DELETE, exposes a per-edge DELETE affordance in the node
+tools. The panel renders and inspects the graph and
+exposes a per-edge DELETE affordance in the node
 inspector (confirm-gated, described above); edge deletion is
-implemented pending live validation evidence. Since
-WI-P13-ADD-EDGE-UI, the panel exposes both per-edge DELETE and
+implemented pending live validation evidence. The panel
+exposes both per-edge DELETE and
 inspector add-edge affordances — deletion implemented and
 validated at implementation level, edge creation implemented and
 validated at integration level — with live browser/host

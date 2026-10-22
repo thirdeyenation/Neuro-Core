@@ -107,7 +107,7 @@ Candidate-pull limit for the **memory-search path** of the contradiction
 sweep: when the detector runs against a memory-backed store, the result
 list of any similarity search is capped at `contradiction_batch_size`.
 
-**Resolved semantics (WI-P63 / KI-048, D-NC1-137):** this cap no longer
+**Resolved semantics (D-NC1-137):** this cap no longer
 truncates the scheduled facts path. The `_30` sweep processes **all**
 eligible fact memories per pass; `contradiction_batch_size` retains
 meaning on the memory-search path only.
@@ -117,7 +117,7 @@ meaning on the memory-search path only.
 Minimum cosine similarity for a pair of fact memories to be considered
 for opposition (read by `run_contradiction_detection()`).
 
-**Gating channel (WI-P63 / KI-048, D-NC1-137):** when the scheduled
+**Gating channel (D-NC1-137):** when the scheduled
 sweep supplies an embeddings mapping, every candidate pair is gated by
 this threshold — pairs below it are not compared and not disputed, even
 if the lexical heuristic would flag them. A missing vector for either
@@ -241,8 +241,8 @@ to baseline.
 #### `recall_shaping_enabled`
 
 Master gate, default `true` (stable shipped behavior). The gate shipped
-default `false` during WI-P43 Phase-1 hardening per D-NC1-113 and was flipped
-to `true` via the pre-authorized fast-follow after the KI-036 sanitizer
+default `false` during Phase-1 hardening per D-NC1-113 and was flipped
+to `true` via the pre-authorized fast-follow after the sanitizer
 shipped, covering the `update_documents` FAISS-metadata round-trip
 (ADR-NC1-003 gate-state record). When set to `false`, the native result is
 byte-identical to baseline.
@@ -300,8 +300,8 @@ place where its cached token and graph instance can be reset together.
 ## Scope note
 
 This table reflects the keys implemented and read at runtime as of
-v0.1.0 (WI-P3-MANIFEST-CONFIG). The key details above mirror the
-plugin-native help surface at `webui/help/configuration.html` (WI-P38).
+v0.1.0. The key details above mirror the
+plugin-native help surface at `webui/help/configuration.html`.
 Behavior documented here is implemented behavior; planned and
 unverified behavior remain distinct surfaces and are not claimed here.
 

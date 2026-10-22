@@ -2,8 +2,8 @@
 
 *LAST UPDATED:* 2026-10-22
 *UPDATE STATUS:* reconciled and claim-reviewed (Phase E documentation
-reconciliation, WI-P5-DOCS-RECON; subsequent claim cleanup and
-documentation reconciliation through WI-P85-P84-DOCS-UPDATES)
+reconciliation; subsequent claim cleanup and documentation
+reconciliation through the 1.1.0 documentation updates)
 
 ## [1.1.0] — 2026-10-10
 
@@ -62,22 +62,22 @@ measurement engineering across the context graph retrieval pipeline,
 graph store, score store, decay job, and episode grouping against
 internal engineering targets — was completed as part of this release.
 
-Count-lineage continuation (reconciled 2026-09-16, WI-P21): 470 adds 24
-new WI-P13-ADD-EDGE-UI inspector add-edge tests (suite 446->470);
-482 adds 12 new WI-P14-GRAPH-FILTER-DEFECTS advanced-filters
-real-interface tests (470->482); 492 adds 10 new WI-P15-AP-AO docs/
+Count-lineage continuation (reconciled 2026-09-16): 470 adds 24
+new inspector add-edge tests (suite 446->470);
+482 adds 12 new advanced-filters
+real-interface tests (470->482); 492 adds 10 new docs/
 panel date_range contract tests (482->492); 499 adds 7 new
-WI-P16-PANEL-VISIBILITY inspector/visibility tests (492->499); 510
-adds 11 new WI-P17-SEARCH-JSONPARSE CSRF/response-validation tests
-(499->510); 525 adds 15 new WI-P18-PANEL-UX tests (510->525); 539
-adds 14 new WI-P19-PANEL-INTERACTION direction-aware labeling,
+inspector/visibility tests (492->499); 510
+adds 11 new CSRF/response-validation tests
+(499->510); 525 adds 15 new panel-UX tests (510->525); 539
+adds 14 new direction-aware labeling,
 post-create refresh, form-reset, and subdir-composition tests
-(525->539); 552 adds 13 new WI-P20-APISIDE-REMEDIATION
+(525->539); 552 adds 13 new
 memory_subdirs scan-location, delete-refresh, and multi-seed
 visited-set tests (539->552, confirmed 2026-09-15); 570 adds 18 new
-WI-P21-LEDGER-ZERO tests (AL query-args consistency pins, BH
-per-type/multi-edge behavior pins, AA dormancy pins, CHANGELOG
-lineage pin, api.md doc pin, shell-copy pointer; suite count
+ledger-consistency tests (activity-ledger query-args consistency pins,
+relationship per-type/multi-edge behavior pins, dormancy pins,
+CHANGELOG lineage pin, api.md doc pin, shell-copy pointer; suite count
 552->570 confirmed 2026-09-16).
 
 ### What Neuro Core Does
@@ -102,7 +102,7 @@ genuinely structured knowledge over time.
 - Startup sidecar reconciliation — orphan sidecar entries detected and
   cleaned on every restart (D55)
 - Sidecar-authoritative memory scores (supersedes D41 write-back) —
-  per ADR-NC1-002 (WI-P12-SCORE-AUTHORITY, KI-009 resolution), score and
+  per ADR-NC1-002, score and
   access-count writes go only to the `scores.json` sidecar (single
   authoritative writer); the FAISS metadata score copy is read-only and
   never authoritative — retrieval surfaces `neuro_degraded` for legacy
@@ -110,7 +110,7 @@ genuinely structured knowledge over time.
   healthy
 - API relationships routing corrected — list, create, and targeted delete of graph edges via
   `/api/plugins/neuro_core/relationships` (D42, D45; delete implemented and validated at
-  implementation level, WI-P9; live host/browser confirmation pending)
+  implementation level; live host/browser confirmation pending)
 
 **Reliability Fixes**
 - EpisodeGroupingJob silent failure resolved — `_iter_docs` and

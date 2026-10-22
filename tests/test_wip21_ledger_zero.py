@@ -418,8 +418,9 @@ def test_aa_graph_store_js_still_absent():
 
 def test_changelog_count_lineage_continuation_present():
     """CHANGELOG count-lineage must continue past 446 through the actual
-    per-WI anchors up to 570 (WI-P21 reconciliation). Anchors are matched
-    against whitespace-normalized text (the file hard-wraps lines)."""
+    per-release anchors up to 570 (the ledger-zero reconciliation).
+    Anchors are matched against whitespace-normalized text (the file
+    hard-wraps lines)."""
     flat = " ".join(CHANGELOG.read_text(encoding="utf-8").split())
     for anchor in (
         "470 adds 24",
@@ -430,9 +431,9 @@ def test_changelog_count_lineage_continuation_present():
         "525 adds 15",
         "539 adds 14",
         "552 adds 13",
-        "WI-P20-APISIDE-REMEDIATION",
+        "memory_subdirs scan-location",
         "570 adds 18",
-        "WI-P21-LEDGER-ZERO",
+        "ledger-consistency tests",
     ):
         assert anchor in flat, f"CHANGELOG lineage missing: {anchor}"
 

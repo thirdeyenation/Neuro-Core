@@ -142,7 +142,7 @@ memory document.
 - `importance`, `confidence`, `stability` are written **only** to the
   `scores.json` sidecar — the single authoritative write path for
   mutable score fields (per ADR-NC1-002; the removed FAISS mirror was
-  the KI-009 drift source). Retrieval's metadata fallback is read-only,
+  a drift source). Retrieval's metadata fallback is read-only,
   never authoritative.
 
 **Return / errors**
@@ -186,7 +186,7 @@ documents.
   `remove=True`), so the adjacency is traversable in both directions.
 - **Surgical removal**: `remove=True` targets only the specific
   `(from_id, to_id, rel_type)` edge — in either direction — preserving
-  all unrelated edges (WI-P2-DEFECT-BATCH fix).
+  all unrelated edges.
 
 **Return / errors**
 
@@ -249,7 +249,7 @@ memories)"` plus a `neuro_core_ack`. Non-error short-circuits:
 Errors (all `"Error: ..."` strings, never raised): missing
 `episode_id`, memory-backend init failure, collection failure,
 `"Error: reflection LLM call failed: <message>"`, and reflection
-persistence failure (including the KI-014 sidecar-failure
+persistence failure (including sidecar-failure
 propagation).
 
 ---
