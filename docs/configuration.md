@@ -31,7 +31,7 @@ apply to future operations after saving.
 | `decay_interval_hours` | int | `24` | Minimum hours between decay runs. Gated through `lifecycle.should_run()`. |
 | `importance_decay_rate` | float | `0.02` | Per-run multiplier subtracted from importance: `importance *= (1 - importance_decay_rate)`. |
 | `contradiction_detection_enabled` | bool | `true` | Master switch for the contradiction detection job loop extension (`_30_contradiction_detection.py`). |
-| `contradiction_llm_enabled` | bool | `false` | Intended to enable LLM-assisted pairwise NLI in the contradiction detector. **Off by default in v0.1.0; the LLM-assisted path is not yet implemented or verified in v0.1.0** — see the key-details note below. |
+| `contradiction_llm_enabled` | bool | `false` | Intended to enable LLM-assisted pairwise NLI in the contradiction detector. **Off by default in v1.1.0; the LLM-assisted path is not yet implemented or verified in v1.1.0** — see the key-details note below. |
 | `contradiction_batch_size` | int | `100` | Candidate-pull limit for the memory-search path of the contradiction sweep. Does **not** truncate the scheduled facts path — all eligible facts are processed per pass (see key details). |
 | `contradiction_interval_hours` | int | `168` | Minimum hours between contradiction sweeps (1 week). |
 | `graph_neighbors_max` | int | `10` | Upper bound on the number of neighbors retrieved per seed during BFS graph expansion. |
@@ -42,9 +42,9 @@ apply to future operations after saving.
 | `semantic_limit` | int | `5` | Maximum number of semantic seed memories retrieved before graph expansion. |
 | `semantic_threshold` | float | `0.6` | Minimum similarity for a candidate semantic seed. |
 | `contradiction_similarity_threshold` | float | `0.85` | Minimum cosine similarity for a pair of fact memories to be considered for opposition (read by `run_contradiction_detection()`). |
-| `graph_analytics_enabled` | bool | `true` | Intended master switch for the graph-analytics pass in `helpers/lifecycle.py`. **Not yet wired in v0.1.0** — see the key-details note below. |
-| `graph_analytics_top_pct` | float | `0.10` | Fraction of highest-degree nodes boosted by the graph-analytics pass (pass not yet wired in v0.1.0). |
-| `graph_analytics_boost` | float | `0.05` | Importance increment applied to boosted nodes (pass not yet wired in v0.1.0). |
+| `graph_analytics_enabled` | bool | `true` | Intended master switch for the graph-analytics pass in `helpers/lifecycle.py`. **Not yet wired in v1.1.0** — see the key-details note below. |
+| `graph_analytics_top_pct` | float | `0.10` | Fraction of highest-degree nodes boosted by the graph-analytics pass (pass not yet wired in v1.1.0). |
+| `graph_analytics_boost` | float | `0.05` | Importance increment applied to boosted nodes (pass not yet wired in v1.1.0). |
 | `episode_boundary_hours` | int | `4` | Maximum gap between adjacent memories before a new episode starts in the episode-grouping job. |
 | `episode_min_memories` | int | `3` | Minimum number of memories required to form an episode. Groups below this size are not assigned an `episode_id`. |
 
@@ -143,16 +143,16 @@ degradation path (zero detections, no errors).
 
 #### `contradiction_llm_enabled`
 
-**Heuristic-only in v0.1.0.** When this key is `false` (the v0.1.0
+**Heuristic-only in v1.1.0.** When this key is `false` (the v1.1.0
 default), the scheduled `_30` job-loop sweep runs the lexical heuristic
 defined in `helpers/lifecycle.py` (`_NEGATION_TOKENS`,
 `_OPPOSITE_PAIRS`, `_semantically_oppose`) via
 `run_contradiction_detection(subdir, config, None, facts=...)`.
 The heuristic sweep runs in **both** states of this key.
 
-**Not yet implemented in v0.1.0:** when this key is `true`, the
+**Not yet implemented in v1.1.0:** when this key is `true`, the
 LLM-assisted pairwise-NLI path described here is planned but is not
-implemented and not verified in the v0.1.0 code. The `_30` job never
+implemented and not verified in the v1.1.0 code. The `_30` job never
 constructs or passes an LLM object; in the `true` state it logs a
 "not yet implemented — heuristic fallback" note and runs the same
 heuristic sweep. When the key is `false`, a heuristic-only mode note is logged and
@@ -174,7 +174,7 @@ Intended master switch for the graph-analytics pass in
 `helpers/lifecycle.py` (`run_graph_analytics()`).
 One of the five Settings Basic controls ("Graph insights").
 
-**Not yet wired in v0.1.0:** `run_graph_analytics()` is implemented as a
+**Not yet wired in v1.1.0:** `run_graph_analytics()` is implemented as a
 function (defined in `helpers/lifecycle.py`) but has no invocation site
 in any scheduled job loop — no `_40` job-loop extension exists yet. As
 a result, toggling `graph_analytics_enabled` (and the related
@@ -300,7 +300,7 @@ place where its cached token and graph instance can be reset together.
 ## Scope note
 
 This table reflects the keys implemented and read at runtime as of
-v0.1.0. The key details above mirror the
+v1.1.0. The key details above mirror the
 plugin-native help surface at `webui/help/configuration.html`.
 Behavior documented here is implemented behavior; planned and
 unverified behavior remain distinct surfaces and are not claimed here.
@@ -308,6 +308,6 @@ unverified behavior remain distinct surfaces and are not claimed here.
 ## Internal default overrides
 
 `helpers/lifecycle.py` defines a module-level `DEFAULT_CONFIG` dict that
-is used when the plugin-level config is missing keys. As of v0.1.0, all
+is used when the plugin-level config is missing keys. As of v1.1.0, all
 of its keys are bundled in `default_config.yaml` and documented in the
 main table above, so no internal-only overrides remain.

@@ -92,8 +92,9 @@ except Exception:
 ```
 
 A per-subdir `threading.RLock` (stored on the instance) serializes
-all reads and writes, so concurrent tool and job-loop calls cannot
-tear the file.
+all reads and writes, and each write is an atomic file replacement
+(`tempfile.mkstemp` + `os.replace`), so concurrent tool and job-loop
+calls do not interleave partial writes.
 
 ---
 

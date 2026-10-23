@@ -1,6 +1,6 @@
 # Neuro Core HTTP API
 
-Neuro Core ships **seven** API handler files under
+Neuro Core ships **eight** API handler files under
 `usr/plugins/neuro_core/api/`, all registered with the Agent Zero API
 server and reachable under the path prefix:
 

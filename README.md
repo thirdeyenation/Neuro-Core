@@ -8,7 +8,7 @@ Neuro Core extends Agent Zero's built-in memory with typed categories, a
 relationship graph, importance scoring, lifecycle maintenance, and a
 visual Context Graph that shows **why** every memory ranked where it did.
 
-[![Tests](https://img.shields.io/badge/tests-1062%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-1062%2F1064%20passing-brightgreen)](tests/)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Agent Zero](https://img.shields.io/badge/Agent%20Zero-v2.13-1F6FEB)](https://github.com/agent0ai/agent-zero)
 [![Version](https://img.shields.io/badge/version-1.1.0-purple)](CHANGELOG.md)
@@ -36,7 +36,7 @@ visual Context Graph that shows **why** every memory ranked where it did.
 | **Curated scoring** | Importance, confidence, and stability are first-class, editable memory properties — stored in a dedicated sidecar, not buried in text. |
 | **Validation lifecycle** | Mark memories validated, disputed, or superseded. Validation is an annotation that shapes ranking — it never silently hides your data. |
 | **Automatic maintenance** | Periodic jobs handle importance decay, episode grouping, and contradiction detection, so the graph stays healthy without manual sweeps. |
-| **Scoped isolation** | Memories are scoped per project and per agent — client A's context never leaks into client B's retrieval. |
+| **Scoped isolation** | Memories are scoped per project and per agent via `memory_subdir` isolation, covered by the isolation test suite. |
 | **Memory Operator profile** | An opt-in agent profile that gives your agents coherent operating discipline for memory work. |
 | **Zero external services** | Python-only, in-process. No database daemon, no extra network egress beyond your existing embedding provider. |
 
@@ -53,7 +53,7 @@ grouped by territory:
 
 <img alt="Neuro Core settings window with basic operator controls" src="docs/screenshots/shot_3_basic_settings.png" width="90%" />
 
-<img alt="Advanced settings covering all 21 configuration keys grouped by territory" src="docs/screenshots/shot_3_advanced_settings.png" width="90%" />
+<img alt="Advanced settings covering all 27 configuration keys grouped by territory" src="docs/screenshots/shot_3_advanced_settings.png" width="90%" />
 
 <img alt="Retrieval internals and recall shaping settings" src="docs/screenshots/shot_3_advanced_settings_continued-2_of_3.png" width="90%" />
 
@@ -120,10 +120,12 @@ confidently determine a subdirectory's state (for example, an
 unrecognized internal store format from an unsupported framework
 version), it does not guess: it falls back to the full, authoritative
 migration path for that subdirectory, which produces the same correct
-result. In no case does an unrecognized store format cause data loss or
-corruption. The supported framework range and this safety behavior are
-recorded in
-[`docs/decisions/ADR-NC1-005-framework-compatibility-contract.md`](docs/decisions/ADR-NC1-005-framework-compatibility-contract.md).
+result. Within the supported framework range recorded in
+[`docs/decisions/ADR-NC1-005-framework-compatibility-contract.md`](docs/decisions/ADR-NC1-005-framework-compatibility-contract.md)
+(Agent Zero v2.8 through the current release), an unrecognized store
+format is handled fail-closed — the inspection stays read-only and the
+migration falls back to the full path rather than guessing — and the
+ADR records this safety behavior as a durable contract.
 
 </details>
 

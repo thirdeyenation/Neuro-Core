@@ -284,7 +284,8 @@ these five fields and is the canonical in-memory representation. A
 All writes go through `tempfile.mkstemp` + `os.replace`, exactly as
 in the framework's `helpers/kvp.py` pattern. A per-subdir
 `threading.RLock` (held in `ScoreStore._lock`) serializes reads and
-writes so a concurrent `memory_score` call cannot tear the file.
+writes, so a concurrent `memory_score` call does not interleave
+partial writes into the file.
 
 ### Missing file behavior
 
@@ -452,8 +453,10 @@ so the file size is roughly 2× the unique-edge count for any
 
 ### Atomic write guarantees
 
-Identical to `scores.json`: `tempfile.mkstemp` + `os.replace`, with a
-per-subdir `threading.RLock` in `GraphStore._lock`.
+Identical to `scores.json`: each write is an atomic file replacement
+(`tempfile.mkstemp` + `os.replace`), and a per-subdir
+`threading.RLock` in `GraphStore._lock` serializes reads and writes,
+so concurrent calls do not interleave partial writes into the file.
 
 ### Missing file behavior
 

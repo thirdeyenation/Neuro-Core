@@ -260,8 +260,10 @@ propagation).
   inside the agent loop.
 - **`memory_subdir`**: All three resolve the `Memory` instance from the
   agent's active subdir; there is no per-call subdir override.
-- **Sidecar writes**: atomic and per-subdir-locked, so concurrent tool
-  and job-loop calls cannot tear the files.
+- **Sidecar writes**: each write is an atomic file replacement
+  (`tempfile.mkstemp` + `os.replace`) and writes are serialized per
+  subdir by a `threading.RLock`, so concurrent tool and job-loop
+  calls do not interleave partial writes.
 - **Exception contract differs from `neuro_*`**: the `memory_*` tools
   return error strings; the `neuro_*` tools raise `ValueError` on
   invalid required arguments. Both behaviors are intentional; do not
