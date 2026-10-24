@@ -668,7 +668,10 @@ instance, and rendering.
   is explicitly rendered as "not stored" (the sidecar is the score
   authority; the display path stays
   read-only w.r.t. FAISS metadata and never fabricates a value). A
-  `validation_status` chip is shown when present.
+  `validation_status` chip is shown when present. The inspector also
+  shows read-only access telemetry (access count and last accessed)
+  from the same sidecar read, with an explicit best-effort fallback
+  label when the sidecar entry is absent.
   The node
   inspector also carries a safe-mode edit affordance for the
   memory's Contents and scores (Importance/Confidence/Stability):

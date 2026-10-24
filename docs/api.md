@@ -458,8 +458,13 @@ exists, i.e. a legacy record; the UI then falls back to displayed
 metadata values):
 
 ```json
-{"success": true, "memory_subdir": "projects/neuro_core", "memory_id": "mem_abc123", "content": "...", "scores": {"importance": 0.7, "confidence": 0.6, "stability": 0.5}, "scores_source": "sidecar", "types": {"memory_type": "fact", "memory_types": ["fact", "hypothesis"], "additional": ["hypothesis"], "inconsistent": false}, "validation_status": {"current": "unvalidated", "unknown": false, "allowed_targets": ["disputed", "validated"]}}
+{"success": true, "memory_subdir": "projects/neuro_core", "memory_id": "mem_abc123", "content": "...", "scores": {"importance": 0.7, "confidence": 0.6, "stability": 0.5}, "scores_source": "sidecar", "access_telemetry": {"access_count": 3, "last_accessed_at": "2026-06-05T12:34:56+00:00"}, "types": {"memory_type": "fact", "memory_types": ["fact", "hypothesis"], "additional": ["hypothesis"], "inconsistent": false}, "validation_status": {"current": "unvalidated", "unknown": false, "allowed_targets": ["disputed", "validated"]}}
 ```
+
+The `access_telemetry` object is read-only display telemetry serialized
+from the same sidecar record already read by the handler — it is `null`
+when no sidecar entry exists (never fabricated) and is NOT accepted by
+POST (POST `scores` validation is unchanged).
 
 The `validation_status` block carries the current stored status (an
 absent stored key reads as the documented default `unvalidated`), an

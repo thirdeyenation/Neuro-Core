@@ -225,6 +225,21 @@ class MemoryEditApi(ApiHandler):
                 if status_unknown
                 else list(USER_ALLOWED_TRANSITIONS.get(current_status, ())),
             }
+            # WI-P96-PM010: read-only access telemetry. The sidecar record is
+            # already in hand (get_optional — no additional store read, no
+            # write); its access_count / last_accessed_at are serialized
+            # additively so the graph inspector can display them. Absent
+            # (None) when no sidecar entry exists — never fabricated.
+            # POST write validation (_SCORE_FIELDS) is untouched: these are
+            # display-only fields, not editable scores.
+            access_telemetry = (
+                {
+                    "access_count": int(record.access_count),
+                    "last_accessed_at": record.last_accessed_at,
+                }
+                if record is not None
+                else None
+            )
             return {
                 "success": True,
                 "memory_subdir": subdir,
@@ -232,6 +247,7 @@ class MemoryEditApi(ApiHandler):
                 "content": getattr(doc, "page_content", "") or "",
                 "scores": scores,
                 "scores_source": "sidecar" if record is not None else "none",
+                "access_telemetry": access_telemetry,
                 "types": types_payload,
                 "validation_status": status_payload,
             }

@@ -150,6 +150,9 @@ async def test_get_returns_content_and_sidecar_scores(
             "unknown": False,
             "allowed_targets": ["disputed", "validated"],
         },
+        # WI-P96-PM010: read-only access telemetry is part of the GET
+        # contract; null when no sidecar entry exists (never fabricated).
+        "access_telemetry": None,
     }
 
     # After a sidecar write, GET returns the authoritative sidecar values.
