@@ -120,8 +120,11 @@ class TestBoParallelEdges:
 class TestBpMemoryTypeFilters:
     def _memory_type_list(self) -> list[str]:
         src = PANEL.read_text(encoding="utf-8")
-        m = re.search(r"x-for=\"t in \[([^\]]*)\]\"", src)
-        assert m, "Memory Type checkbox x-for list not found in panel"
+        # WI-P97-PM011: the filter enumeration is single-sourced into the
+        # panel's MEMORY_TYPE_ENUM constant (drift-guarded by
+        # test_wip97_pm011_taxonomy_single_source.py); parse that constant.
+        m = re.search(r"MEMORY_TYPE_ENUM:\s*\[([^\]]*)\]", src)
+        assert m, "MEMORY_TYPE_ENUM constant not found in panel"
         return re.findall(r"'([a-z_]+)'", m.group(1))
 
     def test_filters_list_matches_implemented_enum_exactly(self):

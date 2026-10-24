@@ -252,7 +252,11 @@ def test_no_new_writable_type_token_introduced():
     """ADR-NC1-004 enum lock untouched: the 8 enum values remain the only
     writable option values; 'type unknown' appears only as display text."""
     src = _panel_src()
-    assert src.count("'fact','concept','task','event','decision','skill','preference','note'") >= 1
+    # WI-P97-PM011: the taxonomy literal is single-sourced into the panel's
+    # MEMORY_TYPE_ENUM constant (drift-guarded by
+    # test_wip97_pm011_taxonomy_single_source.py); exactly one occurrence.
+    assert src.count("'fact','concept','task','event','decision','skill','preference','note'") == 1
+    assert re.search(r"MEMORY_TYPE_ENUM:\s*\['fact','concept','task','event','decision','skill','preference','note'\]", src)
     # The placeholder option carries value="", never a 'type unknown' value.
     assert 'value="type unknown"' not in src
 
