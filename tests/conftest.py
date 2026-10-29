@@ -47,10 +47,20 @@ import pytest
 # affected.
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]  # tests/ -> neuro_core/
-_FRAMEWORK_ROOT = Path(__file__).resolve().parents[4]
 
-if (_FRAMEWORK_ROOT / "usr" / "plugins" / "neuro_core").is_dir():
+# NOTE (WI-N16 remediation): ``parents[4]`` must NOT be evaluated
+# unconditionally. In a standalone checkout (repo root == plugin root)
+# ``conftest.py`` has only 4 parents, so indexing parents[4] raises
+# IndexError at import time — before the standalone branch below can
+# register the synthetic ``usr.plugins.neuro_core`` alias. The framework
+# root is therefore computed only inside the host-layout branch, guarded
+# by a parents-length check.
+
+if len(Path(__file__).resolve().parents) > 4 and (
+    (Path(__file__).resolve().parents[4] / "usr" / "plugins" / "neuro_core").is_dir()
+):
     # Host layout: put the framework root on sys.path.
+    _FRAMEWORK_ROOT = Path(__file__).resolve().parents[4]
     if str(_FRAMEWORK_ROOT) not in sys.path:
         sys.path.insert(0, str(_FRAMEWORK_ROOT))
 else:
