@@ -28,9 +28,46 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
-ROOT = Path(__file__).resolve().parents[3]  # tests/ -> neuro_core/ -> plugins/ -> usr/ -> /a0
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+# Import-layout robustness (KI-NC-002 / WI-N16):
+#
+# Host layout: the plugin lives at <framework_root>/usr/plugins/neuro_core/.
+# ``import usr.plugins...`` resolves against the PARENT of ``usr/``, i.e. the
+# framework root itself. From tests/conftest.py that is parents[4]
+# (tests/ -> neuro_core/ -> plugins/ -> usr/ -> <framework_root>). The
+# previous parents[3] pointed at ``usr/`` itself, which never made
+# ``import usr`` resolve on its own — it only worked because
+# tests/run_suite.sh exports PYTHONPATH=/a0.
+#
+# Standalone checkout (e.g. a GitHub runner): the repository root IS the
+# plugin root and there is no ``usr/`` hierarchy at all, so ``import usr``
+# cannot resolve via sys.path. We register a synthetic
+# ``usr.plugins.neuro_core`` package alias whose __path__ points at the
+# repository root, so the ``usr.plugins.neuro_core.*`` imports in the test
+# modules resolve unchanged. No test assertions or product code are
+# affected.
+
+_PLUGIN_ROOT = Path(__file__).resolve().parents[1]  # tests/ -> neuro_core/
+_FRAMEWORK_ROOT = Path(__file__).resolve().parents[4]
+
+if (_FRAMEWORK_ROOT / "usr" / "plugins" / "neuro_core").is_dir():
+    # Host layout: put the framework root on sys.path.
+    if str(_FRAMEWORK_ROOT) not in sys.path:
+        sys.path.insert(0, str(_FRAMEWORK_ROOT))
+else:
+    # Standalone checkout: alias the plugin into a synthetic
+    # ``usr.plugins.neuro_core`` package.
+    if "usr.plugins.neuro_core" not in sys.modules:
+        _usr = types.ModuleType("usr")
+        _usr.__path__ = []
+        _plugins = types.ModuleType("usr.plugins")
+        _plugins.__path__ = []
+        _ncore = types.ModuleType("usr.plugins.neuro_core")
+        _ncore.__path__ = [str(_PLUGIN_ROOT)]
+        _usr.plugins = _plugins
+        _plugins.neuro_core = _ncore
+        sys.modules["usr"] = _usr
+        sys.modules["usr.plugins"] = _plugins
+        sys.modules["usr.plugins.neuro_core"] = _ncore
 
 
 # ---------------------------------------------------------------------------
