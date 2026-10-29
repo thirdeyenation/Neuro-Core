@@ -24,6 +24,8 @@ the approved WI-P13 design (S1) and ARC binding conditions C1-C7:
 from __future__ import annotations
 
 import asyncio
+import importlib.util
+import os
 import hashlib
 import re
 import types
@@ -43,6 +45,23 @@ PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 PANEL_CONTENT = PLUGIN_ROOT / "webui/right-canvas-panels/graph-panel.html"
 PANEL_SHELL = PLUGIN_ROOT / "extensions/webui/right-canvas-panels/graph-panel.html"
 FRAMEWORK_API = Path("/a0/helpers/api.py")
+
+# Live-framework detection (WI-N16 round 7, same pattern as
+# test_execute.py/test_lifecycle_jobs.py): this test reads the live A0
+# framework source at /a0/helpers/api.py, which does not exist in
+# standalone checkouts/CI runners; executed under the host-layout suite
+# of record.
+_LIVE_FRAMEWORK_AVAILABLE = (
+    os.path.isdir("/a0/usr")
+    and os.path.isfile("/a0/helpers/files.py")
+    and importlib.util.find_spec("simpleeval") is not None
+)
+_live_framework = pytest.mark.skipif(
+    not _LIVE_FRAMEWORK_AVAILABLE,
+    reason="live A0 framework at /a0 (helpers.files, /a0/usr/memory) "
+    "unavailable in standalone checkouts/CI runners; executed under the "
+    "host-layout suite of record",
+)
 
 # ARC C6: the extensions shell copy must stay byte-identical to its
 # pre-WI-P13 state (sha256 recorded before implementation this turn).
@@ -280,6 +299,7 @@ def test_relationships_api_declares_auth_required_methods():
     assert api_mod.RelationshipsApi.requires_auth() is True
 
 
+@_live_framework
 def test_framework_wrap_enforces_csrf_decorator():
     """CSRF enforcement rides the framework wrap (helpers/api.py) — verify the
     csrf-protected decorator is still applied at the framework layer."""

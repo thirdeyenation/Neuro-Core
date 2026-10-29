@@ -37,6 +37,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import os
+
 import pytest
 
 from usr.plugins.neuro_core.helpers import decorate as dec
@@ -49,6 +51,23 @@ HANDLER_BASE = (
 )
 
 A0_RUNTIME = '/opt/venv-a0/bin/python'
+
+# Live-framework detection (WI-N16 round 7, same pattern as
+# test_execute.py/test_lifecycle_jobs.py): the C3 probe subprocess imports
+# the REAL framework Memory class from /a0 (PYTHONPATH=/a0), which does not
+# exist in standalone checkouts/CI runners; executed under the host-layout
+# suite of record.
+_LIVE_FRAMEWORK_AVAILABLE = (
+    os.path.isdir("/a0/usr")
+    and os.path.isfile("/a0/helpers/files.py")
+    and importlib.util.find_spec("simpleeval") is not None
+)
+_live_framework = pytest.mark.skipif(
+    not _LIVE_FRAMEWORK_AVAILABLE,
+    reason="live A0 framework at /a0 (helpers.files, /a0/usr/memory) "
+    "unavailable in standalone checkouts/CI runners; executed under the "
+    "host-layout suite of record",
+)
 
 
 def _load_handler(rel_path, mod_name):
@@ -285,6 +304,7 @@ def _probe_framework_runtime():
     return json.loads(proc.stdout.strip().splitlines()[-1])
 
 
+@_live_framework
 def test_framework_runtime_probe_insert_paths_extensible():
     out = _probe_framework_runtime()
     # decorate_memory() reported success for all six targets.
