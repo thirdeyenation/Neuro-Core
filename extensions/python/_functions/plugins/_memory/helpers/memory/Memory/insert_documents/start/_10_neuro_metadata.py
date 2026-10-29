@@ -26,6 +26,11 @@ Behavior:
 The hook is intentionally a no-op for documents that already carry a
 ``memory_type`` field; validation is idempotent and only ever narrows
 the value, so re-inserts and dashboard edits do not flip valid types.
+Additionally, when the scalar ``memory_type`` is ABSENT, it is
+auto-assigned by the rules-based classifier (PM-007, WI-P98/D-NC1-179)
+with ``memory_type_origin: auto`` provenance — present values (valid
+or coerced) are never overridden, and collection-only records are
+skipped (C4).
 
 Stability contract (v2):
     - Plugin-local imports (``from usr.plugins.neuro_core...``) are
@@ -68,6 +73,7 @@ class NeuroInsertMetadata(Extension):
         # even when the hook is loaded but never invoked.
         try:
             from usr.plugins.neuro_core.helpers.metadata import (
+                apply_auto_memory_type,
                 apply_seeding,
                 validate_neuro_metadata,
             )
@@ -92,6 +98,14 @@ class NeuroInsertMetadata(Extension):
                 new_meta = dict(metadata)
                 validate_neuro_metadata(new_meta)
                 apply_seeding(new_meta)
+
+                # PM-007 (WI-P98, D-NC1-179): auto-assign the scalar
+                # ``memory_type`` when absent — AFTER validation (C2),
+                # absent-only, with ``memory_type_origin: auto``
+                # provenance. Collection-only records are skipped (C4);
+                # coerced records carry no origin key.
+                apply_auto_memory_type(new_meta, getattr(doc, "page_content", None))
+
                 doc.metadata = new_meta
                 normalised += 1
 

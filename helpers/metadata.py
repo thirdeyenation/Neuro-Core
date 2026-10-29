@@ -469,3 +469,161 @@ def resolved_memory_type_fields(metadata: dict) -> dict:
     if metadata.get("memory_types") is None and norm.types:
         out["memory_types"] = list(norm.types)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Capture-time auto-classification (WI-P98-PM007, D-NC1-179)
+# ---------------------------------------------------------------------------
+#
+# Provenance contract (ARC condition C3): ``memory_type_origin`` is a
+# scalar-only document-metadata key with exactly two values:
+#
+#   - "auto"   — written by the insert-path hooks ONLY when the classifier
+#                assigns the scalar ``memory_type`` (absent-only).
+#   - "manual" — written by ``api/memory_edit.py`` ONLY when the edit path
+#                writes a type.
+#
+# It applies to the scalar primary ``memory_type`` ONLY; the additive
+# ``memory_types`` collection carries no origin. No existing consumer is
+# required to read it; every read path tolerates its absence (legacy and
+# coerced records carry no origin key). Records whose invalid type was
+# coerced by ``validate_neuro_metadata`` carry NO origin key (C2): they are
+# neither auto-classified nor manual.
+
+MEMORY_TYPE_ORIGIN_AUTO: str = "auto"
+MEMORY_TYPE_ORIGIN_MANUAL: str = "manual"
+MEMORY_TYPE_ORIGIN_VALUES: frozenset[str] = frozenset(
+    {MEMORY_TYPE_ORIGIN_AUTO, MEMORY_TYPE_ORIGIN_MANUAL}
+)
+
+
+# Classification rules (heuristic, lexical — NOT semantic understanding).
+# Precision is favored over recall: a specific type is assigned only on a
+# confident cue; anything else falls back conservatively to "note" (the same
+# benign default the invalid-type coercion uses). Rule order matters: the
+# first matching rule wins.
+
+_DECISION_CUE_RE = _re.compile(
+    r"\b(decid(?:ed|e|ing|ion|ions)|chose|chosen|agreed|going forward)\b",
+    _re.IGNORECASE,
+)
+_PREFERENCE_CUE_RE = _re.compile(
+    r"\b(prefer(?:s|red|ence)?|favor(?:ite|ites)?|love[sd]?|hate[sd]?|"
+    r"always use|rather than|instead of)\b",
+    _re.IGNORECASE,
+)
+_TASK_CUE_RE = _re.compile(
+    r"\b(todo|to-do|task|fix(?:me|ed)?|implement|bug|deadline|"
+    r"due (?:by|on|tomorrow)|follow[- ]?up|needs? to be (?:done|fixed|implemented)|"
+    r"action item)\b",
+    _re.IGNORECASE,
+)
+_EVENT_CUE_RE = _re.compile(
+    r"\b(happened|occurred|took place|attended|meeting|call with|yesterday|"
+    r"last (?:week|month)|on \d{4}-\d{2}-\d{2})\b",
+    _re.IGNORECASE,
+)
+_SKILL_CUE_RE = _re.compile(
+    r"\b(how to|step[- ]by[- ]step|steps? to|procedure|tutorial|recipe|"
+    r"workflow|walkthrough|instructions?)\b",
+    _re.IGNORECASE,
+)
+_CONCEPT_CUE_RE = _re.compile(
+    r"\b(defined as|means|refers to|definition|concept|theory|principle|"
+    r"explains?|architecture of)\b",
+    _re.IGNORECASE,
+)
+_FACT_CUE_RE = _re.compile(
+    r"\b(is|are|was|were|has|have|contains?|consists? of|equals?|located)\b",
+    _re.IGNORECASE,
+)
+
+
+def classify_memory_type(text: Any, metadata: Any = None) -> str:
+    """Pure, total rules-based classifier: text + metadata -> MemoryType value.
+
+    ARC condition C6: this function is PURE (no I/O, no imports beyond this
+    module, no global state) and TOTAL — it cannot raise on any input; any
+    non-string text is coerced via ``str()`` and any failure to apply the
+    lexical rules falls back conservatively to ``"note"``.
+
+    Ordering contract (ARC condition C2): callers invoke this ONLY after
+    ``validate_neuro_metadata`` and ONLY when the scalar ``memory_type`` key
+    is ABSENT from the metadata — a value that was present (valid, or
+    coerced to "note" by validation) is never overridden, and coerced
+    records carry no ``memory_type_origin`` key.
+
+    The classification is heuristic rules-based (lexical cues), NOT semantic
+    understanding; mis-assignment is benign and correctable via the manual
+    edit path, and provenance (``memory_type_origin``) makes auto-assigned
+    values auditable.
+
+    Args:
+        text: The memory text (any input is tolerated; ``None`` -> "").
+        metadata: The document metadata dict (read-only here; any input
+            tolerated).
+
+    Returns:
+        Exactly one of the 8 ``MemoryType`` string values (never raises).
+    """
+    try:
+        text_str = str(text) if text is not None else ""
+        meta = metadata if isinstance(metadata, dict) else {}
+
+        # Metadata cues first (more reliable than free text when present).
+        area_str = str(
+            meta.get("area") or meta.get("memory_subdir") or ""
+        ).lower().strip()
+        if area_str == "solutions":
+            return MemoryType.SKILL.value
+
+        if _DECISION_CUE_RE.search(text_str):
+            return MemoryType.DECISION.value
+        if _PREFERENCE_CUE_RE.search(text_str):
+            return MemoryType.PREFERENCE.value
+        if _TASK_CUE_RE.search(text_str):
+            return MemoryType.TASK.value
+        if _EVENT_CUE_RE.search(text_str):
+            return MemoryType.EVENT.value
+        if _SKILL_CUE_RE.search(text_str):
+            return MemoryType.SKILL.value
+        if _CONCEPT_CUE_RE.search(text_str):
+            return MemoryType.CONCEPT.value
+        if _FACT_CUE_RE.search(text_str):
+            return MemoryType.FACT.value
+        return MemoryType.NOTE.value
+    except Exception:  # pragma: no cover - total-function guard
+        return MemoryType.NOTE.value
+
+
+def apply_auto_memory_type(metadata: dict, text: Any) -> None:
+    """Assign an auto memory_type when absent (in place; never raises).
+
+    Mirrors the ``apply_seeding`` lazy seed-only-absent-fields pattern
+    (ARC condition C2) and is invoked by BOTH ``_10_neuro_metadata``
+    insert-path hooks AFTER ``validate_neuro_metadata``:
+
+    - scalar ``memory_type`` PRESENT (valid, or coerced to "note" by
+      validation): untouched — and NO origin key is written (coerced
+      records are neither auto nor manual; C2).
+    - collection-only record (``memory_types`` present WITHOUT the scalar
+      primary; ARC condition C4): classification is SKIPPED — the read
+      path already derives type information from the collection, and
+      writing a scalar here could create the tolerated-but-inconsistent
+      C2 state. No scalar, no origin.
+    - scalar ABSENT and no collection: the classifier assigns the type
+      and ``memory_type_origin`` is set to "auto" (C3).
+
+    Args:
+        metadata: The document metadata dict, mutated in place.
+        text: The memory text (passed through to the classifier).
+    """
+    if not isinstance(metadata, dict):
+        return
+    if "memory_type" in metadata:
+        return
+    if "memory_types" in metadata:
+        # C4 collection-only edge case: skip classification explicitly.
+        return
+    metadata["memory_type"] = classify_memory_type(text, metadata)
+    metadata["memory_type_origin"] = MEMORY_TYPE_ORIGIN_AUTO

@@ -103,6 +103,14 @@ the Neuro Core schema — seeding the typed `memory_type` field (default
 are never overwritten, and only documents missing one or more Neuro
 Core fields are touched.
 
+**Automatic type assignment (new memories):** when a new memory is
+captured and no `memory_type` was provided, Neuro Core assigns one of
+the 8 type values automatically using a conservative, deterministic,
+rules-based keyword heuristic — not semantic understanding. Unmatched
+memories fall back to `note`. The provenance of an assigned type is
+recorded in the `memory_type_origin` metadata field (`auto` or
+`manual`); existing memories are never re-classified or backfilled.
+
 **Fresh vs. existing stores:**
 
 - **Fresh (empty) store:** the script detects that there is nothing to

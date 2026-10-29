@@ -27,13 +27,19 @@ helpers (`run_importance_decay`, `run_contradiction_detection`,
 - **Type**: `str`
 - **Default**: `"note"` (from `apply_defaults()` when missing)
 - **Set by**: `execute.py` migration (legacy), `helpers.metadata.apply_defaults()`,
-  `api/memory_edit.py` (full-set-replace types edit)
+  `api/memory_edit.py` (full-set-replace types edit), and — since WI-P98
+  (PM-007) — automatically at capture time by the `insert_text/start` and
+  `insert_documents/start` hooks when the field is absent
+  (`helpers.metadata.apply_auto_memory_type()`)
 - **Description**: The primary category of this memory. One of the 8
   implemented `MemoryType` enum values: `fact`, `concept`, `task`,
   `event`, `decision`, `skill`, `preference`, `note` (verified against
   `helpers/metadata.py`). Stored as the enum's string value, not the
   `Enum` instance. The enum is fixed — user-defined types never enter
-  the scalar primary.
+  the scalar primary. Automatic assignment is a conservative,
+  deterministic, rules-based keyword heuristic (never semantic understanding);
+  it runs only when `memory_type` is absent, after
+  `validate_neuro_metadata`, and falls back to `note`.
 
 ### `memory_types`
 
@@ -51,6 +57,24 @@ helpers (`run_importance_decay`, `run_contradiction_detection`,
   reads flag the set `inconsistent` without mutation; the next
   memory_edit types edit repairs it via full-set-replace.
   (ADR-NC1-004.)
+
+### `memory_type_origin`
+
+- **Type**: `str` (scalar-only document-metadata key; no sidecar)
+- **Default**: absent (the key does not exist unless an origin was recorded)
+- **Set by**: the capture hooks (`insert_text/start`,
+  `insert_documents/start`) write `"auto"` when the classifier assigned
+  the type; `api/memory_edit.py` writes `"manual"` on a types edit
+  (WI-P98, PM-007)
+- **Description**: Provenance annotation for `memory_type` — `"auto"`
+  when the value was assigned by the rules-based capture-time
+  classifier, `"manual"` when a user set it through the types edit.
+  Defined in `helpers/metadata.py` (`MEMORY_TYPE_ORIGIN_AUTO` /
+  `MEMORY_TYPE_ORIGIN_MANUAL`). Reads tolerate absence: a record
+  without the key is treated as having unknown origin and is never
+  fabricated on read. Records whose invalid type was coerced by
+  validation carry no origin key. Legacy records are never backfilled
+  (no migration).
 
 ### `importance`
 

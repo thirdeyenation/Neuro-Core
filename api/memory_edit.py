@@ -60,7 +60,10 @@ from activity_ledger import ActivityEvent, ActivityLedger  # noqa: E402
 from neuro_core import Scope  # noqa: E402
 
 from usr.plugins.neuro_core.helpers.scores import ScoreStore
-from usr.plugins.neuro_core.helpers.metadata import normalize_memory_types
+from usr.plugins.neuro_core.helpers.metadata import (
+    MEMORY_TYPE_ORIGIN_MANUAL,
+    normalize_memory_types,
+)
 
 
 # The three editable score fields, in display order.
@@ -413,6 +416,10 @@ class MemoryEditApi(ApiHandler):
                 staged.metadata = meta
             meta["memory_type"] = types.primary
             meta["memory_types"] = list(types.types)
+            # PM-007 (WI-P98, D-NC1-179, ARC C5): the manual edit path
+            # annotates scalar-type provenance ONLY — no other behavior
+            # change (WI-P59-KI029 guarantees unchanged).
+            meta["memory_type_origin"] = MEMORY_TYPE_ORIGIN_MANUAL
             types_changed = True
 
         if status_target is not None:

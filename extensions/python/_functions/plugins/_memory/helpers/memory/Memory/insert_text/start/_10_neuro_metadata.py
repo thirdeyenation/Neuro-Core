@@ -18,8 +18,12 @@ Why this hook exists instead of (or in addition to) insert_documents/start/:
     and partial: ``apply_seeding`` fills only *absent* ``importance``
     (from ``area``) and ``confidence`` (from ``source``), plus
     ``stability`` only when ``consolidation_action`` maps to a value.
-    ``memory_type`` and ``validation_status`` are never written on the
-    insert path.
+    ``validation_status`` is never written on the insert path.
+    ``memory_type`` is auto-assigned ONLY when absent (PM-007,
+    WI-P98/D-NC1-179): a heuristic rules-based classification with
+    ``memory_type_origin: auto`` provenance — present values (valid or
+    coerced) are never overridden, and collection-only records are
+    skipped.
 
 Extension contract:
     ``data["args"]`` for a bound ``Memory.insert_text(text, metadata)``
@@ -50,6 +54,7 @@ class NeuroInsertTextMetadata(Extension):
         """Hook entry point — NEVER re-raises."""
         try:
             from usr.plugins.neuro_core.helpers.metadata import (
+                apply_auto_memory_type,
                 apply_seeding,
                 validate_neuro_metadata,
             )
@@ -69,6 +74,13 @@ class NeuroInsertTextMetadata(Extension):
 
             validate_neuro_metadata(metadata)
             apply_seeding(metadata)
+
+            # PM-007 (WI-P98, D-NC1-179): auto-assign the scalar
+            # ``memory_type`` when absent — AFTER validation (C2),
+            # absent-only, with ``memory_type_origin: auto`` provenance.
+            # Collection-only records are skipped (C4); coerced records
+            # carry no origin key.
+            apply_auto_memory_type(metadata, args[1])
 
         except Exception as e:
             PrintStyle().warning(
