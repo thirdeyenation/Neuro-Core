@@ -38,7 +38,7 @@ import json
 import subprocess
 from pathlib import Path
 
-PLUGIN = Path("/a0/usr/plugins/neuro_core")
+PLUGIN = Path(__file__).resolve().parent.parent
 PANEL = PLUGIN / "webui" / "right-canvas-panels" / "graph-panel.html"
 
 LEGACY_PATTERN = (

@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-PLUGIN = Path("/a0/usr/plugins/neuro_core")
+PLUGIN = Path(__file__).resolve().parent.parent
 CONFIG_HTML = PLUGIN / "webui" / "config.html"
 HELP_HTML = PLUGIN / "webui" / "help" / "configuration.html"
 DEFAULTS_YAML = PLUGIN / "default_config.yaml"

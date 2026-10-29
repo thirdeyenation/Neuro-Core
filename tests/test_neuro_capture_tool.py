@@ -28,7 +28,7 @@ from pathlib import Path
 import pytest
 
 
-_PLUGIN_ROOT = "/a0/usr/plugins/neuro_core"
+_PLUGIN_ROOT = str(Path(__file__).resolve().parent.parent)
 if _PLUGIN_ROOT not in sys.path:
     sys.path.insert(0, _PLUGIN_ROOT)
 

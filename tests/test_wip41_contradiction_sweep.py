@@ -66,7 +66,7 @@ import pytest
 import usr.plugins.neuro_core.helpers.lifecycle as lifecycle_mod
 
 
-_PLUGIN = Path("/a0/usr/plugins/neuro_core")
+_PLUGIN = Path(__file__).resolve().parent.parent
 _JOB = _PLUGIN / "extensions" / "python" / "job_loop" / "_30_contradiction_detection.py"
 
 _FAKE_AGENT = object()

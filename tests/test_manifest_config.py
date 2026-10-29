@@ -29,11 +29,18 @@ import pytest
 import yaml
 
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
-# conftest.py inserts /a0/usr (its parents[3]) rather than /a0, so
-# ``import usr...`` fails there; add the true framework root explicitly.
-_A0_ROOT = Path(__file__).resolve().parents[4]
-if str(_A0_ROOT) not in sys.path:
-    sys.path.insert(0, str(_A0_ROOT))
+# Layout-robust framework-root bootstrap (WI-N16 round 3): parents[4]
+# exists only in the host layout (tests/ -> neuro_core/ -> plugins/ ->
+# usr/ -> <framework_root>). In a standalone checkout (repo root ==
+# plugin root) indexing parents[4] raises IndexError, and the conftest
+# already registers the synthetic ``usr.plugins.neuro_core`` alias that
+# makes ``import usr...`` resolve — so the explicit sys.path insert is
+# only needed (and only safe) in the host layout.
+_parents = Path(__file__).resolve().parents
+if len(_parents) > 4:
+    _A0_ROOT = _parents[4]
+    if str(_A0_ROOT) not in sys.path:
+        sys.path.insert(0, str(_A0_ROOT))
 
 
 # ---------------------------------------------------------------------------

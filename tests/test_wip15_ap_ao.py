@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import types
+from pathlib import Path
 from datetime import datetime, timezone
 
 import pytest
@@ -206,7 +207,7 @@ class TestDateRangeHandler:
 # ---------------------------------------------------------------------------
 
 
-PANEL = "/a0/usr/plugins/neuro_core/webui/right-canvas-panels/graph-panel.html"
+PANEL = str(Path(__file__).resolve().parent.parent / "webui" / "right-canvas-panels" / "graph-panel.html")
 
 
 class TestPanelDateRangeParam:
@@ -242,7 +243,7 @@ class TestPanelDateRangeParam:
 # ---------------------------------------------------------------------------
 
 
-DOCS = "/a0/usr/plugins/neuro_core/docs/api.md"
+DOCS = str(Path(__file__).resolve().parent.parent / "docs" / "api.md")
 
 
 class TestDocsAllInvalidEnumBullet:

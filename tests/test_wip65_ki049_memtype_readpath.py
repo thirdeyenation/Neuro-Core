@@ -20,6 +20,7 @@ Covers:
 """
 
 import re
+from pathlib import Path
 
 import pytest
 
@@ -255,7 +256,7 @@ class TestAdvancedFiltersResolvedTypes:
 # ---------------------------------------------------------------------------
 
 
-PANEL = "/a0/usr/plugins/neuro_core/webui/right-canvas-panels/graph-panel.html"
+PANEL = str(Path(__file__).resolve().parent.parent / "webui" / "right-canvas-panels" / "graph-panel.html")
 
 
 @pytest.fixture(scope="module")

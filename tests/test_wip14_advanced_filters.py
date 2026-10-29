@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import types
+from pathlib import Path
 
 import pytest
 
@@ -231,7 +232,7 @@ class TestEnumerationInterface:
 # ---------------------------------------------------------------------------
 
 
-PANEL = "/a0/usr/plugins/neuro_core/webui/right-canvas-panels/graph-panel.html"
+PANEL = str(Path(__file__).resolve().parent.parent / "webui" / "right-canvas-panels" / "graph-panel.html")
 
 
 class TestPanelRerender:

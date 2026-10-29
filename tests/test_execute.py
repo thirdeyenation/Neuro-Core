@@ -464,7 +464,9 @@ class TestMainReturnAndReporting:
 # ---------------------------------------------------------------------------
 
 
-_PLUGIN_ROOT = "/a0/usr/plugins/neuro_core"
+from pathlib import Path  # noqa: E402
+
+_PLUGIN_ROOT = str(Path(__file__).resolve().parent.parent)
 
 
 def _load_neuro_tool(name):
@@ -1162,6 +1164,33 @@ def _make_registry():
 # ---------------------------------------------------------------------------
 
 
+# WI-N16 round 3b (ORC decision): the two framework-reference probes
+# below examine the LIVE A0 framework at /a0 (helpers.files drift
+# detection, /a0/usr/memory state), which does not exist in standalone
+# checkouts or CI runners. Following the faiss skipif precedent
+# (test_wip60_dispute_persistence.py), they are layout-conditionally
+# skipped: fully active in the host-layout suite of record, skipped only
+# where the framework they pin is absent. Assertions untouched.
+# Detection is runtime-level, not merely file-level: on a host where
+# /a0 exists, a standalone venv without the framework's dependencies
+# still cannot run the probes (they execute [sys.executable, ...], so
+# they need helpers.files' own dependency simpleeval importable in THIS
+# interpreter). This mirrors the faiss try-import precedent.
+import importlib.util
+
+_LIVE_FRAMEWORK_AVAILABLE = (
+    os.path.isdir("/a0/usr")
+    and os.path.isfile("/a0/helpers/files.py")
+    and importlib.util.find_spec("simpleeval") is not None
+)
+_live_framework = pytest.mark.skipif(
+    not _LIVE_FRAMEWORK_AVAILABLE,
+    reason="live A0 framework at /a0 (helpers.files, /a0/usr/memory) "
+    "unavailable in standalone checkouts/CI runners; executed under the "
+    "host-layout suite of record",
+)
+
+
 class TestLightweightPrePassConditions:
     """Binding tests for the WI-P79 ARC conditions.
 
@@ -1172,6 +1201,7 @@ class TestLightweightPrePassConditions:
     real framework module unimportable in-process).
     """
 
+    @_live_framework
     def test_drift_detection_against_framework_reference(self):
         """C2 (BINDING): _abs_db_dir_light matches abs_db_dir's standard
         branch; _list_memory_subdirs is a conservative superset of the
@@ -1232,6 +1262,7 @@ print("DRIFT-OK-ENUM")
         assert result.returncode == 0, result.stderr[-2000:]
         assert "DRIFT-OK-ENUM" in result.stdout
 
+    @_live_framework
     def test_detection_call_site_signature_against_real_helpers(self):
         """WI-P79 rev 2 (VAL defect D1/D2, BINDING): the detection call site
         must honor _abs_db_dir_light's actual return contract (a PATH string,
