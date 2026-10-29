@@ -291,6 +291,27 @@ class TestEpisodeGrouping:
 # ---------------------------------------------------------------------------
 
 
+# WI-N16 round 4 (ORC decision): the framework-reference probe below
+# (test_module_level_block_runs_before_imports) runs a subprocess probe
+# against the LIVE A0 framework at /a0 (execute._A0_ROOT resolution),
+# which does not exist in standalone checkouts or CI runners. Following
+# the round-3b layout-conditional guard pattern in test_execute.py, it
+# is layout-conditionally skipped: fully active in the host-layout
+# suite of record, skipped only where the framework is absent.
+# Assertions untouched.
+_LIVE_FRAMEWORK_AVAILABLE = (
+    os.path.isdir("/a0/usr")
+    and os.path.isfile("/a0/helpers/files.py")
+    and importlib.util.find_spec("simpleeval") is not None
+)
+_live_framework = pytest.mark.skipif(
+    not _LIVE_FRAMEWORK_AVAILABLE,
+    reason="live A0 framework at /a0 (helpers.files, /a0/usr/memory) "
+    "unavailable in standalone checkouts/CI runners; executed under the "
+    "host-layout suite of record",
+)
+
+
 class TestExecuteImportFallback:
     """Verify that ``usr.plugins.neuro_core.execute._import_memory()``
     gracefully handles a patched ``sys.path``.
@@ -415,6 +436,7 @@ class TestExecuteImportFallback:
         )
         assert a0_root_resolved == expected_a0_root
 
+    @_live_framework
     def test_module_level_block_runs_before_imports(self) -> None:
         """Regression test for the original bug: importing
         ``usr.plugins.neuro_core.execute`` must succeed even when /a0
