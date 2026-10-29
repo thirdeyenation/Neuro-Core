@@ -71,8 +71,20 @@ class TestPluginManifest:
         assert set(manifest.keys()) == expected
 
     def test_name_matches_directory(self, manifest):
-        assert manifest["name"] == "neuro_core"
-        assert manifest["name"] == _PLUGIN_ROOT.name
+        # Packaging source of truth: pyproject [project] name. The
+        # manifest name is its underscore (PEP-normalized) form. This
+        # keeps the manifest-vs-packaging consistency assertion strict
+        # without depending on the checkout directory name (GitHub
+        # checks the repo out as e.g. "Neuro-Core").
+        import tomllib
+
+        with open(_PLUGIN_ROOT / "pyproject.toml", "rb") as fh:
+            pyproject_name = tomllib.load(fh)["project"]["name"]
+        assert manifest["name"] == pyproject_name.replace("-", "_")
+        # Directory-name consistency is only meaningful where the plugin
+        # actually lives inside a plugins/ directory (host layout).
+        if _PLUGIN_ROOT.parent.name == "plugins":
+            assert manifest["name"] == _PLUGIN_ROOT.name
 
     def test_identity_fields_non_empty(self, manifest):
         assert manifest["title"].strip()
