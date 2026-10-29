@@ -16,12 +16,21 @@ from __future__ import annotations
 import asyncio
 import functools
 import importlib.util
+from pathlib import Path
 
 from usr.plugins.neuro_core.helpers import decorate as dec
 
-FUNC_DIR = (
-    '/tmp/nc1-val-fixtures/sandbox/usr/plugins/neuro_core/extensions/python/'
-    '_functions/plugins._memory.helpers.memory/Memory'
+# WI-N16 round 6: handlers load from the IN-REPO extension tree
+# (underscore segment names), not the NC1-era /tmp validation sandbox
+# (dotted segment names), which exists only on hosts that ran the NC1
+# validation. The in-repo handler is the current source of truth; the
+# fixture was a stale V1 copy (the in-repo version adds the documented
+# WI-P43/D-NC1-106 neuro_neighbor exclusion, which no test input
+# exercises). __file__-derived: layout-independent, no /tmp dependency.
+FUNC_DIR = str(
+    Path(__file__).resolve().parent.parent
+    / 'extensions' / 'python' / '_functions'
+    / 'plugins' / '_memory' / 'helpers' / 'memory' / 'Memory'
 )
 
 
