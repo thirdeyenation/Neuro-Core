@@ -652,10 +652,7 @@ instance, and rendering.
   registered only when the vendored script loads successfully; if it
   fails to load, the dagre option is hidden from the layout dropdown
   and the panel falls back to `cose`, leaving all other layouts and
-  panel behavior unchanged. Layout behavior is documented at the
-  behavior level from the vendored extension's documented semantics;
-  a live host-level visual confirmation pass for this layout is part
-  of the panel's standing assurance path (not yet executed for dagre).
+  panel behavior unchanged.
 - Node inspector: tapping a node opens a details card with content,
   a `memory_type` badge (with a "type unknown" fallback when the
   metadata does not carry a type), score badges, and its
@@ -719,9 +716,10 @@ instance, and rendering.
   WI-P9); edge ADD is implemented as an inspector add-edge
   form posting a JSON body to `POST
   /api/plugins/neuro_core/relationships`, validated at integration
-  level on disposable fixtures; the final end-to-end browser write
-  flows (adding and deleting an edge through the live panel UI
-  against a live host) are not yet exercised.
+  level on disposable fixtures and exercised as a live browser write
+  flow against the live server's synthetic sandbox store (WI-P19);
+  the confirm-gated edge-deletion browser write flow, and edge
+  writes against the primary production graph, are not yet exercised.
 - Theme observation: a `MutationObserver` on the document element
   re-applies Cytoscape styles when the framework theme changes.
 - Legend: a theme-aware legend is shown when nodes exist; it lists
@@ -818,7 +816,9 @@ implemented and validated via a live handler/store probe (WI-P9).
 The panel
 exposes both per-edge DELETE and
 inspector add-edge affordances — deletion implemented and
-validated via a live handler/store probe, edge creation implemented and
-validated at integration level — with the final end-to-end
-browser write flows (add and delete through the live panel UI
-against a live host) not yet exercised.
+validated via a live handler/store probe, edge creation implemented,
+validated at integration level, and exercised as a live browser
+write flow against the live server's synthetic sandbox store
+(WI-P19) — with the confirm-gated edge-deletion browser write
+flow, and edge writes against the primary production graph,
+not yet exercised.

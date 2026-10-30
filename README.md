@@ -269,10 +269,11 @@ by that embedding provider, exactly as with plain Agent Zero memory.
   not a runtime data-leak prevention mechanism.
 - The relationships edge-deletion API and the panel's add-edge form are
   implemented and validated (edge deletion via a live handler/store
-  probe; add-edge at integration level on disposable fixtures), and the
-  graph panel is confirmed live in a browser session; the final
-  end-to-end browser write flows (adding and deleting an edge through
-  the live panel UI against a live host) are not yet exercised.
+  probe; add-edge including the live browser write flow, confirmed
+  against the live server's synthetic sandbox store during
+  panel-interaction validation). The confirm-gated edge-deletion
+  browser write flow, and edge writes against the primary production
+  graph, are not yet exercised.
 
 # Documentation
 
