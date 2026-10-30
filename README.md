@@ -260,21 +260,19 @@ by that embedding provider, exactly as with plain Agent Zero memory.
 
 # Known limitations
 
-- Plugin enablement has been verified at the manifest/discovery level
-  (the plugin is discovered and its settings toggle appears); a full
-  live enable-cycle confirmation in a running host is still pending.
-- The plugin's live HTTP endpoints have not been exercised in
-  end-to-end validation for this release; they are covered by the
-  plugin's test suite at the implementation level.
 - The live FAISS similarity query path has not been run against a live
-  host index in this release's validation; index loadability is
-  verified.
+  host index in this release's validation; index loadability and
+  restart survival of the persisted index are verified, and similarity
+  search is exercised at host level against disposable fixtures.
 - The plugin's pre-release documentation guard is textual only — it
   checks committed documents for internal identifiers and paths; it is
   not a runtime data-leak prevention mechanism.
-- The relationships edge-deletion flow and the panel's add-edge UI are
-  implemented and test-covered but not yet confirmed end-to-end in a
-  live host/browser session (see the `relationships` API entry above).
+- The relationships edge-deletion API and the panel's add-edge form are
+  implemented and validated (edge deletion via a live handler/store
+  probe; add-edge at integration level on disposable fixtures), and the
+  graph panel is confirmed live in a browser session; the final
+  end-to-end browser write flows (adding and deleting an edge through
+  the live panel UI against a live host) are not yet exercised.
 
 # Documentation
 
