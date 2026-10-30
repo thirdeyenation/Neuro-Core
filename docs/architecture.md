@@ -691,8 +691,10 @@ instance, and rendering.
   partial write; no sidecar write). Validation/dispute-status
   editing remains intentionally not part of this surface;
   the framework Memory ID is immutable and not editable. Implemented and pinned at panel-source and handler-test
-  level; live browser confirmation is pending the queued assurance
-  pass (D-NC1-125). Tapping an
+  level; the inspector's live browser interactions (node selection,
+  refocus, and relationship-list updates after create) were confirmed
+  in a live browser session during panel-interaction validation
+  (WI-P19). Tapping an
   edge opens a display-only edge inspector overlay showing
   `rel_type`, weight, confidence, and endpoints (read-only; the node
   inspector contract is unchanged and a background tap clears the
@@ -712,12 +714,14 @@ instance, and rendering.
   `DELETE /api/plugins/neuro_core/relationships` with the edge's
   `(from_id, to_id, rel_type)` triple); failures surface in the
   panel's visible error state and a successful delete re-queries the
-  graph. Edge deletion is implemented, pending
-  live validation evidence; edge ADD is implemented as an inspector add-edge
+  graph. Edge deletion is implemented and validated via a live
+  handler/store probe (real GraphStore + real API handler, no mocks;
+  WI-P9); edge ADD is implemented as an inspector add-edge
   form posting a JSON body to `POST
   /api/plugins/neuro_core/relationships`, validated at integration
-  level on disposable fixtures; live browser/host confirmation is
-  pending the queued assurance pass.
+  level on disposable fixtures; the final end-to-end browser write
+  flows (adding and deleting an edge through the live panel UI
+  against a live host) are not yet exercised.
 - Theme observation: a `MutationObserver` on the document element
   re-applies Cytoscape styles when the framework theme changes.
 - Legend: a theme-aware legend is shown when nodes exist; it lists
@@ -810,9 +814,11 @@ a visual graph; all other interaction is via the API and the agent
 tools. The panel renders and inspects the graph and
 exposes a per-edge DELETE affordance in the node
 inspector (confirm-gated, described above); edge deletion is
-implemented pending live validation evidence. The panel
+implemented and validated via a live handler/store probe (WI-P9).
+The panel
 exposes both per-edge DELETE and
 inspector add-edge affordances — deletion implemented and
-validated at implementation level, edge creation implemented and
-validated at integration level — with live browser/host
-confirmation pending the queued assurance pass for both.
+validated via a live handler/store probe, edge creation implemented and
+validated at integration level — with the final end-to-end
+browser write flows (add and delete through the live panel UI
+against a live host) not yet exercised.
