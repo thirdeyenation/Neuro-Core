@@ -56,7 +56,8 @@ Capture a memory into the scoped SQLite domain store.
   `project` is explicitly empty (omitted arguments are valid:
   `project` defaults to `"default"`).
 - Persists via `NeuroCoreService.capture(Memory(...))` and returns a
-  plain dict: `{"memory_id": ..., "outcome": "stored", "scope": <project>}`.
+  framework `Response` with a readable message; the structured payload
+  (`memory_id`, `outcome`, `scope`) is preserved in `Response.additional`.
 
 ### `neuro_retrieve`
 
@@ -76,8 +77,10 @@ Explainable retrieval from the scoped SQLite domain store.
   or `project` is explicitly empty (omitted arguments are valid:
   `project` defaults to `"default"`).
 - Calls `NeuroCoreService.retrieve(query, Scope(project, agent or None))`
-  and returns a list of dicts with `memory_id`, `text`, `source`,
-  `score`, and `factors` (the explainable scoring factors).
+  and returns a framework `Response`. The agent-visible message is the
+  JSON-encoded graph payload (`query`, `nodes` with per-node factor
+  records, `edges`, `seed_ids`); the same structured payload is mirrored
+  in `Response.additional`.
 
 **Agent-scoped exactness (important)**
 
@@ -107,7 +110,9 @@ Apply a lifecycle validation transition to a captured memory.
   `NeuroCoreService.validate()` lookup (`neuro_service.py`) does not
   catch the missing ID, so the exception propagates to the caller
   (pinned by `test_neuro_validate_tool.py`).
-- Returns `{"memory_id": ..., "validation": <state>, "outcome": "updated"}`.
+- Returns a framework `Response` with a readable message; the
+  structured payload (`memory_id`, `validation`, `outcome`) is preserved
+  in `Response.additional`.
 
 ---
 

@@ -30,6 +30,8 @@ from pathlib import Path
 
 import pytest
 
+from helpers.tool import Response
+
 
 _PLUGIN_ROOT = str(Path(__file__).resolve().parent.parent)
 if _PLUGIN_ROOT not in sys.path:
@@ -83,11 +85,19 @@ async def test_validate_transitions_to_validated(
 
     result = await tool.execute(memory_id=memory_id, state="validated")
 
-    assert isinstance(result, dict)
-    assert result == {
+    # KI-060 (WI-P99): the tool returns a framework Response, never a
+    # raw dict — post-tool extensions expect Response.message.
+    assert isinstance(result, Response)
+    assert result.break_loop is False
+    assert isinstance(result.message, str) and result.message
+    payload = result.additional
+    assert payload == {
         "memory_id": memory_id,
         "validation": "validated",
         "outcome": "updated",
+        "neuro_core_ack": (
+            f"Validated memory {memory_id}: state=validated"
+        ),
     }
 
     # The transition is persisted, not just echoed back.
@@ -111,7 +121,7 @@ async def test_validate_transitions_to_disputed_and_back_family(
     tool = _make_tool(mod)
 
     result = await tool.execute(memory_id=memory_id, state="disputed")
-    assert result["validation"] == "disputed"
+    assert result.additional["validation"] == "disputed"
 
 
 @pytest.mark.asyncio

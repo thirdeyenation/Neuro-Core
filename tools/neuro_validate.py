@@ -1,5 +1,5 @@
 """Agent Zero tool for Neuro Core memory lifecycle transitions."""
-from helpers.tool import Tool
+from helpers.tool import Tool, Response
 
 import os
 
@@ -53,6 +53,25 @@ class NeuroValidate(Tool):
         store = SQLiteStore(_resolve_db_path())
         try:
             memory = NeuroCoreService(store).validate(memory_id, target)
-            return {"memory_id": memory.memory_id, "validation": memory.validation.value, "outcome": "updated"}
+            # KI-060 (WI-P99): return a framework Response, never a raw
+            # dict — post-tool extensions (e.g. mask_secrets) expect
+            # Response.message. Payload fields are preserved in
+            # `additional`; convention follows the memory_* tools.
+            return Response(
+                message=(
+                    f"Memory {memory.memory_id} validation updated "
+                    f"to '{memory.validation.value}'"
+                ),
+                break_loop=False,
+                additional={
+                    "memory_id": memory.memory_id,
+                    "validation": memory.validation.value,
+                    "outcome": "updated",
+                    "neuro_core_ack": (
+                        f"Validated memory {memory.memory_id}: "
+                        f"state={memory.validation.value}"
+                    ),
+                },
+            )
         finally:
             store.close()

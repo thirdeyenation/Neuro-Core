@@ -21,6 +21,8 @@ performance, concurrency, or security property is claimed or implied.
 
 from __future__ import annotations
 
+import json
+
 from helpers.tool import Tool, Response
 
 
@@ -107,7 +109,25 @@ class NeuroRetrieve(Tool):
             score_store=score_store,
             config=config,
         )
-        return self._serialize(graph, score_store)
+        # KI-060 (WI-P99): return a framework Response, never a raw
+        # dict — post-tool extensions (e.g. mask_secrets) expect
+        # Response.message. The serialized graph payload is JSON-encoded
+        # into the message (the agent-visible surface) and preserved
+        # structurally in `additional`; convention follows the memory_*
+        # tools. _serialize itself is unchanged.
+        payload = self._serialize(graph, score_store)
+        return Response(
+            message=json.dumps(payload),
+            break_loop=False,
+            additional={
+                "neuro_core_ack": (
+                    f"Retrieved {len(payload['nodes'])} node(s), "
+                    f"{len(payload['edges'])} edge(s) for query "
+                    f"'{payload['query']}'"
+                ),
+                "result": payload,
+            },
+        )
 
     def _serialize(self, graph, score_store) -> dict:
         """Serialize the ContextGraph with per-node factor records.

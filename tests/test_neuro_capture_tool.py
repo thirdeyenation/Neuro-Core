@@ -27,6 +27,8 @@ from pathlib import Path
 
 import pytest
 
+from helpers.tool import Response
+
 
 _PLUGIN_ROOT = str(Path(__file__).resolve().parent.parent)
 if _PLUGIN_ROOT not in sys.path:
@@ -65,15 +67,20 @@ async def test_capture_stores_memory_and_returns_contract_shape(
         text="remember this fact", source="user", project="proj1"
     )
 
-    assert isinstance(result, dict)
-    assert result["outcome"] == "stored"
-    assert result["scope"] == "proj1"
-    assert isinstance(result["memory_id"], str) and result["memory_id"]
+    # KI-060 (WI-P99): the tool returns a framework Response, never a
+    # raw dict — post-tool extensions expect Response.message.
+    assert isinstance(result, Response)
+    assert result.break_loop is False
+    assert isinstance(result.message, str) and result.message
+    payload = result.additional
+    assert payload["outcome"] == "stored"
+    assert payload["scope"] == "proj1"
+    assert isinstance(payload["memory_id"], str) and payload["memory_id"]
 
     # The memory is actually persisted at the resolved DB path.
     store = SQLiteStore(str(db_path))
     try:
-        stored = store.get(result["memory_id"])
+        stored = store.get(payload["memory_id"])
         assert stored is not None
         assert stored.text == "remember this fact"
         assert stored.source == "user"
@@ -138,7 +145,7 @@ async def test_capture_empty_agent_normalizes_to_none_scope_agent(
 
     store = SQLiteStore(str(db_path))
     try:
-        stored = store.get(result["memory_id"])
+        stored = store.get(result.additional["memory_id"])
         assert stored.scope.agent is None
     finally:
         store.close()

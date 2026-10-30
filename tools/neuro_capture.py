@@ -1,5 +1,5 @@
 """Agent Zero tool for capturing scoped Neuro Core memories."""
-from helpers.tool import Tool
+from helpers.tool import Tool, Response
 
 import os
 
@@ -50,6 +50,25 @@ class NeuroCapture(Tool):
         try:
             service = NeuroCoreService(store)
             memory = service.capture(Memory(text, source, Scope(project, agent or None), float(importance), float(confidence)))
-            return {"memory_id": memory.memory_id, "outcome": "stored", "scope": project}
+            # KI-060 (WI-P99): return a framework Response, never a raw
+            # dict — post-tool extensions (e.g. mask_secrets) expect
+            # Response.message. Payload fields are preserved in
+            # `additional`; convention follows the memory_* tools.
+            return Response(
+                message=(
+                    f"Memory stored: {memory.memory_id} "
+                    f"(project: {project})"
+                ),
+                break_loop=False,
+                additional={
+                    "memory_id": memory.memory_id,
+                    "outcome": "stored",
+                    "scope": project,
+                    "neuro_core_ack": (
+                        f"Captured memory {memory.memory_id} "
+                        f"in project '{project}'"
+                    ),
+                },
+            )
         finally:
             store.close()

@@ -260,12 +260,10 @@ by that embedding provider, exactly as with plain Agent Zero memory.
 
 # Known limitations
 
-- The live FAISS similarity query path has been executed against the
-  live host index (query, scoring, and serialization completed in a
-  live agent session); a tool-response contract defect in the agent
-  tools' return path (a raw dict where the framework expects a Response
-  object) currently blocks end-to-end result delivery in agent sessions
-  and is tracked for remediation.
+- The live FAISS similarity query path has been executed end-to-end
+  against the live host index in a live agent session (query, scoring,
+  serialization, and result delivery through the framework's
+  tool-response contract, confirmed 2026-10-30).
 - The plugin's pre-release documentation guard is textual only — it
   checks committed documents for internal identifiers and paths; it is
   not a runtime data-leak prevention mechanism.

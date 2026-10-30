@@ -76,6 +76,25 @@ def _make_tool(mod):
     )
 
 
+def _payload(result):
+    """KI-060 (WI-P99): assert the Response contract and unwrap payload.
+
+    Every success-path return is a framework Response whose message is
+    the JSON-encoded graph payload and whose ``additional['result']``
+    carries the structural payload the pre-KI-060 dict return provided.
+    """
+    from helpers.tool import Response
+
+    assert isinstance(result, Response)
+    assert result.break_loop is False
+    assert isinstance(result.message, str) and result.message
+    payload = result.additional["result"]
+    # The message is the JSON encoding of the same payload.
+    import json as _json
+    assert _json.loads(result.message) == payload
+    return payload
+
+
 def _load_tool_module():
     import importlib
 
@@ -162,7 +181,7 @@ async def test_returns_structured_graph_with_factor_records(monkeypatch):
     _patch_collaborators(monkeypatch, graph)
     tool = _make_tool(_load_tool_module())
 
-    result = await tool.execute(query="alpha", memory_subdir="neuro_test")
+    result = _payload(await tool.execute(query="alpha", memory_subdir="neuro_test"))
 
     assert result["query"] == "alpha"
     assert result["seed_ids"] == ["doc-1"]
@@ -196,7 +215,7 @@ async def test_edges_serialized_with_type_and_confidence(monkeypatch):
     _patch_collaborators(monkeypatch, graph)
     tool = _make_tool(_load_tool_module())
 
-    result = await tool.execute(query="alpha", memory_subdir="neuro_test")
+    result = _payload(await tool.execute(query="alpha", memory_subdir="neuro_test"))
 
     assert result["edges"] == [
         {"from_id": "a", "to_id": "b", "type": "supports",
@@ -242,7 +261,7 @@ async def test_hop0_similarity_from_metadata_neighbors_get_baseline(monkeypatch)
     _patch_collaborators(monkeypatch, graph)
     tool = _make_tool(_load_tool_module())
 
-    result = await tool.execute(query="alpha", memory_subdir="neuro_test")
+    result = _payload(await tool.execute(query="alpha", memory_subdir="neuro_test"))
     by_id = {n["doc_id"]: n for n in result["nodes"]}
 
     # Hop-0 seed: metadata similarity honored (pipeline semantics).
@@ -268,7 +287,7 @@ async def test_sidecar_authoritative_importance_and_confidence(monkeypatch):
     )
     tool = _make_tool(_load_tool_module())
 
-    result = await tool.execute(query="alpha", memory_subdir="neuro_test")
+    result = _payload(await tool.execute(query="alpha", memory_subdir="neuro_test"))
 
     factors = result["nodes"][0]["factors"]
     # Sidecar wins over the stale metadata mirror (ADR-NC1-002 authority).
@@ -290,7 +309,7 @@ async def test_unavailable_score_store_degrades_honestly(monkeypatch):
     monkeypatch.setattr(scores_mod, "ScoreStore", _boom)
     tool = _make_tool(_load_tool_module())
 
-    result = await tool.execute(query="alpha", memory_subdir="neuro_test")
+    result = _payload(await tool.execute(query="alpha", memory_subdir="neuro_test"))
 
     node = result["nodes"][0]
     # Missing store -> metadata fallbacks WITH the degraded marker,
@@ -321,7 +340,9 @@ async def test_tool_independent_of_recall_shaping_gate(monkeypatch):
             lambda name, agent=None, _g=gate: {"recall_shaping_enabled": _g}
         )
         monkeypatch.setitem(_sys.modules, "helpers.plugins", stub)
-        result = await tool.execute(query="alpha", memory_subdir="neuro_test")
+        result = _payload(
+            await tool.execute(query="alpha", memory_subdir="neuro_test")
+        )
         assert result["nodes"][0]["factors"]["score"] == pytest.approx(0.6)
 
 
@@ -338,8 +359,10 @@ async def test_invocation_args_override_config_defaults(monkeypatch):
     stub.get_plugin_config = lambda name, agent=None: {}
     monkeypatch.setitem(_sys.modules, "helpers.plugins", stub)
 
-    result = await tool.execute(query="alpha", limit=4, threshold=0.5,
-                                memory_subdir="neuro_test")
+    result = _payload(
+        await tool.execute(query="alpha", limit=4, threshold=0.5,
+                           memory_subdir="neuro_test")
+    )
     assert result["nodes"][0]["factors"]["score"] == pytest.approx(0.6)
     assert graph._config_seen["semantic_limit"] == 4
     assert graph._config_seen["semantic_threshold"] == pytest.approx(0.5)
