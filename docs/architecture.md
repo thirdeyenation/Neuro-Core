@@ -718,8 +718,11 @@ instance, and rendering.
   /api/plugins/neuro_core/relationships`, validated at integration
   level on disposable fixtures and exercised as a live browser write
   flow against the live server's synthetic sandbox store (WI-P19);
-  the confirm-gated edge-deletion browser write flow, and edge
-  writes against the primary production graph, are not yet exercised.
+  the confirm-gated edge-deletion browser write flow was subsequently
+  confirmed in a HITL live-browser pass (D-NC1-054, dev@0c71e07, banked
+  as ledger evidence); edge writes against the primary production graph
+  remain unexercised (all live validation used the synthetic sandbox
+  store).
 - Theme observation: a `MutationObserver` on the document element
   re-applies Cytoscape styles when the framework theme changes.
 - Legend: a theme-aware legend is shown when nodes exist; it lists
@@ -820,5 +823,5 @@ validated via a live handler/store probe, edge creation implemented,
 validated at integration level, and exercised as a live browser
 write flow against the live server's synthetic sandbox store
 (WI-P19) — with the confirm-gated edge-deletion browser write
-flow, and edge writes against the primary production graph,
-not yet exercised.
+flow subsequently confirmed in a HITL live-browser pass (D-NC1-054);
+edge writes against the primary production graph remain unexercised.

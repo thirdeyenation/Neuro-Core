@@ -260,20 +260,20 @@ by that embedding provider, exactly as with plain Agent Zero memory.
 
 # Known limitations
 
-- The live FAISS similarity query path has not been run against a live
-  host index in this release's validation; index loadability and
-  restart survival of the persisted index are verified, and similarity
-  search is exercised at host level against disposable fixtures.
+- The live FAISS similarity query path has been executed against the
+  live host index (query, scoring, and serialization completed in a
+  live agent session); a tool-response contract defect in the agent
+  tools' return path (a raw dict where the framework expects a Response
+  object) currently blocks end-to-end result delivery in agent sessions
+  and is tracked for remediation.
 - The plugin's pre-release documentation guard is textual only — it
   checks committed documents for internal identifiers and paths; it is
   not a runtime data-leak prevention mechanism.
-- The relationships edge-deletion API and the panel's add-edge form are
-  implemented and validated (edge deletion via a live handler/store
-  probe; add-edge including the live browser write flow, confirmed
-  against the live server's synthetic sandbox store during
-  panel-interaction validation). The confirm-gated edge-deletion
-  browser write flow, and edge writes against the primary production
-  graph, are not yet exercised.
+- Edge writes against the primary production graph have not been
+  exercised; all live browser write validation ran against the live
+  server's synthetic sandbox store per the data-protection policy. The
+  confirm-gated edge-deletion browser write flow was confirmed in a
+  HITL live-browser pass (2026-09-16).
 
 # Documentation
 
