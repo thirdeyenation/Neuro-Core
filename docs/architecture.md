@@ -717,12 +717,12 @@ instance, and rendering.
   form posting a JSON body to `POST
   /api/plugins/neuro_core/relationships`, validated at integration
   level on disposable fixtures and exercised as a live browser write
-  flow against the live server's synthetic sandbox store (WI-P19);
+  flow against the live server (WI-P19, synthetic sandbox store);
   the confirm-gated edge-deletion browser write flow was subsequently
   confirmed in a HITL live-browser pass (D-NC1-054, dev@0c71e07, banked
-  as ledger evidence); edge writes against the primary production graph
-  remain unexercised (all live validation used the synthetic sandbox
-  store).
+  as ledger evidence); live browser edge-write validation additionally
+  covered the live server's non-synthetic `projects/` subdirectory
+  (HITL attestation, D-NC1-182).
 - Theme observation: a `MutationObserver` on the document element
   re-applies Cytoscape styles when the framework theme changes.
 - Legend: a theme-aware legend is shown when nodes exist; it lists
@@ -821,7 +821,9 @@ exposes both per-edge DELETE and
 inspector add-edge affordances — deletion implemented and
 validated via a live handler/store probe, edge creation implemented,
 validated at integration level, and exercised as a live browser
-write flow against the live server's synthetic sandbox store
-(WI-P19) — with the confirm-gated edge-deletion browser write
-flow subsequently confirmed in a HITL live-browser pass (D-NC1-054);
-edge writes against the primary production graph remain unexercised.
+write flow against the live server (WI-P19, synthetic sandbox
+store) — with the confirm-gated edge-deletion browser write
+flow subsequently confirmed in a HITL live-browser pass (D-NC1-054),
+and live browser edge-write validation additionally covering the
+live server's non-synthetic `projects/` subdirectory (HITL
+attestation, D-NC1-182).

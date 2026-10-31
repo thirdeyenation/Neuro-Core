@@ -260,18 +260,9 @@ by that embedding provider, exactly as with plain Agent Zero memory.
 
 # Known limitations
 
-- The live FAISS similarity query path has been executed end-to-end
-  against the live host index in a live agent session (query, scoring,
-  serialization, and result delivery through the framework's
-  tool-response contract, confirmed 2026-10-30).
 - The plugin's pre-release documentation guard is textual only — it
   checks committed documents for internal identifiers and paths; it is
   not a runtime data-leak prevention mechanism.
-- Edge writes against the primary production graph have not been
-  exercised; all live browser write validation ran against the live
-  server's synthetic sandbox store per the data-protection policy. The
-  confirm-gated edge-deletion browser write flow was confirmed in a
-  HITL live-browser pass (2026-09-16).
 
 # Documentation
 
