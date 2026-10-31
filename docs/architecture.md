@@ -827,3 +827,13 @@ flow subsequently confirmed in a HITL live-browser pass (D-NC1-054),
 and live browser edge-write validation additionally covering the
 live server's non-synthetic `projects/` subdirectory (HITL
 attestation, D-NC1-182).
+
+## 8. Documentation guard
+
+The plugin's documentation guard checks committed documents for
+internal identifiers and paths, and a runtime-exposure test suite
+(`tests/test_wip101_docguard_runtime.py`) verifies that tool
+responses, API error payloads, and serialized graph output are free
+of internal paths, host identifiers, and internal governance
+references (validated against disposable fixtures). It is not a
+runtime data-leak prevention mechanism.

@@ -275,9 +275,12 @@ by that embedding provider, exactly as with plain Agent Zero memory.
 
 # Known limitations
 
-- The plugin's pre-release documentation guard is textual only — it
-  checks committed documents for internal identifiers and paths; it is
-  not a runtime data-leak prevention mechanism.
+- The plugin's documentation guard checks committed documents for
+  internal identifiers and paths, and a runtime-exposure test suite
+  verifies that tool responses, API error payloads, and serialized
+  graph output are free of internal paths, host identifiers, and
+  internal governance references (validated against disposable
+  fixtures). It is not a runtime data-leak prevention mechanism.
 
 # Documentation
 
