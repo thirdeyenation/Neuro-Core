@@ -4,7 +4,7 @@
 
 ### Explainable, scoped memory for your agents.
 
-[![Tests](https://img.shields.io/badge/tests-1113%20passed%20%2F%203%20skipped-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-1129%20passed%20%2F%203%20skipped-brightgreen)](tests/)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Agent Zero](https://img.shields.io/badge/Agent%20Zero-v2.13-1F6FEB)](https://github.com/agent0ai/agent-zero)
 [![Version](https://img.shields.io/badge/version-1.1.0-purple)](CHANGELOG.md)
@@ -273,14 +273,13 @@ by that embedding provider, exactly as with plain Agent Zero memory.
   and sidecar files listed above if you do not want residual data left
   behind. Do not delete files inside the Agent Zero framework itself.
 
-# Known limitations
+# Quality & validation
 
-- The plugin's documentation guard checks committed documents for
-  internal identifiers and paths, and a runtime-exposure test suite
-  verifies that tool responses, API error payloads, and serialized
-  graph output are free of internal paths, host identifiers, and
-  internal governance references (validated against disposable
-  fixtures). It is not a runtime data-leak prevention mechanism.
+Neuro Core ships with 1,129 passing tests, including
+runtime-exposure checks that verify tool responses, API error
+payloads, and serialized graph output contain no internal paths or
+identifiers. See [Architecture §8](docs/architecture.md#8-documentation-guard)
+for the documentation guard's scope.
 
 # Documentation
 
