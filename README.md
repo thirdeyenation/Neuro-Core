@@ -4,11 +4,7 @@
 
 ### Explainable, scoped memory for your agents.
 
-Neuro Core extends Agent Zero's built-in memory with typed categories, a
-relationship graph, importance scoring, lifecycle maintenance, and a
-visual Context Graph that shows **why** every memory ranked where it did.
-
-[![Tests](https://img.shields.io/badge/tests-1062%2F1064%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-1113%20passed%20%2F%203%20skipped-brightgreen)](tests/)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Agent Zero](https://img.shields.io/badge/Agent%20Zero-v2.13-1F6FEB)](https://github.com/agent0ai/agent-zero)
 [![Version](https://img.shields.io/badge/version-1.1.0-purple)](CHANGELOG.md)
@@ -18,6 +14,25 @@ visual Context Graph that shows **why** every memory ranked where it did.
 </div>
 
 ---
+
+Neuro Core is an extensible, explainable long-term memory system for Agent Zero, designed to move AI agents beyond basic information storage toward structured, contextual, and continuously maintained memory.
+
+Rather than treating memories as isolated text entries, Neuro Core introduces a structured memory architecture that enables agents to organize, evaluate, connect, and retrieve information with greater transparency and contextual awareness.
+
+Key capabilities include:
+
+- **Visual Context Graph — your memory workbench:** An interactive interface for exploring, inspecting, and curating memories, their typed relationships, and the exact factors influencing retrieval — see why a memory surfaced, then edit, validate, or connect it on the spot.
+- **Explainable Retrieval:** Hybrid memory retrieval with transparent ranking factors — semantic similarity, importance, confidence, and recency — delivered as inspectable data, not a black-box score.
+- **Structured Memory:** Typed memory categories, metadata enrichment, and importance, confidence, and stability scoring.
+- **Relationship Graphs:** A typed knowledge graph connecting memories through relationships such as supports, contradicts, depends_on, derived_from, and related_to.
+- **Memory Lifecycle Management:** Automated importance decay, episode grouping, and implemented contradiction detection, alongside explicit validation states for managing evolving or conflicting information.
+- **Scoped Memory:** Project- and agent-level memory isolation, supporting coherent, contextually relevant knowledge across different tasks and environments.
+- **Agent-Native Integration:** Six dedicated tools enabling agents to capture, retrieve, validate, score, relate, and reflect on memories.
+- **Memory Operator profile (opt-in):** A ready-made agent profile giving your agents coherent operating discipline for memory work.
+
+Built as a modular Python plugin that extends Agent Zero's existing memory infrastructure, Neuro Core combines SQLite-backed metadata, graph-based relationships, and embedding-powered retrieval — without requiring a separate database service.
+
+The broader objective: agent memory that is not just persistent, but structured, inspectable, explainable, and maintainable — a foundation for more consistent, context-aware, and reliable AI agent behavior.
 
 <div align="center">
 
