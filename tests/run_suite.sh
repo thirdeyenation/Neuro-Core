@@ -8,6 +8,10 @@
 #   - always runs from the plugin root, wherever the wrapper is called from;
 #   - forwards any extra arguments to pytest (e.g. -k name, tests/file.py).
 #
+# A forwarded positional path argument (e.g. tests/test_hooks.py) replaces the
+# default tests/ target so the run is narrowed to that path (WI-P104-PM023);
+# pytest options such as -k/-x are forwarded as-is and combine with it.
+#
 # Usage (from anywhere):
 #   /a0/usr/plugins/neuro_core/tests/run_suite.sh
 #   /a0/usr/plugins/neuro_core/tests/run_suite.sh tests/test_api.py -k graph
@@ -36,4 +40,36 @@ if [ ! -x "$A0_PY" ]; then
     exit 65
 fi
 
-exec "$A0_PY" -m pytest tests/ -q "$@"
+# Split forwarded arguments into a pytest target and remaining pytest options.
+# The first positional (non-option) argument that is not the value of a
+# value-taking option becomes the target, narrowing the run (default: tests/).
+TARGET="tests/"
+TARGET_SET=0
+EXTRA_ARGS=()
+PREV_ARG=""
+for arg in "$@"; do
+    case "$arg" in
+        -*)
+            EXTRA_ARGS+=("$arg")
+            ;;
+        *)
+            case "$PREV_ARG" in
+                -k|-m|-r|--tb|--maxfail|--deselect|-W)
+                    # value of a value-taking option, never a path
+                    EXTRA_ARGS+=("$arg")
+                    ;;
+                *)
+                    if [ "$TARGET_SET" -eq 0 ]; then
+                        TARGET="$arg"
+                        TARGET_SET=1
+                    else
+                        EXTRA_ARGS+=("$arg")
+                    fi
+                    ;;
+            esac
+            ;;
+    esac
+    PREV_ARG="$arg"
+done
+
+exec "$A0_PY" -m pytest "$TARGET" -q ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
