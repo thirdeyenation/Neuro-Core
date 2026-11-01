@@ -47,7 +47,11 @@ Key capabilities include:
   ranking factors — semantic similarity, importance, confidence, and
   recency — delivered as inspectable data, not a black-box score.
 - **Structured Memory:** Typed memory categories, metadata enrichment,
-  and importance, confidence, and stability scoring.
+  and importance, confidence, and stability scoring. When you don't
+  specify a type at capture time, Neuro Core assigns one for you — a
+  conservative, deterministic, rules-based keyword heuristic, never
+  semantic understanding — and records the `auto` origin so you can see
+  (and edit) exactly what was assigned.
 - **Relationship Graphs:** A typed knowledge graph connecting memories
   through relationships such as supports, contradicts, depends_on,
   derived_from, and related_to.
