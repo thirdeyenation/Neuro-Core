@@ -26,9 +26,13 @@ supported** — per-memory relationship lookups therefore use the `?id=`
 query parameter, not a `/relationships/<id>` path segment.
 
 **Live-verified reachability:** in the Phase D host battery
-(Journey 4 of the Phase D host battery), all six handlers responded HTTP 200
-with structured payloads through the authenticated live-WebUI CSRF
-flow. Per-surface accuracy note: for the relationships list-all route,
+(Journey 4 of the Phase D host battery), all six handlers that existed
+at that time responded HTTP 200 with structured payloads through the
+authenticated live-WebUI CSRF flow. The handler inventory has since grown
+to the eight files listed above; a later host-level verification confirmed
+all eight handler files are present and routable through the framework's
+plugin-API loading (source/routing-level check — live authenticated HTTP
+invocation was not part of that verification). Per-surface accuracy note: for the relationships list-all route,
 the Phase D battery captured only the required-arg error shape — the
 success shape was never captured there, before or after the routing
 fix. The list-all success path is instead live-verified at the
@@ -37,7 +41,7 @@ in-process level against a real `GraphStore` with the real
 `live_list_all_output.json`); it has NOT
 been exercised through the live WebUI CSRF serving flow. The POST
 `/relationships` write path remains grounded in code only (not
-executed against live data). Phase D raw evidence: the
+executed against live data). Phase D raw evidence:
 the Phase D validation report (rev 2) and its Journey-4
 artifacts.
 
