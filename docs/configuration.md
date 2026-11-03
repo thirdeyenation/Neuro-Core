@@ -291,7 +291,8 @@ key.
 
 After a framework server restart, graph-panel recovery is normally
 automatic. A deeper manual reboot control lives on the Neuro Core graph
-panel (beside the Refresh button in the panel header): it deliberately
+panel (at the right end of the panel header, after the Settings gear —
+header order: pane toggle, Refresh, Settings, Manual Reboot): it deliberately
 resets the panel's cached CSRF token, rebuilds the graph canvas, and
 re-runs the current search. It lives on the graph panel rather than in
 the Settings window because the panel's own script scope is the only

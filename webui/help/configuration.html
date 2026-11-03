@@ -145,7 +145,7 @@ The next authenticated call then fetches a fresh token automatically.</p>
 if an authenticated panel call fails with HTTP 403, the panel automatically retries once
 with a fresh token; if that retry also fails, the error message directs you to click
 Refresh to recover.</p>
-<p><strong>Refresh vs. Reboot:</strong> the adjacent Reboot control does more than
+<p><strong>Refresh vs. Reboot:</strong> the Reboot control (at the right end of the panel header, after the Settings gear) does more than
 Refresh. Reboot resets the cached CSRF token <em>and</em> destroys and rebuilds the
 graph canvas (full panel re-init) before re-running the search. Use Refresh for a
 stale-token 403 that the automatic retry did not resolve; use Reboot only as a
@@ -155,8 +155,9 @@ restart. See <a href="#manual-reboot">Manual reboot failsafe</a> below.</p>
 <h2 id="manual-reboot">Manual reboot failsafe</h2>
 <div class="note">After a framework server restart, graph-panel recovery is normally
 automatic (the panel retries with a fresh CSRF token on the next call). A deeper
-manual reboot control lives on the Neuro Core graph panel, beside the Refresh button in
-the panel header. It deliberately resets the panel's cached CSRF token, rebuilds the
+manual reboot control lives on the Neuro Core graph panel, at the right end of the
+panel header after the Settings gear (header order: pane toggle, Refresh, Settings,
+Manual Reboot). It deliberately resets the panel's cached CSRF token, rebuilds the
 graph canvas, and re-runs the current search.</div>
 <p><strong>Why it lives on the graph panel and not in Settings:</strong> the panel's own
 script scope is the only place where its cached CSRF token and Cytoscape graph instance
