@@ -144,6 +144,9 @@ configuration key grouped by territory:
    in the logs).
 4. **Verify the installation** — after enabling, confirm that:
    - the Neuro Core entry appears in the sidebar quick actions, and
+   - the Neuro Core surface is registered on the right canvas at session
+     start (rail entry 'Neuro Core', icon 'hub', order 50) and does not
+     require sidebar activation, and
    - the graph panel opens from the right canvas, and
    - the plugin's settings window opens from the plugin settings UI.
    If any of these fail, check the Agent Zero logs for

@@ -576,7 +576,7 @@ one target edge — preserving all unrelated edges.
 The Neuro Core graph lives in the framework's right-canvas system.
 Four plugin assets make it up:
 
-- `extensions/webui/right-canvas-register-surfaces/neuro_register.js`
+- `extensions/webui/right_canvas_register_surfaces/neuro_register.js`
   - registers the surface at framework init time via the framework's
   `callJsExtensions("right_canvas_register_surfaces", ...)` hook:
   `registerSurface({ id: 'neuro-core-graph', title: 'Neuro Core', icon: 'hub', order: 50, ... })`.
@@ -587,7 +587,11 @@ Four plugin assets make it up:
   actual panel via `<x-component path=".../graph-panel.html" mode="canvas">`.
 - `extensions/webui/sidebar-quick-actions-main-start/neuro-entry.html`
   - a sidebar quick-action link that opens the surface with
-  `$store.rightCanvas.open('neuro-core-graph')`.
+  `$store.rightCanvas.open('neuro-core-graph')`. This entry is a defensive
+  idempotent fallback: eager registration at init (via `neuro_register.js`)
+  is primary, and the entry's inline `registerSurface` is an idempotent
+  upsert, so the duplicate is harmless; the fallback is retained per the
+  ARC ruling on WI-P111.
 - Panel styling is inline in the panel body itself (a `<style>` block in
   `webui/right-canvas-panels/graph-panel.html`), keyed to framework
   CSS custom properties. A historical `webui/graph-panel.css` stylesheet
