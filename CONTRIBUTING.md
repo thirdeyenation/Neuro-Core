@@ -68,6 +68,21 @@ neuro_core/
 - API handler subclasses must implement `requires_auth` as a `@classmethod`, not a plain attribute
 - Container restart is required after any `.py` file change
 
+### WebUI extension changes
+- The WebUI extension manifest is computed once and cached in the WebUI backend
+  process (framework cache area `webui_extension_manifest(extensions)(plugins)`;
+  see `helpers/extension.py`). It is injected server-side into the rendered page
+  and there is no file-watcher or invalidation path for plugin file changes on
+  disk. After adding, renaming, or moving plugin extension files under
+  `extensions/webui/`, a **WebUI backend restart is required** before the change
+  can be observed — a browser hard refresh re-fetches the page but receives the
+  same cached manifest.
+- Extension-point directory names under `extensions/webui/` must match the
+  host's expected point names exactly, including underscores. For example, the
+  host calls `right_canvas_register_surfaces` (underscore); a directory named
+  `right-canvas-register-surfaces` (hyphen) is silently never invoked — the
+  mismatch produces no error.
+
 ### Submitting a PR
 1. Fork `thirdeyenation/Neuro-Core`
 2. Create a feature branch: `git checkout -b feature/your-feature-name`

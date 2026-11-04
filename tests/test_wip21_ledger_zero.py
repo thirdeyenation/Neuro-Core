@@ -381,19 +381,24 @@ def test_bh_form_reset_defaults_are_store_valid():
 
 
 def test_aa_architecture_no_longer_claims_css_holds_styling():
-    """KI-018-AA document-as-dormant: architecture.md must not claim the
-    dormant graph-panel.css 'holds the panel styling' (doc-vs-code
-    contradiction), and must document its dormancy."""
+    """KI-018-AA document-as-dormant, superseded by WI-P115 (KI-063):
+    architecture.md must not claim graph-panel.css 'holds the panel styling'
+    and must record that the dead stylesheet was removed with the inline
+    panel <style> block as the single authoritative styling location."""
     src = ARCH.read_text(encoding="utf-8")
     assert "graph-panel.css` holds the panel styling" not in src
     assert "holds the panel styling" not in src
-    assert "graph-panel.css" in src, "dormant asset must still be documented"
-    assert "dormant" in src
+    assert "graph-panel.css" in src, "removed asset must remain documented"
+    assert "single authoritative" in src
 
 
-def test_aa_graph_panel_css_has_no_loader_reference():
-    """Dormancy pin: no plugin source surface references graph-panel.css as
-    a loadable asset (only docs may mention it)."""
+def test_aa_graph_panel_css_removed_and_unreferenced():
+    """KI-063 disposition pin (WI-P115): the dead, diverged
+    webui/graph-panel.css is removed, and no plugin source surface references
+    it as a loadable asset (only docs may mention it)."""
+    assert not (PLUGIN_ROOT / "webui" / "graph-panel.css").exists(), (
+        "dead stylesheet must stay removed"
+    )
     hits: list[str] = []
     for base in ("webui", "extensions", "api", "tools", "helpers"):
         for p in (PLUGIN_ROOT / base).rglob("*"):

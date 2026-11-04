@@ -18,7 +18,9 @@ webui/right-canvas-panels/graph-panel.html:
   unaffected in either theme (no literal theme-specific colors).
 
 Guard pins: no functionality removed, no new endpoints, no material-symbols
-ligature additions (WI-P24 C5 rule), graph-panel.css untouched.
+ligature additions (WI-P24 C5 rule); dead graph-panel.css removed (WI-P115,
+KI-063) with the inline <style> block as the single authoritative styling
+location.
 """
 from __future__ import annotations
 
@@ -28,7 +30,6 @@ from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 PANEL = PLUGIN_ROOT / "webui" / "right-canvas-panels" / "graph-panel.html"
-CSS = PLUGIN_ROOT / "webui" / "graph-panel.css"
 
 REL_TYPES = [
     "supports", "contradicts", "depends_on", "derived_from",
@@ -334,11 +335,12 @@ def test_guard_functionality_intact():
         assert anchor in src, f"existing functionality anchor {anchor} must remain"
 
 
-def test_guard_css_file_untouched():
-    diff = subprocess.run(
-        ["git", "-C", str(PLUGIN_ROOT), "diff", "HEAD", "--", "webui/graph-panel.css"],
-        capture_output=True, text=True, check=True).stdout
-    assert diff == "", "graph-panel.css must remain untouched"
+def test_guard_css_file_removed():
+    """KI-063 disposition (WI-P115): the dead stylesheet is removed; the live
+    styling is the panel's inline <style> block."""
+    assert not (PLUGIN_ROOT / "webui" / "graph-panel.css").exists(), (
+        "dead stylesheet must stay removed"
+    )
 
 
 def test_guard_manual_editing_flows_untouched():

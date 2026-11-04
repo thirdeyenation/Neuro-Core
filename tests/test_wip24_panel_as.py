@@ -33,7 +33,6 @@ from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 PANEL = PLUGIN_ROOT / "webui" / "right-canvas-panels" / "graph-panel.html"
-CSS = PLUGIN_ROOT / "webui" / "graph-panel.css"
 SHELL = PLUGIN_ROOT / "extensions" / "webui" / "right-canvas-panels" / "graph-panel.html"
 
 
@@ -271,13 +270,13 @@ def test_c6_no_layout_option_removed():
 # ------------------------------------------------------- C7/C9 boundaries
 
 def test_c7_css_untouched_dormant():
-    # graph-panel.css remains untouched (byte-identical to HEAD) and un-referenced
+    # KI-063 disposition (WI-P115): the dead stylesheet is removed; the panel
+    # carries no reference to it and the live styling is the inline <style> block.
     src = _source()
     assert "graph-panel.css" not in src
-    diff = subprocess.run(
-        ["git", "-C", str(PLUGIN_ROOT), "diff", "HEAD", "--", "webui/graph-panel.css"],
-        capture_output=True, text=True, check=True).stdout
-    assert diff == "", "graph-panel.css must remain untouched"
+    assert not (PLUGIN_ROOT / "webui" / "graph-panel.css").exists(), (
+        "dead stylesheet must stay removed"
+    )
 
 
 def test_c7_no_api_contract_change():

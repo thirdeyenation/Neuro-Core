@@ -594,13 +594,14 @@ Four plugin assets make it up:
   ARC ruling on WI-P111.
 - Panel styling is inline in the panel body itself (a `<style>` block in
   `webui/right-canvas-panels/graph-panel.html`), keyed to framework
-  CSS custom properties. A historical `webui/graph-panel.css` stylesheet
-  exists but is dormant: no loader references it anywhere in the plugin
-  (webui/, extensions/, api/, hooks.py) and it has diverged from the
-  classes the panel actually uses; it is retained pending an ORC-routed
-  disposition decision). The panel's Cytoscape library
-  is vendored locally at `webui/vendor/cytoscape-3.30.2.min.js` and served
-  through the plugin asset route (no external CDN dependency).
+  CSS custom properties. This inline block is the single authoritative
+  styling location for the panel. A historical `webui/graph-panel.css`
+  stylesheet — dormant, loader-unreferenced, and diverged from the classes
+  the panel actually uses — was removed (WI-P115, KI-063); the panel's
+  inline `<style>` block is the only place its styling lives. The panel's
+  Cytoscape library is vendored locally at
+  `webui/vendor/cytoscape-3.30.2.min.js` and served through the plugin
+  asset route (no external CDN dependency).
 
 Note: a historical `webui/graph-store.js` Alpine store existed but was never
 referenced by the panel (which uses an inline `x-data` scope) and diverged
