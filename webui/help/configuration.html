@@ -152,13 +152,25 @@ stale-token 403 that the automatic retry did not resolve; use Reboot only as a
 failsafe when the panel did not recover automatically after a framework server
 restart. See <a href="#manual-reboot">Manual reboot failsafe</a> below.</p>
 
+<h2 id="pane-visibility-toggles">Pane visibility toggles</h2>
+<p>The graph panel header carries one toggle button per pane (Search, Graph,
+Inspector). Clicking a button calls the panel's <code>togglePane</code> state
+machine for that pane; the choice persists in the browser's localStorage under
+the key <code>nc_graph_pane_layout</code>. At least one pane must remain visible:
+when only one pane is enabled, its button is disabled rather than hidden. A pane
+that was explicitly toggled off stays off regardless of panel width; the Graph
+pane additionally collapses automatically when the panel is too narrow and
+restores when space returns. Clicking a graph node reveals the Inspector unless
+the Inspector was explicitly toggled off. There is no popover; the toggles are
+direct header buttons.</p>
+
 <h2 id="manual-reboot">Manual reboot failsafe</h2>
 <div class="note">After a framework server restart, graph-panel recovery is normally
 automatic (the panel retries with a fresh CSRF token on the next call). A deeper
 manual reboot control lives on the Neuro Core graph panel, at the right end of the
-panel header after the Settings gear (header order: pane toggle, Refresh, Settings,
-Manual Reboot). It deliberately resets the panel's cached CSRF token, rebuilds the
-graph canvas, and re-runs the current search.</div>
+panel header after the Settings gear (header order: pane-visibility toggles,
+Refresh, Settings, Manual Reboot). It deliberately resets the panel's cached CSRF
+token, rebuilds the graph canvas, and re-runs the current search.</div>
 <p><strong>Why it lives on the graph panel and not in Settings:</strong> the panel's own
 script scope is the only place where its cached CSRF token and Cytoscape graph instance
 can be reset together — the Settings window does not own those objects. Use the manual

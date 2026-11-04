@@ -287,12 +287,27 @@ fresh database starts empty. To relocate deliberately, stop memory
 activity, move the database file to the new location, then update this
 key.
 
+### Pane visibility toggles
+
+The graph panel header carries one toggle button per pane (Search, Graph,
+Inspector). Clicking a button calls the panel's `togglePane` state machine for
+that pane; the choice persists in the browser's localStorage under the key
+`nc_graph_pane_layout` (the same persistence surface the panel already uses for
+its subdir chips). At least one pane must remain visible: when only one pane is
+enabled, its button is disabled rather than hidden. A pane that was explicitly
+toggled off stays off regardless of panel width; the Graph pane additionally
+collapses automatically when the panel is too narrow and restores when space
+returns. Clicking a graph node reveals the Inspector unless the Inspector was
+explicitly toggled off. There is no popover; the toggles are direct header
+buttons.
+
 ### Manual reboot failsafe
 
 After a framework server restart, graph-panel recovery is normally
 automatic. A deeper manual reboot control lives on the Neuro Core graph
 panel (at the right end of the panel header, after the Settings gear —
-header order: pane toggle, Refresh, Settings, Manual Reboot): it deliberately
+header order: pane-visibility toggles, Refresh, Settings, Manual Reboot):
+it deliberately
 resets the panel's cached CSRF token, rebuilds the graph canvas, and
 re-runs the current search. It lives on the graph panel rather than in
 the Settings window because the panel's own script scope is the only

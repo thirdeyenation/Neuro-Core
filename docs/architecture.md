@@ -620,6 +620,18 @@ instance, and rendering.
   project subdirs, so the panel-side composition is a redundant-but-
   harmless dedupe union (panel-side composition, later
   reconciled).
+- Pane visibility toggles: the panel header carries one direct toggle
+  button per pane (Search, Graph, Inspector), placed before the Refresh
+  button. Each button calls the panel's `togglePane` state machine for
+  that pane; the at-least-one-pane guardrail disables (never hides) the
+  button of the last user-enabled pane. Pane choices persist in
+  `localStorage['nc_graph_pane_layout']`. An explicitly toggled-off pane
+  stays off regardless of panel width, while the Graph pane additionally
+  collapses automatically when the panel is too narrow and restores when
+  space returns (width floor, detected via the `.nc-body`
+  `ResizeObserver`). Clicking a graph node reveals the Inspector unless
+  the Inspector was explicitly toggled off. There is no popover; the
+  toggles are direct header buttons.
 - Advanced filters via `GET
   /api/plugins/neuro_core/advanced_filters?...` with `memory_type`,
   `validation_status`, `relationship_type`, `date_range_start/end`,

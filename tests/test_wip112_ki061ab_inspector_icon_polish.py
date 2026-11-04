@@ -1,20 +1,20 @@
 """WI-P112-KI061AB-INSPECTOR-ICON-POLISH: tests pinning the three confirmed
-changes on top of the WI-P110 pane-affordance implementation.
+changes, updated for the WI-P113 pane-control redesign (HITL-ratified
+mechanism replacement; every changed/removed pin is enumerated in the WI-P113
+implementation report — no silent removals).
 
 Covers the implementation in webui/right-canvas-panels/graph-panel.html:
 
 * KI-061-AB — node selection (cytoscape node tap; search results are rendered
   as graph nodes, so the tap handler is the panel's single node-selection
-  site) must auto-un-yield the details pane: selecting a node always shows
-  its inspector, at any width. Manual toggle behavior (restoreMiddlePane)
-  is unchanged, and pane state stays consistent across a subsequent
-  collapse/restore cycle.
-* Toggle icon — the pane-toggle button uses an inline SVG panel-layout glyph
-  (rectangle divided into three vertical sections, middle collapsed) stroked
-  with currentColor; NOT a material-symbols ligature span, NOT the old
-  unicode glyph.
+  site) must call revealInspector(), which reveals the inspector unless the
+  user has explicitly toggled the Inspector off (WI-P113 harmonization —
+  replaces the WI-P112 auto-un-yield semantics; no yield fighting).
+* Toggle icon — REMOVED in the WI-P113 rev2 HITL decision: the pane-control
+  button and popover were removed entirely, so the former toggle-icon pins
+  are retired (enumerated in the WI-P113 implementation report rev 2).
 * Manual Reboot — button sits AFTER the Settings gear (separated from Refresh
-  and the pane toggle), uses an inline SVG power symbol (circle-arc + line)
+  and the pane control), uses an inline SVG power symbol (circle-arc + line)
   stroked with currentColor, and carries theme-aware red caution styling
   (icon color var(--color-error-text), red border on hover, never a filled
   background). The Refresh icon is untouched.
@@ -39,7 +39,7 @@ def src() -> str:
     return PANEL_CONTENT.read_text(encoding="utf-8")
 
 
-# ------------------------------------------------- KI-061-AB: auto-un-yield
+# ------------------------------------------------- KI-061-AB: node-click reveal
 
 
 def test_ki061ab_node_tap_calls_reveal_inspector(src):
@@ -55,25 +55,13 @@ def test_ki061ab_node_tap_calls_reveal_inspector(src):
     assert open_pos < reveal_pos, "revealInspector must follow inspector open"
 
 
-def test_ki061ab_reveal_inspector_clears_both_yields(src):
-    """revealInspector must clear both yields (searchYielded implies
-    detailsYielded under the C2 yield order, so clearing details alone would
-    create an unreachable state)."""
+def test_ki061ab_reveal_respects_explicit_inspector_off(src):
+    """revealInspector must be a no-op when the user explicitly toggled the
+    Inspector off (WI-P113 harmonization replacing the WI-P112 un-yield
+    semantics — explicit choice beats reveal)."""
     m = re.search(r"revealInspector\(\) \{(.*?)\},", src, re.DOTALL)
     assert m, "revealInspector not found"
-    body = m.group(1)
-    assert "searchYielded = false" in body
-    assert "detailsYielded = false" in body
-
-
-def test_ki061ab_manual_toggle_unchanged(src):
-    """restoreMiddlePane semantics are untouched: Details first, then Search."""
-    m = re.search(r"restoreMiddlePane\(\) \{(.*?)\},", src, re.DOTALL)
-    assert m, "restoreMiddlePane not found"
-    body = m.group(1)
-    details_pos = body.find("detailsYielded = true")
-    search_pos = body.find("searchYielded = true")
-    assert -1 < details_pos < search_pos
+    assert "if (!this.paneUser.inspector) return;" in m.group(1)
 
 
 def _run_node(script: str) -> str:
@@ -87,72 +75,29 @@ def _run_node(script: str) -> str:
     return result.stdout.strip().splitlines()[-1]
 
 
-def test_ki061ab_select_node_while_yielded_reveals_inspector_headless(src):
-    """Headless: with both panes yielded (fully collapsed middle), a node
-    selection (revealInspector via the tap-handler path) must reveal the
-    details pane; a subsequent collapse/restore cycle must leave state
-    consistent (no unreachable states, no-op at the fully-collapsed end)."""
+def test_ki061ab_select_node_with_inspector_off_headless(src):
+    """Headless: with the Inspector explicitly toggled off, node selection
+    (revealInspector via the tap-handler path) must NOT re-enable it; with
+    the Inspector enabled, selection is a safe no-op."""
     m = re.search(r"revealInspector\(\) \{(.*?)\},", src, re.DOTALL)
     assert m, "revealInspector not found"
     reveal = m.group(1).replace("this.", "self.")
-    m2 = re.search(r"restoreMiddlePane\(\) \{(.*?)\},", src, re.DOTALL)
-    assert m2, "restoreMiddlePane not found"
-    restore = m2.group(1).replace("this.", "self.")
     script = (
         "const log = [];\n"
-        "const self = { detailsYielded: true, searchYielded: true };\n"
+        "const self = { paneUser: { search: true, graph: true, inspector: false }, "
+        "paneWidthOff: { search: false, graph: false, inspector: false } };\n"
         "function revealInspector() { " + reveal + " }\n"
-        "function restoreMiddlePane() { " + restore + " }\n"
-        "// select node while yielded -> inspector must be revealed\n"
+        "// select node while Inspector explicitly off -> must stay off\n"
         "revealInspector();\n"
-        "log.push([self.detailsYielded, self.searchYielded]);\n"
-        "// subsequent collapse/restore cycle must stay consistent\n"
-        "restoreMiddlePane(); log.push([self.detailsYielded, self.searchYielded]);\n"
-        "restoreMiddlePane(); log.push([self.detailsYielded, self.searchYielded]);\n"
-        "restoreMiddlePane(); log.push([self.detailsYielded, self.searchYielded]);\n"
-        "// selection again from the fully-collapsed state\n"
-        "revealInspector(); log.push([self.detailsYielded, self.searchYielded]);\n"
+        "log.push(JSON.parse(JSON.stringify(self.paneUser)));\n"
+        "// enable Inspector, select again -> stays enabled (safe no-op)\n"
+        "self.paneUser.inspector = true;\n"
+        "revealInspector(); log.push(JSON.parse(JSON.stringify(self.paneUser)));\n"
         "console.log(JSON.stringify(log));"
     )
     log = json.loads(_run_node(script))
-    assert log == [
-        [False, False],  # node selection while yielded -> inspector visible
-        [True, False],   # manual collapse: details first
-        [True, True],    # then search
-        [True, True],    # third click is a no-op (unchanged manual behavior)
-        [False, False],  # selection from fully-collapsed state reveals again
-    ]
-
-
-# ------------------------------------------------- toggle icon pins
-
-
-def test_toggle_icon_is_inline_svg_currentcolor(src):
-    """The pane-toggle button must contain an inline SVG stroked with
-    currentColor (dark/light theming), shaped as a panel-layout glyph
-    (outer rect + internal vertical dividers)."""
-    m = re.search(
-        r'nc-header__btn--pane-toggle"[^>]*>(.*?)</button>', src, re.DOTALL
-    )
-    assert m, "pane-toggle button not found"
-    inner = m.group(1)
-    assert "<svg" in inner, "toggle icon must be an inline SVG"
-    assert "currentColor" in inner, "toggle SVG must use currentColor"
-    assert "<rect" in inner and "<line" in inner, (
-        "toggle SVG must be a panel-layout glyph (rect + vertical dividers)"
-    )
-
-
-def test_toggle_icon_no_ligature_span_no_unicode_glyph(src):
-    """Standing no-new-ligature-span pin: the toggle must not use a
-    material-symbols ligature span, and the old unicode glyph is gone."""
-    m = re.search(
-        r'nc-header__btn--pane-toggle"[^>]*>(.*?)</button>', src, re.DOTALL
-    )
-    assert m, "pane-toggle button not found"
-    inner = m.group(1)
-    assert "material-symbols" not in inner
-    assert "\u27f2" not in src, "old unicode toggle glyph must be removed"
+    assert log[0]["inspector"] is False, "explicit-off Inspector was overridden"
+    assert log[1]["inspector"] is True
 
 
 # ------------------------------------------------- reboot button pins
@@ -160,12 +105,11 @@ def test_toggle_icon_no_ligature_span_no_unicode_glyph(src):
 
 def test_reboot_button_after_settings_gear(src):
     """Manual Reboot must sit to the RIGHT of the Settings gear, separated
-    from Refresh and the pane toggle."""
-    toggle_idx = src.find("nc-header__btn--pane-toggle")
+    from Refresh (the pane control was removed in rev 2)."""
     refresh_idx = src.find('@click="refresh()"')
     settings_idx = src.find('@click="openSettings()"')
     reboot_idx = src.find('@click="rebootPanel()"')
-    assert -1 < toggle_idx < refresh_idx < settings_idx < reboot_idx
+    assert -1 < refresh_idx < settings_idx < reboot_idx
 
 
 def test_reboot_icon_is_power_symbol_inline_svg(src):
