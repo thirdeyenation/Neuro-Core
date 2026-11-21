@@ -15,8 +15,8 @@ is covered explicitly.
 - C3 (framework-runtime probe): after decorate_memory(), the REAL framework
   Memory.insert_text and Memory.insert_documents ARE extensible and their
   derived _functions start points resolve the shipped _10_neuro_metadata.py
-  handlers. The probe runs in the framework runtime (/opt/venv-a0/bin/python
-  with PYTHONPATH=/a0) — symmetric to the KI-053 defect proof — and is
+handlers. The probe runs in the framework runtime (the current interpreter,
+  via sys.executable, PYTHONPATH=/a0) — symmetric to the KI-053 proof — and is
   skipped gracefully when that runtime is unavailable. The task runtime is
   never used as proof.
 
@@ -35,6 +35,7 @@ import importlib.util
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import os
@@ -50,7 +51,7 @@ HANDLER_BASE = (
     / 'plugins' / '_memory' / 'helpers' / 'memory' / 'Memory'
 )
 
-A0_RUNTIME = '/opt/venv-a0/bin/python'
+A0_RUNTIME = sys.executable
 
 # Live-framework detection (WI-N16 round 7, same pattern as
 # test_execute.py/test_lifecycle_jobs.py): the C3 probe subprocess imports
@@ -295,7 +296,7 @@ def _probe_framework_runtime():
         pytest.skip(f'framework runtime unavailable: {A0_RUNTIME}')
     proc = subprocess.run(
         [A0_RUNTIME, '-c', _PROBE_SCRIPT],
-        env={'PYTHONPATH': '/a0', 'PATH': '/usr/bin:/bin', 'HOME': '/root'},
+        env={**os.environ, 'PYTHONPATH': '/a0'},
         capture_output=True,
         text=True,
         timeout=300,
