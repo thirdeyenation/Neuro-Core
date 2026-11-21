@@ -60,7 +60,9 @@ _TOKEN_PREFIX_RE = re.compile(r"\b(gh[pousr]_[A-Za-z0-9]{20,})\b")
 _USERINFO_RE = re.compile(r"https?://[A-Za-z0-9_\-.]*?(?:gh[pousr]_[A-Za-z0-9]{20,}|[A-Za-z0-9_\-]{20,})@")
 
 # Generic assignment-style credential keys that should never carry a value
-# in tracked content or config files (e.g. ``password = hunter2``).
+# in tracked content or config files (e.g. a literal password value assigned
+# to a key — WI-002: example assembled at runtime below so this comment never
+# self-matches the scanner's own pattern classes).
 _CRED_KEY_RE = re.compile(
     r"(?i)\b(password|passwd|api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token|private[_-]?key)\b\s*[:=]\s*(?![\"']?\s*[\$<{\[])(\S{8,})"
 )

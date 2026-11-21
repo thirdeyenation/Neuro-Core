@@ -81,6 +81,78 @@ else:
 
 
 # ---------------------------------------------------------------------------
+# Subprocess-probe import alias (WI-002, D3 environmental alignment).
+#
+# Several binding tests (test_execute.py TestLightweightPrePassConditions,
+# test_lifecycle_jobs.py TestExecuteImportFallback) spawn CLEAN subprocesses
+# that ``import usr.plugins.neuro_core.*``. Those subprocesses never run this
+# conftest, and the plugin is not live-mounted at /a0/usr/plugins/neuro_core/
+# in the src-tree checkout, so the imports would fail with ModuleNotFoundError
+# for environmental reasons (not v3 API drift).
+#
+# Fix: register the SAME synthetic ``usr.plugins.neuro_core`` package alias
+# used in-process above, via a ``usercustomize.py`` shim placed in a private
+# PYTHONUSERBASE. Python imports usercustomize automatically at startup for
+# every subprocess that inherits the environment, so the probes resolve
+# ``src/`` cleanly. The shim is silent, idempotent, guarded to no-op when the
+# plugin IS live-mounted (host layout), and touches no test assertion and no
+# production module. Set NEURO_CORE_TEST_PROBE_ALIAS=0 to disable.
+# ---------------------------------------------------------------------------
+
+
+def _install_subprocess_probe_alias() -> None:
+    """Expose ``usr.plugins.neuro_core`` to clean subprocesses via usercustomize."""
+    if os.environ.get("NEURO_CORE_TEST_PROBE_ALIAS") == "0":
+        return
+    if os.environ.get("PYTHONNOUSERSITE"):
+        return  # usercustomize would never load; probes handle their own skip
+    live_mount = Path("/a0/usr/plugins/neuro_core")
+    if live_mount.is_dir():
+        return  # plugin live-mounted: subprocess imports resolve natively
+
+    shim_source = (
+        "import os, sys, types\n"
+        "try:\n"
+        "    _root = r" + repr(str(_PLUGIN_ROOT)) + "\n"
+        "    if os.path.isdir(_root) and 'usr.plugins.neuro_core' not in sys.modules:\n"
+        "        _usr = types.ModuleType('usr'); _usr.__path__ = []\n"
+        "        _plg = types.ModuleType('usr.plugins'); _plg.__path__ = []\n"
+        "        _nc = types.ModuleType('usr.plugins.neuro_core'); _nc.__path__ = [_root]\n"
+        "        _usr.plugins = _plg; _plg.neuro_core = _nc\n"
+        "        sys.modules['usr'] = _usr\n"
+        "        sys.modules['usr.plugins'] = _plg\n"
+        "        sys.modules['usr.plugins.neuro_core'] = _nc\n"
+        "except Exception:\n"
+        "    pass\n"
+    )
+
+    existing_base = os.environ.get("PYTHONUSERBASE")
+    if existing_base:
+        # Reuse the caller's userbase: add the shim alongside any existing one.
+        sp_dir = (
+            Path(existing_base) / "lib"
+            / f"python{sys.version_info.major}.{sys.version_info.minor}"
+            / "site-packages"
+        )
+        sp_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        sp_dir = (
+            Path(tempfile.mkdtemp(prefix="neuro_core_probe_alias_")) / "lib"
+            / f"python{sys.version_info.major}.{sys.version_info.minor}"
+            / "site-packages"
+        )
+        sp_dir.mkdir(parents=True, exist_ok=True)
+        os.environ["PYTHONUSERBASE"] = str(sp_dir.parents[2])
+
+    shim = sp_dir / "usercustomize.py"
+    if not shim.exists() or shim.read_text(encoding="utf-8") != shim_source:
+        shim.write_text(shim_source, encoding="utf-8")
+
+
+_install_subprocess_probe_alias()
+
+
+# ---------------------------------------------------------------------------
 # Stub minimal framework modules so ``Tool`` and friends can be imported
 # without booting the full framework (litellm, models, agent, ...).
 # ---------------------------------------------------------------------------

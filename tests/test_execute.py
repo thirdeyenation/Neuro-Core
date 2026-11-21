@@ -1252,8 +1252,11 @@ for s in fw:
 assert "default" in light
 print("DRIFT-OK-ENUM")
 """
+        # WI-002 (D3 probe resolution): the framework runtime in this v3
+        # container is the global interpreter; the retired /opt/venv-a0 path
+        # no longer exists (WI-001 recon). Assertions below are untouched.
         result = subprocess.run(
-            ["/opt/venv-a0/bin/python", "-c", probe_enum],
+            [_sys.executable, "-c", probe_enum],
             capture_output=True,
             text=True,
             env={**os.environ, "PYTHONPATH": "/a0"},
