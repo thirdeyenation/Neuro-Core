@@ -376,17 +376,65 @@ class EpisodeGroupingJob(Extension):
         # pre-mutation state. In effect the write happened but was
         # clobbered by the next reader's stale snapshot.
         #
-        # The fix below is Option A from the D49 audit: mutate the
-        # docstore metadata in place (we already hold the same
-        # ``Document`` objects the docstore does — see comment above
-        # the ``for d in docs`` loop) and then call
-        # ``Memory._save_db_file`` directly. ``_save_db_file`` is a
-        # synchronous ``@staticmethod`` that calls ``db.save_local``
-        # with the correct ``folder_path`` (``abs_db_dir(subdir)``)
-        # and refreshes ``index.faiss.sha256``. No event-loop
-        # crossing, no async wrapping, no stale-cache race.
+        # The fix below is Option A from the D49 audit, adapted to the v3
+        # NativeStore contract: mutate the document metadata in place (we
+        # already hold the same ``Document`` objects the store enumerates —
+        # see comment above the ``for d in docs`` loop) and then persist the
+        # updated documents explicitly. Under NativeStore there is no
+        # ``_save_db_file``/``save_local``: ``get_all_docs()`` returns FRESH
+        # deserialized copies from SQLite, so in-place mutation alone is
+        # silently dropped. ``db.put(..., replace=True)`` auto-commits inside
+        # a BEGIN IMMEDIATE transaction — no event-loop crossing, no async
+        # wrapping, no stale-cache race.
+        live_ids = set()
         try:
-            Memory._save_db_file(db, subdir)  # type: ignore[attr-defined]
+            live_raw = db.get_all_docs() or {}
+            if isinstance(live_raw, dict):
+                live_ids = set(live_raw.keys())
+        except Exception:  # pragma: no cover - defensive
+            live_ids = set()
+        payload = [
+            d for d in modified
+            if getattr(d, "metadata", None) and d.metadata.get("id") in live_ids
+        ]
+        if not payload:
+            if modified:
+                _logger.warning(
+                    "episode_grouping: persist skipped for subdir %r: all "
+                    "%d updated documents were deleted concurrently",
+                    subdir, len(modified),
+                )
+            return
+        try:
+            db.put(payload, replace=True)
+        except ValueError:
+            # ``put(replace=True)`` raises ValueError if ANY id is missing
+            # (deleted concurrently between the live-id snapshot and the
+            # transaction). Retry per document so one stale id never rolls
+            # back valid sibling updates.
+            persisted = 0
+            for d in payload:
+                try:
+                    db.put([d], replace=True)
+                    persisted += 1
+                except ValueError:
+                    _logger.warning(
+                        "episode_grouping: persist skipped for concurrently "
+                        "deleted memory_id %r in subdir %r",
+                        d.metadata.get("id"), subdir,
+                    )
+                except Exception as exc:  # pragma: no cover - defensive
+                    _logger.warning(
+                        "episode_grouping: persist failed for memory_id %r "
+                        "in subdir %r: %s",
+                        d.metadata.get("id"), subdir, exc,
+                    )
+            if persisted:
+                _logger.info(
+                    "episode_grouping: persisted %d/%d episode assignments "
+                    "for subdir %r after stale-id fallback",
+                    persisted, len(payload), subdir,
+                )
         except Exception as exc:  # pragma: no cover - defensive
             _logger.warning(
                 "episode_grouping: persist failed for subdir %r: %s",

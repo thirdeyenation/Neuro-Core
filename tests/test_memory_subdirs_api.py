@@ -112,3 +112,79 @@ async def test_no_subdirs_returns_empty_list(tmp_path: Path) -> None:
     assert result["success"] is True
     assert result["count"] == 0
     assert result["subdirs"] == []
+
+
+# ---------------------------------------------------------------------------
+# WI-003: additive v3 NativeStore (memory.sqlite3) marker recognition
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_standard_subdir_with_memory_sqlite3_discovered(tmp_path: Path) -> None:
+    """WI-003: a standard subdir holding the v3 NativeStore marker
+    ``memory.sqlite3`` is discovered (previously only implicit via the
+    permissive directory scan; now an explicit v3 recognition path)."""
+    (tmp_path / "memory" / "v3store").mkdir(parents=True)
+    (tmp_path / "memory" / "v3store" / "memory.sqlite3").write_bytes(b"")
+
+    handler = _make_handler(tmp_path)
+    result = await _call_process(handler)
+
+    assert result["success"] is True
+    names = [e["name"] for e in result["subdirs"]]
+    assert "v3store" in names
+    entry = next(e for e in result["subdirs"] if e["name"] == "v3store")
+    assert entry["type"] == "standard"
+
+
+@pytest.mark.asyncio
+async def test_standard_subdir_with_legacy_faiss_markers_discovered(
+    tmp_path: Path,
+) -> None:
+    """WI-003: legacy v2 MyFaiss markers (index.faiss / index.pkl)
+    remain recognized — backward compatibility is preserved."""
+    legacy = tmp_path / "memory" / "legacystore"
+    legacy.mkdir(parents=True)
+    (legacy / "index.faiss").write_bytes(b"")
+    (legacy / "index.pkl").write_bytes(b"")
+
+    handler = _make_handler(tmp_path)
+    result = await _call_process(handler)
+
+    names = [e["name"] for e in result["subdirs"]]
+    assert "legacystore" in names
+
+
+@pytest.mark.asyncio
+async def test_standard_subdir_with_only_junk_files_excluded(tmp_path: Path) -> None:
+    """WI-003: a non-empty directory with NO store marker files is not
+    reported as a memory subdir (junk/noise filtering)."""
+    junk = tmp_path / "memory" / "junkdir"
+    junk.mkdir(parents=True)
+    (junk / "notes.txt").write_text("not a memory store")
+
+    handler = _make_handler(tmp_path)
+    result = await _call_process(handler)
+
+    names = [e["name"] for e in result["subdirs"]]
+    assert "junkdir" not in names
+
+
+@pytest.mark.asyncio
+async def test_project_subdir_with_memory_sqlite3_discovered(tmp_path: Path) -> None:
+    """WI-003: a project memory store holding the v3 NativeStore marker
+    ``memory.sqlite3`` is discovered at the project memory location."""
+    proj_mem = tmp_path / "projects" / "proj_v3" / ".a0proj" / "memory"
+    proj_mem.mkdir(parents=True)
+    (proj_mem / "memory.sqlite3").write_bytes(b"")
+
+    handler = _make_handler(tmp_path)
+    result = await _call_process(handler)
+
+    assert result["success"] is True
+    entry = next(
+        (e for e in result["subdirs"] if e["name"] == "proj_v3"), None
+    )
+    assert entry is not None
+    assert entry["type"] == "project"
+    assert entry["path"].endswith("/proj_v3/.a0proj/memory/")

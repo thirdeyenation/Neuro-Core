@@ -1160,3 +1160,196 @@ class TestDegradationMarkers:
             "sidecar write failure must be recorded as an explicit "
             "degraded count in the job result"
         )
+
+
+# ---------------------------------------------------------------------------
+# WI-003: real NativeStore disk-reload persistence for _persist_assignments
+# ---------------------------------------------------------------------------
+
+
+class _FakeDeterministicEmbedder:
+    """Local deterministic embedder — zero external API/network calls.
+
+    Produces fixed-dimension vectors derived from the text content so
+    the real NativeStore embedding pipeline runs fully offline.
+    """
+
+    def embed_documents(self, texts):
+        return [self._one(t) for t in texts]
+
+    async def aembed_documents(self, texts):
+        return self.embed_documents(texts)
+
+    @staticmethod
+    def _one(text: str):
+        import hashlib as _hashlib
+
+        digest = _hashlib.sha256(text.encode("utf-8")).digest()
+        # 4-dim float32-compatible vectors, deterministic per text.
+        return [b / 255.0 for b in digest[:4]]
+
+
+class _MemoryHost:
+    """Minimal Memory stand-in exposing the warm-cache ``index`` dict.
+
+    ``_get_cached_db`` resolves handles from ``Memory.index`` (warm)
+    before any async fallback; pointing the stubbed host module's
+    ``Memory`` at this class lets the real NativeStore handle be
+    resolved exactly as in production.
+    """
+
+    index: dict = {}
+
+
+def _make_real_native_store(folder):
+    """Build and initialize a REAL v3 NativeStore in ``folder``.
+
+    The conftest stub installs a synthetic ``plugins._memory`` package
+    (empty ``__path__``), so the real module is loaded directly from
+    the framework source by file path. native_store.py has no
+    intra-package imports (stdlib + faiss + numpy + langchain_core
+    only), so path-loading is faithful to the real module.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "_neuro_core_test_native_store", "/a0/plugins/_memory/helpers/native_store.py"
+    )
+    assert spec is not None and spec.loader is not None
+    native_store_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(native_store_mod)
+    NativeStore = native_store_mod.NativeStore
+
+    store = NativeStore(
+        folder=folder,
+        model=_FakeDeterministicEmbedder(),
+        identity={"provider": "test", "model": "deterministic-fake"},
+        namespace="test/",
+        cache=None,
+    )
+    store.initialize()
+    return store
+
+
+def test_persist_assignments_survives_real_disk_reload(
+    tmp_path, monkeypatch, episode_grouping_module
+) -> None:
+    """WI-003: episode_id writes must persist to memory.sqlite3 on disk.
+
+    NativeStore.get_all_docs() returns FRESH deserialized copies from
+    SQLite, so mutating doc.metadata in memory alone is silently
+    dropped. This test runs the REAL persistence path
+    (``_persist_assignments`` -> ``db.put(..., replace=True)``) against
+    a real NativeStore and then reopens the store from disk to prove
+    the episode_id survived — not a mock-only check.
+    """
+    import sys
+
+    from langchain_core.documents import Document
+
+    mem_module = sys.modules["plugins._memory.helpers.memory"]
+    monkeypatch.setattr(mem_module, "Memory", _MemoryHost, raising=False)
+    _MemoryHost.index.clear()
+
+    subdir = "wip3_episode_disk_reload"
+    folder = tmp_path / "memory" / subdir
+    store = _make_real_native_store(folder)
+    _MemoryHost.index[subdir] = store  # warm cache, production norm
+    try:
+        store.put([
+            Document(page_content="fact one", metadata={
+                "id": "m1", "memory_type": "fact",
+                "timestamp": "2026-11-01T10:00:00+00:00"}),
+            Document(page_content="fact two", metadata={
+                "id": "m2", "memory_type": "fact",
+                "timestamp": "2026-11-01T11:00:00+00:00"}),
+            Document(page_content="fact three", metadata={
+                "id": "m3", "memory_type": "fact",
+                "timestamp": "2026-11-01T12:00:00+00:00"}),
+        ])
+
+        episode_grouping_module.EpisodeGroupingJob._persist_assignments(
+            subdir,
+            [
+                {"id": "m1", "episode_id": "ep-abc-1"},
+                {"id": "m3", "episode_id": "ep-abc-1"},
+            ],
+        )
+
+        # REAL disk reload: a brand-new NativeStore instance over the
+        # same folder re-reads memory.sqlite3 from scratch.
+        reloaded = _make_real_native_store(folder)
+        docs = reloaded.get_all_docs()
+        assert set(docs.keys()) == {"m1", "m2", "m3"}
+        assert docs["m1"].metadata.get("episode_id") == "ep-abc-1"
+        assert docs["m3"].metadata.get("episode_id") == "ep-abc-1"
+        # Untouched sibling keeps its pre-existing metadata.
+        assert "episode_id" not in docs["m2"].metadata
+        # The store file is the real v3 NativeStore artifact.
+        assert (folder / "memory.sqlite3").is_file()
+    finally:
+        _MemoryHost.index.clear()  # prevent cross-test warm-cache pollution
+
+
+def test_persist_assignments_stale_id_does_not_rollback_siblings(
+    tmp_path, monkeypatch, episode_grouping_module
+) -> None:
+    """WI-003: one stale (concurrently deleted) memory_id must never
+    roll back valid sibling updates.
+
+    Simulates the race deterministically: the live-ID snapshot still
+    sees ``m2``, but it is deleted between the snapshot and the
+    ``put(replace=True)`` transaction — exercising the per-document
+    ValueError fallback so ``m1`` still persists.
+    """
+    import sys
+
+    from langchain_core.documents import Document
+
+    mem_module = sys.modules["plugins._memory.helpers.memory"]
+    monkeypatch.setattr(mem_module, "Memory", _MemoryHost, raising=False)
+    _MemoryHost.index.clear()
+
+    subdir = "wip3_episode_stale_id"
+    folder = tmp_path / "memory" / subdir
+    store = _make_real_native_store(folder)
+    _MemoryHost.index[subdir] = store
+    try:
+        store.put([
+            Document(page_content="keep me", metadata={
+                "id": "m1", "memory_type": "fact",
+                "timestamp": "2026-11-01T10:00:00+00:00"}),
+            Document(page_content="deleted concurrently", metadata={
+                "id": "m2", "memory_type": "fact",
+                "timestamp": "2026-11-01T11:00:00+00:00"}),
+        ])
+
+        original_put = store.put
+
+        def _racing_put(docs, *, replace=False, delete_ids=()):
+            # Race window: after the live-ID snapshot inside
+            # _persist_assignments, m2 vanishes before the transaction.
+            if replace and any(
+                d.metadata.get("id") == "m2" for d in docs
+            ):
+                original_put([], delete_ids=["m2"])
+            return original_put(docs, replace=replace, delete_ids=delete_ids)
+
+        monkeypatch.setattr(store, "put", _racing_put, raising=False)
+
+        episode_grouping_module.EpisodeGroupingJob._persist_assignments(
+            subdir,
+            [
+                {"id": "m1", "episode_id": "ep-xyz-9"},
+                {"id": "m2", "episode_id": "ep-xyz-9"},
+            ],
+        )
+
+        reloaded = _make_real_native_store(folder)
+        docs = reloaded.get_all_docs()
+        # m1's valid sibling update survived the stale-id rollback.
+        assert docs["m1"].metadata.get("episode_id") == "ep-xyz-9"
+        # m2 was concurrently deleted and stays gone.
+        assert "m2" not in docs
+    finally:
+        _MemoryHost.index.clear()  # prevent cross-test warm-cache pollution

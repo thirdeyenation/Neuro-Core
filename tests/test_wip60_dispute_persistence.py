@@ -658,7 +658,7 @@ def _host_fixture(monkeypatch):
 @_host_faiss
 def test_host_warm_cache_persist_dispute(monkeypatch) -> None:
     """Host-faithful (VAL defect 1+2 reproduction): with the production
-    warm cache holding a RAW MyFaiss in Memory.index, _persist_disputes
+    warm cache holding a RAW NativeStore in Memory.index, _persist_disputes
     writes validation_status=disputed through the real host
     update_documents mechanism."""
     from langchain_core.documents import Document
@@ -668,7 +668,7 @@ def test_host_warm_cache_persist_dispute(monkeypatch) -> None:
 
     subdir = "wip60rev2warm"
     mem = asyncio.run(Memory.get_by_subdir(subdir, preload_knowledge=False))
-    assert type(Memory.index.get(subdir)).__name__ == "MyFaiss"  # raw, warm
+    assert type(Memory.index.get(subdir)).__name__ == "NativeStore"  # raw, warm
 
     docs = [
         Document(page_content="User lives in Berlin", metadata={

@@ -165,20 +165,16 @@ async def collect_episode_memories(
 
     docs: List[_Document] = []
     try:
-        # Enumerate all doc IDs from the FAISS index. ``index_to_docstore_id``
-        # is a dict mapping FAISS index positions to docstore IDs. If it
-        # is empty (new or unloaded index), there is nothing to enumerate.
-        index_to_docstore_id = getattr(memory.db, "index_to_docstore_id", None)
-        if not index_to_docstore_id:
+        # Enumerate all documents from the store. Under v3 NativeStore,
+        # ``get_all_docs()`` returns a dict of doc-id -> Document (fresh
+        # deserialized copies from SQLite). The retired MyFaiss-only
+        # ``index_to_docstore_id`` attribute is gone — reading it via
+        # getattr silently yielded an empty collection. A list-shaped
+        # return is accepted defensively for alternative store contracts.
+        all_docs = memory.db.get_all_docs()
+        docs_raw = list(all_docs.values() if isinstance(all_docs, dict) else all_docs)
+        if not docs_raw:
             return []
-        all_ids = list(index_to_docstore_id.values())
-        if not all_ids:
-            return []
-
-        # Fetch all documents synchronously. ``get_by_ids`` is a pure
-        # dict lookup on ``memory.db.docstore._dict`` — no IO, no await.
-        # Returns ``List[Document]`` (not a dict).
-        docs_raw = memory.db.get_by_ids(all_ids)
 
         # Filter client-side by ``metadata.episode_id``.
         docs = [d for d in docs_raw if _matches_episode(d, episode_id)]

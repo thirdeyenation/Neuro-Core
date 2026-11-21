@@ -250,6 +250,17 @@ class ReflectionAuditApi(ApiHandler):
 def _get_all_documents(memory: Any) -> list:
     """Get all documents from a Memory instance, with fallback."""
     try:
+        # v3 NativeStore contract: ``get_all_docs()`` returns a dict of
+        # doc-id -> Document. Prefer it when present so audits see the
+        # real store contents instead of silently degrading to [].
+        if hasattr(memory.db, "get_all_docs"):
+            raw = memory.db.get_all_docs()
+            if isinstance(raw, dict):
+                return list(raw.values())
+            return list(raw or [])
+    except Exception:
+        pass
+    try:
         if hasattr(memory.db, "get_all_documents"):
             return memory.db.get_all_documents()
     except Exception:
