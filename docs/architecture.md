@@ -108,21 +108,35 @@ entry points: `hooks.py` (lifecycle) and `execute.py` (migration).
 
 `hooks.py` defines:
 
-- `install()` — called once by the plugin loader when the plugin is
-  first enabled. It:
-  1. Verifies that `plugins._memory.helpers.memory.Memory` is
-     importable. If not, prints a fatal error and returns `False`,
-     blocking activation.
-  2. Installs `networkx>=3.0` via `subprocess.run([sys.executable,
-     "-m", "pip", "install", "networkx>=3.0"])`. This is a soft
-     dependency — only required for the future `_40_graph_analytics`
-     job loop extension. The install is wrapped in try/except and
-     never blocks plugin activation if it fails.
-  3. Returns `True` on success.
-- `uninstall()` — no-op. Removing the plugin directory is the
-  uninstall; there is no cleanup script for the sidecar files
-  (deliberate — users may want to recover the data after
-  uninstalling).
+- `install()` — runs via the explicit install path (a CLI/manual
+  install invocation), not on enable; enabling only toggles the
+  plugin's activation marker and loads its extensions, tools, API,
+  and WebUI registrations. It performs a 3-step lifecycle:
+  1. Hard dependency guard: verifies that
+     `plugins._memory.helpers.memory.Memory` is importable. If the
+     import fails, it logs an error via the `neuro_core.hooks`
+     logger and returns `False` without installing anything else.
+  2. Optional provisioning of `networkx>=3.0` (graph analytics) via
+     `_ensure_networkx()`: a verify-before-install
+     `importlib.metadata` numeric version check makes zero subprocess
+     calls when the requirement is already satisfied; otherwise it
+     provisions via `uv pip install --python sys.executable
+     networkx>=3.0` when `uv` is present, falling back to
+     `sys.executable -m pip install networkx>=3.0`, and calls
+     `importlib.invalidate_caches()` on success. Any provisioning
+     failure (missing installer, offline/network error, timeout,
+     non-zero exit, OSError) degrades gracefully and non-fatally: a
+     warning is logged, graph analytics is degraded, and core memory
+     operations remain intact.
+  3. Startup decoration: re-applies `decorate_memory()` idempotently
+     and non-fatally (a failure is logged as a warning).
+     `install()` returns `True` after this step even when optional
+     networkx provisioning degraded; it returns `False` only when the
+     required `_memory` dependency is missing.
+- `uninstall()` — non-fatal no-op: dependencies are intentionally
+  kept. Removing the plugin directory is the uninstall; there is no
+  cleanup script for the sidecar files (deliberate — users may want
+  to recover the data after uninstalling).
 
 ### Migration — automatic startup migration and one-shot `execute.py`
 

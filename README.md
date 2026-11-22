@@ -139,14 +139,17 @@ configuration key grouped by territory:
 2. **Place the plugin** — put this directory at
    `/a0/usr/plugins/neuro_core/`.
 3. **Enable the plugin** — open Agent Zero's settings and switch the
-   Neuro Core plugin on in the plugin settings UI. Enabling runs the
-   plugin's install hook, which installs `networkx` (one-time, printed
-   in the logs).
+   Neuro Core plugin on in the plugin settings UI. Enabling toggles the
+   plugin's activation in Agent Zero's plugin manager (a `.toggle`
+   marker file) and loads its extensions, tools, API, and WebUI
+   registrations.
    `networkx>=3.0` is an **optional** dependency used for graph
-   analytics. It is provisioned in the main Agent Zero environment at
-   enable time; if provisioning fails (for example, offline), plugin
-   installation still succeeds and Neuro Core degrades gracefully —
-   everything except graph analytics works without it.
+   analytics. It is provisioned in the main Agent Zero environment by
+   the plugin's install hook, which runs via the explicit install path
+   (a CLI/manual install invocation), not merely on enable; if
+   provisioning fails (for example, offline), plugin installation
+   still succeeds and Neuro Core degrades gracefully — everything
+   except graph analytics works without it.
 4. **Verify the installation** — after enabling, confirm that:
    - the Neuro Core entry appears in the sidebar quick actions, and
    - the Neuro Core surface is registered on the right canvas at session
@@ -312,9 +315,9 @@ by that embedding provider, exactly as with plain Agent Zero memory.
   - the SQLite database (`neuro_core.db` at the configured
     `database_path`) — contains the plugin's domain data;
   - the `scores.json` and `relationships.json` sidecars;
-  - the `networkx` pip package installed at enable time (harmless to
-    leave; remove with `pip uninstall networkx` if you want a fully
-    clean environment).
+  - the `networkx` pip package, if provisioned by the install hook
+    (harmless to leave; remove with `pip uninstall networkx` if you
+    want a fully clean environment).
 - **Safe-removal guidance:** back up or explicitly delete the database
   and sidecar files listed above if you do not want residual data left
   behind. Do not delete files inside the Agent Zero framework itself.
