@@ -47,6 +47,19 @@ if _A0_ROOT not in sys.path:
 # regardless of how this script was invoked.
 from usr.plugins.neuro_core.helpers.metadata import apply_defaults  # noqa: E402
 
+# WI-004 (D-NCM-004): the model-less detection core now lives in the shared
+# in-process-safe engine (``helpers/migration_engine.py``). This import sits
+# AFTER the ``_A0_ROOT`` bootstrap block and resolves via the plugin package
+# first, falling back to the standalone src-checkout layout
+# (``python3 execute.py``). The engine is stdlib-only at import time
+# (zero sys.path mutation, zero print/sys.exit/asyncio.run).
+try:
+    from usr.plugins.neuro_core.helpers import (  # noqa: E402
+        migration_engine as _migration_engine,
+    )
+except ImportError:  # standalone src checkout
+    from helpers import migration_engine as _migration_engine  # noqa: E402
+
 
 def _import_memory():
     """Import :mod:`plugins._memory.helpers.memory`.
@@ -119,15 +132,14 @@ def _abs_db_dir_light(memory_subdir: str):
     back to the full migration path, which resolves paths via the framework's
     own ``abs_db_dir``. A binding drift-detection unit test asserts this
     resolver stays equivalent to the framework's standard branch.
-    """
-    if memory_subdir.startswith("projects/"):
-        return None
-    try:
-        from helpers import files
 
-        return files.get_abs_path("usr/memory", memory_subdir)
-    except Exception:
-        return None
+    WI-004 (D-NCM-004): the resolution logic now lives in the shared engine
+    (``migration_engine.resolve_db_dir`` with ``projects_fail_closed=True``);
+    this wrapper preserves the exact signature and fail-closed contract.
+    """
+    return _migration_engine.resolve_db_dir(
+        memory_subdir, projects_fail_closed=True
+    )
 
 
 def _list_memory_subdirs():
@@ -144,18 +156,12 @@ def _list_memory_subdirs():
     ``_abs_db_dir_light`` and they are resolved by the full path's heavy
     enumeration when migration actually runs. Returns ``None`` on any
     enumeration failure (fail-closed → full migration path).
-    """
-    try:
-        from helpers import files
 
-        subdirs = files.get_subdirectories("usr/memory")
-        for project_subdir in files.get_subdirectories("usr/projects"):
-            subdirs.append(f"projects/{project_subdir}")
-        if "default" not in subdirs:
-            subdirs.insert(0, "default")
-        return subdirs
-    except Exception:
-        return None
+    WI-004 (D-NCM-004): the enumeration logic now lives in the shared
+    engine (``migration_engine.list_memory_subdirs``); this wrapper
+    preserves the exact signature and ``None`` fail-closed contract.
+    """
+    return _migration_engine.list_memory_subdirs()
 
 
 def _modelless_subdir_needs_migration(
@@ -164,10 +170,15 @@ def _modelless_subdir_needs_migration(
 ) -> tuple[bool | None, int]:
     """Read-only, model-less check whether a subdir still needs migration.
 
-    Reads the persisted docstore directly from ``index.pkl`` (a plain
+    WI-004 (D-NCM-004): the detection logic now lives in the shared engine
+    (``migration_engine.detect_subdir``): when ``memory.sqlite3`` is present
+    it is inspected FIRST via stdlib sqlite3 in READ-ONLY URI mode (zero
+    writes, zero journal/WAL/SHM sidecar artifacts); ``index.pkl`` (a plain
     ``pickle.dump((docstore, index_to_docstore_id))`` tuple written by
-    ``FAISS.save_local``) without constructing the embedding model or any
-    ``Memory``/``MyFaiss`` object.
+    ``FAISS.save_local``) is inspected ONLY when the SQLite store is absent
+    (dual-marker precedence — the v3 ``_LegacyReader`` never deletes legacy
+    files). No embedding model and no ``Memory``/``MyFaiss`` object is
+    constructed.
 
     Returns:
         ``(status, docs_scanned)`` where ``status`` is:
@@ -180,110 +191,21 @@ def _modelless_subdir_needs_migration(
           version drift): the caller must fall back to the current full path.
 
     This function never writes anything to the store directory (ARC condition
-    C2): the file is opened with a read-only binary handle and no marker,
-    hash, temp, or re-saved files are produced.
+    C2): detection is strictly read-only and no marker, hash, temp, or
+    re-saved files are produced.
     """
-    if abs_db_dir_fn is None:
-        # Confined to the framework's own path resolution semantics
-        # (WI-P75 ARC condition C3 intent; WI-P79 condition C2): the
-        # lightweight resolver replicates abs_db_dir's standard branch
-        # verbatim via helpers.files and fails closed (None) on
-        # projects/-scoped subdirs and any import failure — the heavy
-        # plugins._memory.helpers.memory module is NOT imported here
-        # (KI-054: its import alone can exceed the 120s window).
-        #
-        # WI-P79 rev 2 (VAL defect D1): _abs_db_dir_light returns the
-        # resolved PATH (a string), not a callable — use it directly as
-        # ``db_dir``. The injected-callable branch below keeps the
-        # ``abs_db_dir_fn(memory_subdir)`` contract for test injection.
-        db_dir = _abs_db_dir_light(memory_subdir)
-        if db_dir is None:
-            print(
-                f"[neuro_core] WARNING: model-less path resolution failed "
-                f"for '{memory_subdir}' — falling back to the full "
-                f"migration path.",
-                flush=True,
-            )
-            return None, 0
-    else:
-        db_dir = abs_db_dir_fn(memory_subdir)
-
-    # Absent or empty store: nothing to migrate — skip model-less.
-    if not os.path.isdir(db_dir):
-        return False, 0
-    pkl_path = os.path.join(db_dir, "index.pkl")
-    if not os.path.isfile(pkl_path):
-        return False, 0
-
-    try:
-        # READ-ONLY handle (ARC condition C2): "rb" only; nothing in this
-        # function writes to the store directory.
-        with open(pkl_path, "rb") as f:
-            payload = pickle.load(f)  # noqa: S301 — same trust boundary as MyFaiss.load_local(allow_dangerous_deserialization=True)
-    except Exception as exc:
-        print(
-            f"[neuro_core] WARNING: model-less read of '{memory_subdir}' "
-            f"failed (corrupt/unreadable index.pkl): {exc} — falling back "
-            f"to the full migration path.",
-            flush=True,
-        )
-        return None, 0
-
-    # Structure check (ARC condition C5): fail closed on ANY unexpected
-    # docstore structure — non-tuple payload, wrong arity, unknown docstore
-    # class, or a missing/non-dict ``.store`` attribute.
-    if not isinstance(payload, tuple) or len(payload) != 2:
-        print(
-            f"[neuro_core] WARNING: model-less read of '{memory_subdir}' "
-            f"found unexpected index.pkl structure (arity "
-            f"{len(payload) if isinstance(payload, tuple) else 'n/a'}) — "
-            f"falling back to the full migration path.",
-            flush=True,
-        )
-        return None, 0
-    docstore = payload[0]
-    docstore_cls_name = type(docstore).__name__
-    if docstore_cls_name not in ("LocalFileStore", "InMemoryDocstore"):
-        print(
-            f"[neuro_core] WARNING: model-less read of '{memory_subdir}' "
-            f"found unexpected docstore type '{docstore_cls_name}' — "
-            f"falling back to the full migration path.",
-            flush=True,
-        )
-        return None, 0
-    # Structural docstore-shape resolution (WI-P80, ARC condition C1):
-    # recognition requires BOTH guards — the class-name allowlist above AND
-    # a dict-valued attribute from the verified structural families below.
-    #   '.store' — the LocalFileStore-style mapping attribute.
-    #   '_dict'  — the langchain_community InMemoryDocstore mapping attribute
-    #              (the persisted shape on BOTH framework v2.8 (commit
-    #              5ff106a2, plugins/_memory/helpers/memory.py:219/:44-51)
-    #              and current; a langchain-community 0.3.19 implementation
-    #              detail — recorded in ADR-NC1-005).
-    # Recognition is by STRUCTURE, never by version string (ADR-NC1-005):
-    # any allowlisted docstore exposing neither recognized dict attribute,
-    # and any other unexpected structure, fails closed (None → full
-    # migration path) exactly as before.
-    store = getattr(docstore, "store", None)
-    if not isinstance(store, dict):
-        store = getattr(docstore, "_dict", None)
-    if not isinstance(store, dict):
-        print(
-            f"[neuro_core] WARNING: model-less read of '{memory_subdir}' "
-            f"found a docstore without a recognized dict mapping "
-            f"('.store' or '_dict') — falling back to the full "
-            f"migration path.",
-            flush=True,
-        )
-        return None, 0
-
-    docs_scanned = 0
-    for doc_id, doc in store.items():
-        docs_scanned += 1
-        meta = getattr(doc, "metadata", None) or {}
-        if _needs_migration(meta):
-            return True, docs_scanned
-    return False, docs_scanned
+    # WI-004 (D-NCM-004): full delegation to the shared engine. The
+    # injected-callable branch keeps the ``abs_db_dir_fn(memory_subdir)``
+    # contract for test injection; the default branch uses the engine's
+    # resolver (fail-closed on projects/-scoped subdirs, exactly as before).
+    # The C4 flush=True print contract is preserved via the emit_warning
+    # callback.
+    return _migration_engine.detect_subdir(
+        memory_subdir,
+        abs_db_dir_fn=abs_db_dir_fn,
+        projects_fail_closed=True,
+        emit_warning=lambda msg: print(msg, flush=True),
+    )
 
 # ---------------------------------------------------------------------------
 
