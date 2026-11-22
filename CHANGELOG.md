@@ -1,9 +1,38 @@
 # NEURO CORE CHANGELOG
 
-*LAST UPDATED:* 2026-10-22
+*LAST UPDATED:* 2026-11-22
 *UPDATE STATUS:* reconciled and claim-reviewed (Phase E documentation
 reconciliation; subsequent claim cleanup and documentation
-reconciliation through the 1.1.0 documentation updates)
+reconciliation through the 1.1.0 documentation updates; 2.0.0 release
+section added for the Agent Zero v3.0 migration)
+
+## [2.0.0] — 2026-11-22
+
+### Agent Zero v3.0 Migration Release
+
+Neuro Core 2.0.0 targets Agent Zero v3.0 and its native memory store
+(NativeStore, backed by `memory.sqlite3`), replacing the previous
+FAISS-based store integration.
+
+- **NativeStore storage** — memory metadata is read from and written
+  to the host v3 NativeStore (`memory.sqlite3`); the FAISS-era
+  `index.faiss` / `index.pkl` artifacts are no longer part of the
+  current runtime storage.
+- **Automatic startup migration** — the plugin ships
+  `extensions/python/startup_migration/_20_neuro_migration.py`, which
+  migrates pre-existing Agent Zero memories to the Neuro Core schema
+  automatically during Agent Zero startup (non-destructive,
+  fail-closed). The one-shot manual `execute.py` remains available for
+  on-demand runs.
+- **Read-only SQLite model-less detection** — the migration's
+  detection phase reads the persisted store directly with no
+  `Memory` instance, no embedding model, and no index construction.
+- **Optional graph-analytics dependency** — the install hook
+  (`hooks.py`) provisions `networkx>=3.0` via uv/pip as an optional
+  dependency; provisioning failures never fail installation and the
+  plugin degrades gracefully.
+- **Manifest parity** — `plugin.yaml` and `pyproject.toml` are aligned
+  at version 2.0.0.
 
 ## [1.1.0] — 2026-10-10
 

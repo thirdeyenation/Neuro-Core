@@ -596,8 +596,8 @@ def test_iter_docs_dict_contract_yields_facts(monkeypatch, job_module) -> None:
 # 5. Host-faithful tests (real MyFaiss + real Memory wrapper).
 #
 # These execute only where the host FAISS stack is importable (framework
-# runtime /opt/venv-a0, as in VAL's integration harness); the canonical
-# suite runtime (/opt/venv) has no faiss, so they skip there. Fixtures
+# runtime /usr/local/bin/python3, as in VAL's integration harness); the
+# canonical suite runtime has no faiss, so they skip there. Fixtures
 # are disposable /tmp dirs with abs_db_dir patched — no live plugin data
 # files or live FAISS index are ever touched.
 # ---------------------------------------------------------------------------

@@ -19,6 +19,11 @@ files under git version control in this repository at the release tag:
   `CHANGELOG.md`, `LICENSE`, `packaging/`)
 - the test suite (`tests/`)
 
+Shipped v2.0.0 paths include the migration engine
+(`helpers/migration_engine.py`) and the automatic startup migration
+(`extensions/python/startup_migration/_20_neuro_migration.py`); both
+are tracked files and are part of every artifact.
+
 ## What the artifact must NOT contain
 
 The export procedure below excludes all of the following. None of them
@@ -43,8 +48,8 @@ tracked files at that tag are included:
 
 ```bash
 cd /path/to/neuro_core   # a clean clone at the release tag
-git archive --format=tar.gz --prefix=neuro_core-1.1.0/ \
-    -o neuro_core-1.1.0.tar.gz v1.1.0
+git archive --format=tar.gz --prefix=neuro_core-2.0.0/ \
+    -o neuro_core-2.0.0.tar.gz v2.0.0
 ```
 
 (Adjust the tag name to the actual release tag.)
@@ -66,8 +71,8 @@ Before publishing the artifact, verify:
 A quick automated check after extracting:
 
 ```bash
-tar -xzf neuro_core-1.1.0.tar.gz -C /tmp/export-check
-cd /tmp/export-check/neuro_core-1.1.0
+tar -xzf neuro_core-2.0.0.tar.gz -C /tmp/export-check
+cd /tmp/export-check/neuro_core-2.0.0
 find . -name '.git' -o -name '__pycache__' -o -name '.pytest_cache' \
     -o -name '*.db' -o -name 'scores.json' -o -name 'relationships.json' \
     -o -name 'config.json' -o -name 'execute_record.json' \

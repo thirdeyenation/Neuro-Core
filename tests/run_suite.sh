@@ -4,7 +4,8 @@
 # Establishes the correct invocation structurally (WI-P49-RUNNER-WRAPPER):
 #   - prepends PYTHONPATH=/a0 (preserving any pre-existing value), so tests
 #     importing usr.plugins.neuro_core.* always resolve;
-#   - uses the agent execution runtime at /opt/venv/bin/python;
+#   - uses the agent execution runtime (A0_PY, default
+#     /usr/local/bin/python3, overridable via the A0_PY env var);
 #   - always runs from the plugin root, wherever the wrapper is called from;
 #   - forwards any extra arguments to pytest (e.g. -k name, tests/file.py).
 #
@@ -34,7 +35,7 @@ else
     export PYTHONPATH="/a0"
 fi
 
-A0_PY=/opt/venv/bin/python
+A0_PY="${A0_PY:-/usr/local/bin/python3}"
 if [ ! -x "$A0_PY" ]; then
     echo "run_suite.sh: required interpreter not found: $A0_PY" >&2
     exit 65

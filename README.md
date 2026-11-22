@@ -8,10 +8,10 @@ See, understand, and curate everything your agents remember — from an
 interactive graph where every memory, every relationship, and every
 ranking factor is right there on the screen.
 
-[![Tests](https://img.shields.io/badge/tests-1129%20passed%20%2F%203%20skipped-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-1236%20passed%20%2F%200%20skipped-brightgreen)](tests/)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Agent Zero](https://img.shields.io/badge/Agent%20Zero-v2.13-1F6FEB)](https://github.com/agent0ai/agent-zero)
-[![Version](https://img.shields.io/badge/version-1.1.0-purple)](CHANGELOG.md)
+[![Agent Zero](https://img.shields.io/badge/Agent%20Zero-v3.0-1F6FEB)](https://github.com/agent0ai/agent-zero)
+[![Version](https://img.shields.io/badge/version-2.0.0-purple)](CHANGELOG.md)
 
 [Quick Start](#quick-start) | [Features](#why-neuro-core) | [How It Works](#how-it-works) | [Documentation](#documentation)
 
@@ -142,6 +142,11 @@ configuration key grouped by territory:
    Neuro Core plugin on in the plugin settings UI. Enabling runs the
    plugin's install hook, which installs `networkx` (one-time, printed
    in the logs).
+   `networkx>=3.0` is an **optional** dependency used for graph
+   analytics. It is provisioned in the main Agent Zero environment at
+   enable time; if provisioning fails (for example, offline), plugin
+   installation still succeeds and Neuro Core degrades gracefully —
+   everything except graph analytics works without it.
 4. **Verify the installation** — after enabling, confirm that:
    - the Neuro Core entry appears in the sidebar quick actions, and
    - the Neuro Core surface is registered on the right canvas at session
@@ -161,29 +166,30 @@ the sidebar and find it on the graph. That's the whole loop — capture,
 recall, see.
 
 <details>
-<summary><strong>Upgrading from an existing memory store? Run the migration</strong></summary>
+<summary><strong>Upgrading from an existing memory store? The migration runs automatically</strong></summary>
 
-The plugin ships a one-shot migration script, `execute.py`, at the
-plugin root. It runs only when **you** trigger it — through the plugin
-manager's **execute** action for Neuro Core in the Agent Zero WebUI, or
-manually from the Agent Zero root with:
+The plugin ships an automatic startup migration
+(`extensions/python/startup_migration/_20_neuro_migration.py`) that
+runs during Agent Zero startup. After installing or updating the
+plugin, it brings pre-existing Agent Zero memories up to the Neuro
+Core schema — the typed `memory_type` field, the three score fields
+(`importance` / `confidence` / `stability`), and the
+`validation_status` field — without any manual step.
+
+A one-shot manual script, `execute.py`, is also available at the
+plugin root for on-demand runs — through the plugin manager's
+**execute** action for Neuro Core in the Agent Zero WebUI, or manually
+from the Agent Zero root with:
 
     python -m usr.plugins.neuro_core.execute
 
-**When do you need to run it?** After installing or updating the plugin
-(for example, when a plugin update tells you its data format changed,
-or when support asks you to run the migration). Running it again is
-always safe.
+Running it again is always safe (the migration is idempotent).
 
-**What it does:** brings pre-existing Agent Zero memories up to the
-Neuro Core schema — the typed `memory_type` field, the three score
-fields (`importance` / `confidence` / `stability`), and the
-`validation_status` field. The migration is **non-destructive**
-(existing values are never overwritten) and **fail-closed**: if the
-read-only pre-migration inspection cannot confidently determine a
-store's state, it never guesses — it falls back to the full,
-authoritative migration path. This safety behavior is a durable
-contract recorded in
+The migration is **non-destructive** (existing values are never
+overwritten) and **fail-closed**: if the read-only pre-migration
+inspection cannot confidently determine a store's state, it never
+guesses — it falls back to the full, authoritative migration path.
+This safety behavior is a durable contract recorded in
 [`docs/decisions/ADR-NC1-005-framework-compatibility-contract.md`](docs/decisions/ADR-NC1-005-framework-compatibility-contract.md).
 
 </details>
@@ -271,9 +277,10 @@ formats you can inspect and delete. It stores data in three places:
   and access counts) and `relationships.json` (the typed relationship
   graph), stored alongside the plugin's data.
 - **The host memory store** — memory contents and their metadata live
-  in Agent Zero's own FAISS-based memory store, exactly like ordinary
-  Agent Zero memories. Neuro Core reads and enriches that store; it
-  does not duplicate memory content into a second database.
+  in Agent Zero's own native memory store (NativeStore, backed by
+  `memory.sqlite3`), exactly like ordinary Agent Zero memories. Neuro
+  Core reads and enriches that store; it does not duplicate memory
+  content into a second database.
 
 **Egress disclosure:** memory content is sent to whatever **embedding
 provider** your Agent Zero configuration uses (memory storage and
@@ -314,7 +321,7 @@ by that embedding provider, exactly as with plain Agent Zero memory.
 
 # Quality & validation
 
-Neuro Core ships with 1,129 passing tests, including
+Neuro Core ships with 1,236 passing tests, including
 runtime-exposure checks that verify tool responses, API error
 payloads, and serialized graph output contain no internal paths or
 identifiers. See [Architecture §8](docs/architecture.md#8-documentation-guard)

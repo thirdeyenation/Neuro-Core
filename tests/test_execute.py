@@ -1253,8 +1253,8 @@ assert "default" in light
 print("DRIFT-OK-ENUM")
 """
         # WI-002 (D3 probe resolution): the framework runtime in this v3
-        # container is the global interpreter; the retired /opt/venv-a0 path
-        # no longer exists (WI-001 recon). Assertions below are untouched.
+        # container is the global interpreter (/usr/local/bin/python3).
+        # Assertions below are untouched.
         result = subprocess.run(
             [_sys.executable, "-c", probe_enum],
             capture_output=True,

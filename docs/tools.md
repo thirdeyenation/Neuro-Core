@@ -6,7 +6,7 @@ They fall into two groups with different error contracts:
 | Group | Tool files | Error contract |
 |---|---|---|
 | `neuro_*` (SQLite domain store) | `neuro_capture.py`, `neuro_retrieve.py`, `neuro_validate.py` | **Raise `ValueError`** on invalid/missing required arguments. Missing/invalid arguments are **not** caught — the exception propagates to the caller. |
-| `memory_*` (FAISS + sidecars) | `memory_score.py`, `memory_relate.py`, `memory_reflect.py` | **Defensive** — every error path returns an error string in `Response.message` (`"Error: ..."`, `break_loop=False`); no exceptions are raised to the caller. |
+| `memory_*` (memory store + sidecars) | `memory_score.py`, `memory_relate.py`, `memory_reflect.py` | **Defensive** — every error path returns an error string in `Response.message` (`"Error: ..."`, `break_loop=False`); no exceptions are raised to the caller. |
 
 All six are Python classes inheriting from `helpers.tool.Tool` and are
 registered automatically by the framework from their filenames.
@@ -116,9 +116,9 @@ Apply a lifecycle validation transition to a captured memory.
 
 ---
 
-## Group 2 — `memory_*` tools (FAISS + sidecars)
+## Group 2 — `memory_*` tools (memory store + sidecars)
 
-These three tools operate on the host `_memory` plugin's FAISS store
+These three tools operate on the host `_memory` plugin's memory store
 and Neuro Core's JSON sidecars. All error paths return
 `Response(message="Error: ...", break_loop=False)` — the tools never
 raise.
@@ -133,9 +133,9 @@ memory document.
 | Name | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `id` | str | yes | — | The memory ID to update. |
-| `memory_type` | str | no | unchanged | One of the `MemoryType` enum values. Invalid values are coerced to `"note"` by metadata validation. Written to FAISS metadata. |
-| `validation_status` | str | no | unchanged | One of `unvalidated`, `validated`, `disputed`, `deprecated`. Invalid values are coerced to `"unvalidated"`. Written to FAISS metadata. |
-| `task_status` | str | no | unchanged | One of `pending`, `active`, `done`, `cancelled`. **Only valid when the document's `memory_type` is `task`.** Written to FAISS metadata. |
+| `memory_type` | str | no | unchanged | One of the `MemoryType` enum values. Invalid values are coerced to `"note"` by metadata validation. Written to memory document metadata. |
+| `validation_status` | str | no | unchanged | One of `unvalidated`, `validated`, `disputed`, `deprecated`. Invalid values are coerced to `"unvalidated"`. Written to memory document metadata. |
+| `task_status` | str | no | unchanged | One of `pending`, `active`, `done`, `cancelled`. **Only valid when the document's `memory_type` is `task`.** Written to memory document metadata. |
 | `importance` | float | no | unchanged | Clamped to `[0.0, 1.0]`. Written **only** to `scores.json` via `ScoreStore.set()`. |
 | `confidence` | float | no | unchanged | Same path as `importance`. |
 | `stability` | float | no | unchanged | Same path as `importance`. |
@@ -143,11 +143,12 @@ memory document.
 **Persistence model**
 
 - `memory_type`, `validation_status`, `task_status` are written to the
-  FAISS document metadata via `Memory.update_documents()`.
+  memory document metadata via `Memory.update_documents()`.
 - `importance`, `confidence`, `stability` are written **only** to the
   `scores.json` sidecar — the single authoritative write path for
-  mutable score fields (per ADR-NC1-002; the removed FAISS mirror was
-  a drift source). Retrieval's metadata fallback is read-only,
+  mutable score fields (per ADR-NC1-002; the score mirror in the
+  legacy FAISS store of Agent Zero v2 was removed as a drift
+  source). Retrieval's metadata fallback is read-only,
   never authoritative.
 
 **Return / errors**
@@ -182,10 +183,10 @@ documents.
 
 **Behavior**
 
-- Validates both IDs exist in the FAISS store before any write.
+- Validates both IDs exist in the memory store before any write.
 - Writes the edge to `relationships.json` via `GraphStore.add_edge()`
   with `source="agent"` and the current UTC timestamp. Never touches
-  FAISS directly.
+  the memory store directly.
 - **Symmetric back-edge (D24)**: when `rel_type == "related_to"`, a
   reverse edge (`to_id -> from_id`) is also written (and removed on
   `remove=True`), so the adjacency is traversable in both directions.
@@ -220,8 +221,8 @@ the synthesized insight as a new `concept`-type memory.
 **Pipeline**
 
 1. **Collect** — `helpers.reflection.collect_episode_memories()`
-   exhaustively enumerates the subdir's documents (via the FAISS
-   docstore ID mapping), filters by `metadata.episode_id`, sorts by
+   exhaustively enumerates the subdir's documents (via the store's
+   document ID mapping), filters by `metadata.episode_id`, sorts by
    timestamp ascending, and applies the limit. (The earlier
    semantic-search approach was abandoned — episode IDs are not
    semantically similar to their members.)

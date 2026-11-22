@@ -2,9 +2,9 @@
 
 Neuro Core stores all persistent data in two places:
 
-1. **FAISS document metadata** — the `metadata` dict attached to each
+1. **Memory document metadata** — the `metadata` dict attached to each
    `Document` already managed by the `_memory` plugin's `Memory.db`.
-2. **JSON sidecar files** alongside the FAISS index in the
+2. **JSON sidecar files** alongside the memory store database in the
    `abs_db_dir(memory_subdir)` directory.
 
 This document describes every field that Neuro Core reads or writes on
@@ -14,7 +14,7 @@ no migration path** for existing data other than the one-shot
 
 ---
 
-## Section 1 — FAISS Memory Metadata Fields
+## Section 1 — Memory Document Metadata Fields
 
 Each field below is a key in the `Document.metadata` dict. Fields are
 read and written through `helpers.metadata` (validation, defaults)
@@ -111,7 +111,7 @@ helpers (`run_importance_decay`, `run_contradiction_detection`,
 - **Default**: `"unvalidated"` (from `apply_defaults()`)
 - **Set by**: `apply_defaults()`, `memory_score` tool, the
   scheduled `_30` contradiction sweep — which persists `disputed`
-  into FAISS metadata via `_persist_disputes`
+  into memory document metadata via `_persist_disputes`
   (`extensions/python/job_loop/_30_contradiction_detection.py`)
   under transition governance (`run_contradiction_detection()
   returns the disputes payload only; it does not mark anything) — and,
@@ -135,7 +135,7 @@ helpers (`run_importance_decay`, `run_contradiction_detection`,
   Same-state and non-matrix transitions are rejected loudly with no
   partial write; an unknown stored value is surfaced via GET with an
   `unknown` flag and rejected on edit — never silently mapped or
-  invented. The user write goes through the same governed FAISS
+  invented. The user write goes through the same governed
   metadata path as the type set (deep-copy staging), never
   the sidecar. Each successful user transition writes one
   activity-ledger event (`validation_status_user_edit`), distinguishing
@@ -205,7 +205,7 @@ helpers (`run_importance_decay`, `run_contradiction_detection`,
 ### Fields read but not written by Neuro Core
 
 The retrieval helper (`search_context_graph()`) also reads the
-following standard FAISS metadata fields, all of which are managed
+following standard memory-store metadata fields, all of which are managed
 by the `_memory` plugin and are not modified by Neuro Core:
 
 - `timestamp` — the memory creation time (ISO-8601 string)
@@ -263,7 +263,8 @@ invalid `memory_type` or `validation_status` raises `ValueError`.
 
 `scores.json` is the sidecar file written by `helpers/scores.py`
 (`ScoreStore` class). It lives in
-`abs_db_dir(memory_subdir) / "scores.json"` alongside the FAISS index
+`abs_db_dir(memory_subdir) / "scores.json"` alongside the memory store
+database
 and the other sidecars.
 
 ### Top-level shape
@@ -333,8 +334,8 @@ fallback and never a fabricated baseline.
 
 `relationships.json` is the sidecar file written by
 `helpers/graph_store.py` (`GraphStore` class). It lives in
-`abs_db_dir(memory_subdir) / "relationships.json"` alongside the FAISS
-index.
+`abs_db_dir(memory_subdir) / "relationships.json"` alongside the memory
+store database.
 
 ### Top-level shape
 
@@ -469,9 +470,9 @@ so the file size is roughly 2× the unique-edge count for any
 |---|---|---|
 | `tools/memory_relate.py` (`MemoryRelate` tool) | add, remove | Source tag is `"agent"`. Creates symmetric back-edge for `related_to`. |
 | `api/context_graph.py` (`ContextGraphApi`) | add | Source tag is `"api"`. Same symmetric-back-edge behavior. |
-| `execute.py` migration | add | Source tag is `"migration"`. Imports `consolidated_from` lists from FAISS metadata into `derived_from` edges. |
+| `execute.py` migration | add | Source tag is `"migration"`. Imports `consolidated_from` lists from the host store's document metadata into `derived_from` edges. |
 | `extensions/python/_functions/.../Memory/delete_documents_by_ids/end/_01_*.py` | remove | Hook fires after `_memory.Memory.delete_documents_by_ids()` succeeds; removes all edges touching the deleted IDs. |
-| `extensions/python/_30_contradiction_detection.py` | add | Source tag is `"lifecycle"`. When a contradiction pair is found, an edge of type `contradicts` is added between the two memories, and the older one is marked `validation_status = "disputed"` in FAISS metadata. |
+| `extensions/python/_30_contradiction_detection.py` | add | Source tag is `"lifecycle"`. When a contradiction pair is found, an edge of type `contradicts` is added between the two memories, and the older one is marked `validation_status = "disputed"` in memory document metadata. |
 | `helpers/retrieval.py` | read | Calls `GraphStore.neighbors(seed_id, hops=...)` to expand the seed set. |
 | `helpers/lifecycle.run_graph_analytics()` | read | Calls `GraphStore.get_edges()` (no argument) to dump the full adjacency map for analytics. |
 

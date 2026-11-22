@@ -1,7 +1,8 @@
 # Neuro Core Architecture
 
 This document describes how Neuro Core fits into Agent Zero and how the
-moving parts — FAISS metadata, JSON sidecars, job loop extensions,
+moving parts — memory document metadata, JSON sidecars, job loop
+extensions,
 agent tools, the HTTP API, and the WebUI panel — interact with the
 existing `_memory` plugin.
 
@@ -19,17 +20,17 @@ existing `_memory` plugin by adding:
 1. **Typed metadata** on every memory document. The
    `memory_type`, `importance`, `confidence`, `stability`,
    `validation_status`, `read_only`, and `episode_id` fields are
-   written into the `Document.metadata` dict that FAISS already
-   stores alongside each vector. No schema migration of the FAISS
-   index is required — adding metadata keys is non-breaking.
+   written into the `Document.metadata` dict that the host memory
+   store already persists alongside each memory. No schema migration
+   of the store is required — adding metadata keys is non-breaking.
 2. **A graph layer** of typed, weighted relationships between
    memories (`supports`, `contradicts`, `depends_on`, `derived_from`,
    `related_to`, `precedes`, `follows`, `part_of`). The graph lives in
    two new JSON sidecar files (`relationships.json` and `scores.json`)
    placed in the same `abs_db_dir(memory_subdir)` directory as the
-   FAISS index.
+   memory store database.
 3. **Hybrid retrieval** via `search_context_graph()`. A single
-   function combines FAISS semantic search, BFS graph expansion,
+   function combines native semantic search, BFS graph expansion,
    and importance/recency-weighted reranking, returning a structured
    `ContextGraph` (nodes + edges) that the agent can serialize to a
    prompt fragment.
@@ -54,7 +55,7 @@ All Neuro Core state lives in three places, all under
 
 | Substrate | File | Format | Written by | Read by |
 |---|---|---|---|---|
-| FAISS document metadata | `index.faiss` + `index.pkl` | FAISS + pickled docstore | `_memory` plugin, Neuro Core (validation_status, memory_type, episode_id) | `_memory` plugin, Neuro Core retrieval |
+| Memory document metadata | `memory.sqlite3` (NativeStore) | SQLite (Agent Zero v3 NativeStore) | `_memory` plugin, Neuro Core (validation_status, memory_type, episode_id) | `_memory` plugin, Neuro Core retrieval |
 | Scores sidecar | `scores.json` | JSON | `ScoreStore` (via `memory_score` tool, `run_importance_decay`, `update_access`) | `ScoreStore.get_optional()` / `ScoreStore.get()` (via retrieval — absence-aware read; legacy `get()` retained for stub stores) |
 | Relationships sidecar | `relationships.json` | JSON | `GraphStore` (via `memory_relate` tool, `ContextGraphApi`, `execute.py` migration, contradiction detector, cascade-delete hook) | `GraphStore.neighbors()` (via retrieval), `GraphStore.get_edges()` (via `run_graph_analytics`) |
 
@@ -123,16 +124,18 @@ entry points: `hooks.py` (lifecycle) and `execute.py` (migration).
   (deliberate — users may want to recover the data after
   uninstalling).
 
-### `execute.py` — one-shot migration
+### Migration — automatic startup migration and one-shot `execute.py`
 
-`execute.py` does not run automatically. It runs when the **user**
-triggers it — via the plugin manager's **execute** action for Neuro
+The migration runs **automatically** during Agent Zero startup via the
+startup-migration extension
+(`extensions/python/startup_migration/_20_neuro_migration.py`), so
+that memories created before Neuro Core was installed (or before the
+update) are brought up to the current schema without any manual step.
+A one-shot manual script, `execute.py`, remains available for
+on-demand runs — via the plugin manager's **execute** action for Neuro
 Core in the Agent Zero WebUI, or manually from the Agent Zero root
-with `python -m usr.plugins.neuro_core.execute`. It is intended to be
-run once after installing or updating the plugin, so that memories
-created before Neuro Core was installed (or before the update) are
-brought up to the current schema; it is idempotent, so running it
-again is always safe. The migration script:
+with `python -m usr.plugins.neuro_core.execute`; it is idempotent, so
+running it again is always safe. The migration script:
 
 1. Iterates over all subdirs returned by
    `get_existing_memory_subdirs()`.
@@ -142,10 +145,11 @@ again is always safe. The migration script:
    verbatim replication of `abs_db_dir()`'s standard branch via
    `helpers.files`, which fails closed (returns `None`) for
    `projects/`-scoped subdirs and on any import failure — and
-   the persisted `index.pkl` docstore is read directly — no
-   `Memory` instance, no embedding model, no index is
-   constructed, and the heavy `plugins._memory.helpers.memory`
-   module is never imported during detection. The existing
+   the persisted store is read directly (read-only SQLite
+   model-less detection) — no `Memory` instance, no embedding
+   model, no index is constructed, and the heavy
+   `plugins._memory.helpers.memory` module is never imported during
+   detection. The existing
    `_needs_migration` predicate is applied over the five Neuro
    Core fields (`memory_type`, `importance`, `confidence`,
    `stability`, `validation_status`); if every document already
@@ -299,7 +303,7 @@ real job.
      `detected_at` and `basis`) **without mutating any metadata
      dict**; persistence is the caller's responsibility. The `_30`
      job-loop extension persists `validation_status = "disputed"`
-     into FAISS document metadata via the host `update_documents`
+     into memory document metadata via the host `update_documents`
      mechanism (`_persist_disputes` in
      `_30_contradiction_detection.py`), enforcing transition
      governance: only `unvalidated`/`unreviewed` -> `disputed` and
@@ -389,7 +393,7 @@ seed_docs = await memory.search_similarity_threshold(
     query=query, limit=semantic_limit, threshold=semantic_threshold)
 ```
 
-This calls the existing `_memory` plugin's FAISS-based semantic
+This calls the existing `_memory` plugin's native semantic
 search. `semantic_limit` (default `10`) and `semantic_threshold`
 (default `0.5`) are config-resolved inside `search_context_graph`
 (`helpers/retrieval.py`); the final node list is re-ranked by the
@@ -500,7 +504,7 @@ Helper class (ScoreStore / GraphStore / reflection helper)
         │ acquires per-subdir RLock
         │ reads / mutates JSON sidecar (atomic write)
         ▼
-FAISS metadata update (only for fields routed to FAISS)
+Memory metadata update (only for fields routed to the store)
         │ calls mem.update_documents([doc])
         ▼
 Returns Response(message=json.dumps({...}))
@@ -519,7 +523,7 @@ Returns Response(message=json.dumps({...}))
 4. `_SCORECAR_FIELDS` go to the `ScoreStore` (atomic write of
    `scores.json` — the single authoritative score write path per
    ADR-NC1-002).
-5. `_FAISS_FIELDS` go to FAISS metadata via
+5. `_FAISS_FIELDS` go to memory document metadata via
    `mem.update_documents([doc])`.
 6. Tool returns `{"success": true, "id": "mem_abc", "updated":
    ["importance", "validation_status"]}`.
@@ -681,7 +685,8 @@ instance, and rendering.
   value), and stability shows the sidecar-backed value when present or
   is explicitly rendered as "not stored" (the sidecar is the score
   authority; the display path stays
-  read-only w.r.t. FAISS metadata and never fabricates a value). A
+  read-only w.r.t. memory document metadata and never fabricates a
+  value). A
   `validation_status` chip is shown when present. The inspector also
   shows read-only access telemetry (access count and last accessed)
   from the same sidecar read, with an explicit best-effort fallback

@@ -361,7 +361,7 @@ User-assigned display aliases. Two kinds of
 names, two persistence targets, one endpoint:
 
 - **Memory Name** — a user-assigned alias for an existing memory,
-  stored as the plain `memory_name` key in the FAISS document
+  stored as the plain `memory_name` key in the memory document
   `metadata` dict via the standard metadata write path
   (`Memory.get_by_subdir` + `Memory.update_documents`). The framework
   Memory ID is immutable; no endpoint reads or writes it.
@@ -407,7 +407,7 @@ auth/CSRF gate as all Neuro Core handlers).
 
 Safe-mode editing of one memory's Contents, scores, and type set
 (type editing added by ADR-NC1-004). No new store (the additive `memory_types` collection is carried inside the
-existing FAISS document metadata):
+existing memory document metadata):
 
 - **Content** — written through the STANDARD metadata path
   (`Memory.get_by_subdir` + `Memory.update_documents`); only
@@ -415,7 +415,8 @@ existing FAISS document metadata):
   never written.
 - **Scores** — written through `ScoreStore.set()` into the EXISTING
   `scores.json` sidecar ONLY (single-write discipline:
-  the sidecar is the score authority; FAISS metadata score keys are a
+  the sidecar is the score authority; score keys in the legacy store
+  metadata are a
   potentially stale mirror and are never written by this handler).
 - **Validation status** — via the `validation_status`
   payload: a single target-state string from the `ValidationStatus`
@@ -427,7 +428,7 @@ existing FAISS document metadata):
   Same-state and non-matrix transitions are rejected loudly with NO
   partial write; an unknown STORED value is rejected on edit (never
   silently mapped or invented). The status is written through the SAME
-  governed FAISS metadata path as the type set (deep-copy
+  governed memory-metadata path as the type set (deep-copy
   staging; never the sidecar). Each successful user transition
   writes one activity-ledger event with kind
   `validation_status_user_edit` (distinguishing user edits from sweep
@@ -488,7 +489,7 @@ JSON body: `{"memory_subdir": "...", "id": "<memory_id>",
 `types` is the FULL-SET-REPLACE of the type set (see above);
 `validation_status` is a single target-state string governed by the
 transition matrix (see above). Content, scores, types, and
-validation_status can be edited in one request (one governed FAISS
+validation_status can be edited in one request (one governed
 metadata write covers content/types/status). Successful POSTs echo
 what changed:
 
@@ -538,7 +539,7 @@ Every handler applies enum-safe serialization before returning a dict:
 `.value` string (walking dicts, lists/tuples, and nested dataclasses),
 and the context_graph handler additionally applies a dataclass-tree
 serializer that walks nested `metadata` dicts. This is required
-because FAISS metadata may contain `Memory.Area`, `MemoryType`,
+because memory document metadata may contain `Memory.Area`, `MemoryType`,
 `ValidationStatus`, or `RelationshipType` enum instances, which would
 otherwise crash `json.dumps` with
 `TypeError: Object of type <EnumName> is not JSON serializable`.

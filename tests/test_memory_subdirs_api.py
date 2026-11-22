@@ -188,3 +188,58 @@ async def test_project_subdir_with_memory_sqlite3_discovered(tmp_path: Path) -> 
     assert entry is not None
     assert entry["type"] == "project"
     assert entry["path"].endswith("/proj_v3/.a0proj/memory/")
+
+
+# ---------------------------------------------------------------------------
+# WI-006 (KI-002): hidden dotfiles were never store markers — they must
+# not break the emptiness check or hide freshly initialized subdirs.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dotfile_only_dir_treated_as_empty_discovered(tmp_path: Path) -> None:
+    """WI-006 (KI-002): a directory containing only hidden dotfiles
+    (e.g. ``.DS_Store``) is treated as empty and remains discoverable."""
+    dot = tmp_path / "memory" / "dotfileonly"
+    dot.mkdir(parents=True)
+    (dot / ".DS_Store").write_bytes(b"")
+
+    handler = _make_handler(tmp_path)
+    result = await _call_process(handler)
+
+    assert result["success"] is True
+    names = [e["name"] for e in result["subdirs"]]
+    assert "dotfileonly" in names
+
+
+@pytest.mark.asyncio
+async def test_dotfile_plus_real_store_marker_discovered(tmp_path: Path) -> None:
+    """WI-006 (KI-002): dotfiles alongside a real store marker
+    (``memory.sqlite3``) do not hide the subdir."""
+    mixed = tmp_path / "memory" / "mixedstore"
+    mixed.mkdir(parents=True)
+    (mixed / ".DS_Store").write_bytes(b"")
+    (mixed / "memory.sqlite3").write_bytes(b"")
+
+    handler = _make_handler(tmp_path)
+    result = await _call_process(handler)
+
+    assert result["success"] is True
+    names = [e["name"] for e in result["subdirs"]]
+    assert "mixedstore" in names
+
+
+@pytest.mark.asyncio
+async def test_non_dotfile_junk_without_marker_still_hidden(tmp_path: Path) -> None:
+    """WI-006 (KI-002): a directory holding visible (non-dotfile) junk
+    files and no store marker is still NOT discovered."""
+    junk = tmp_path / "memory" / "visiblejunk"
+    junk.mkdir(parents=True)
+    (junk / ".DS_Store").write_bytes(b"")
+    (junk / "notes.txt").write_text("not a memory store")
+
+    handler = _make_handler(tmp_path)
+    result = await _call_process(handler)
+
+    names = [e["name"] for e in result["subdirs"]]
+    assert "visiblejunk" not in names

@@ -62,12 +62,17 @@ def _has_store_marker(path: str) -> bool:
     An empty directory (no marker files at all) is still treated as a
     valid memory subdir — discovery stays permissive for freshly
     initialized stores whose first write has not landed yet.
+
+    Hidden dotfiles (e.g. ``.DS_Store`` on macOS bind-mounts) were never
+    store markers; they are filtered out before the emptiness check so
+    they cannot hide a freshly initialized subdir (KI-002).
     """
     try:
         entries = set(os.listdir(path))
     except OSError:  # pragma: no cover - defensive
         return False
-    return not entries or any(m in entries for m in _STORE_MARKERS)
+    visible = {e for e in entries if not e.startswith(".")}
+    return not visible or any(m in visible for m in _STORE_MARKERS)
 
 
 class MemorySubdirsApi(ApiHandler):
